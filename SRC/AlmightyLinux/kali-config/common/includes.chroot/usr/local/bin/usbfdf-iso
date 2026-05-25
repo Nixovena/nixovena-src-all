@@ -1,0 +1,668 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import os
+import subprocess
+import hashlib
+import re
+import sys
+import math
+from datetime import datetime
+from pathlib import Path
+
+
+class DiskImageAnalyzer:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.file_info = {}
+        self.results = {
+            'file_path': file_path,
+            'timestamp': datetime.now().isoformat(),
+            'analysis': {}
+        }
+
+    def validate_file(self):
+        if not os.path.exists(self.file_path):
+            raise FileNotFoundError(f"File not found: {self.file_path}")
+        
+        if not os.path.isfile(self.file_path):
+            raise ValueError(f"Path is not a file: {self.file_path}")
+            
+        return True
+
+    def get_file_basic_info(self):
+        print(f"[*] Getting basic file information for: {self.file_path}")
+        
+        try:
+            stat_info = os.stat(self.file_path)
+            self.file_info = {
+                'size': stat_info.st_size,
+                'size_human': self._format_bytes(stat_info.st_size),
+                'created': datetime.fromtimestamp(stat_info.st_ctime).isoformat(),
+                'modified': datetime.fromtimestamp(stat_info.st_mtime).isoformat(),
+                'permissions': oct(stat_info.st_mode)[-3:]
+            }
+            
+            print(f"[+] File size: {self.file_info['size_human']}")
+            print(f"[+] Created: {self.file_info['created']}")
+            print(f"[+] Modified: {self.file_info['modified']}")
+            
+            self.results['analysis']['file_info'] = self.file_info
+            return self.file_info
+        except Exception as e:
+            print(f"[-] Error getting file info: {e}")
+            return {}
+
+    def _format_bytes(self, bytes_value):
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if bytes_value < 1024.0:
+                return f"{bytes_value:.2f} {unit}"
+            bytes_value /= 1024.0
+        return f"{bytes_value:.2f} PB"
+
+    def calculate_hashes(self):
+        print(f"[*] Calculating file hashes...")
+        
+        hashes = {
+            'md5': None,
+            'sha1': None,
+            'sha256': None
+        }
+        
+        try:
+            # Calculate all hashes in one pass
+            md5_hash = hashlib.md5()
+            sha1_hash = hashlib.sha1()
+            sha256_hash = hashlib.sha256()
+            
+            with open(self.file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    md5_hash.update(chunk)
+                    sha1_hash.update(chunk)
+                    sha256_hash.update(chunk)
+            
+            hashes['md5'] = md5_hash.hexdigest()
+            hashes['sha1'] = sha1_hash.hexdigest()
+            hashes['sha256'] = sha256_hash.hexdigest()
+            
+            print(f"[+] MD5: {hashes['md5']}")
+            print(f"[+] SHA1: {hashes['sha1']}")
+            print(f"[+] SHA256: {hashes['sha256']}")
+            
+            self.results['analysis']['hashes'] = hashes
+            return hashes
+        except Exception as e:
+            print(f"[-] Error calculating hashes: {e}")
+            return hashes
+
+    def calculate_entropy(self):
+        print(f"[*] Calculating file entropy...")
+        
+        try:
+            # Read file in chunks to handle large files
+            chunk_size = 65536  # 64KB chunks
+            byte_counts = [0] * 256
+            total_bytes = 0
+            
+            with open(self.file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    total_bytes += len(chunk)
+                    for byte in chunk:
+                        if isinstance(byte, int):  # Python 3
+                            byte_counts[byte] += 1
+                        else:  # Python 2
+                            byte_counts[ord(byte)] += 1
+            
+            # Calculate entropy
+            entropy = 0.0
+            if total_bytes > 0:
+                for count in byte_counts:
+                    if count > 0:
+                        probability = float(count) / total_bytes
+                        entropy -= probability * math.log2(probability)
+            
+            # Normalize entropy to 0-1 range
+            normalized_entropy = entropy / 8.0  # Max entropy for 8-bit bytes is 8
+            
+            entropy_result = {
+                'entropy': entropy,
+                'normalized_entropy': normalized_entropy,
+                'total_bytes': total_bytes
+            }
+            
+            print(f"[+] Entropy: {entropy:.4f} bits per byte")
+            print(f"[+] Normalized entropy: {normalized_entropy:.4f}")
+            
+            if normalized_entropy > 0.9:
+                print(f"[!] High entropy detected - file may be encrypted or compressed")
+            elif normalized_entropy > 0.7:
+                print(f"[+] Medium entropy detected - file may contain mixed content")
+            else:
+                print(f"[+] Low entropy detected - file likely contains readable text")
+            
+            self.results['analysis']['entropy'] = entropy_result
+            return entropy_result
+            
+        except Exception as e:
+            print(f"[-] Error calculating entropy: {e}")
+            return {'entropy': None, 'normalized_entropy': None, 'error': str(e)}
+
+    def identify_file_type(self):
+        print(f"[*] Identifying file type...")
+        
+        file_type_info = {
+            'extension': None,
+            'magic_bytes': None,
+            'file_command': None
+        }
+        
+        try:
+            # Get file extension
+            file_type_info['extension'] = Path(self.file_path).suffix.lower()
+            
+            # Read magic bytes
+            with open(self.file_path, 'rb') as f:
+                magic_bytes = f.read(16)
+                file_type_info['magic_bytes'] = magic_bytes.hex()
+            
+            # Use file command if available (Linux)
+            try:
+                result = subprocess.run(['file', self.file_path], 
+                                      capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    file_type_info['file_command'] = result.stdout.strip()
+            except FileNotFoundError:
+                file_type_info['file_command'] = "file command not available"
+            except Exception as e:
+                file_type_info['file_command'] = f"Error: {e}"
+            
+            print(f"[+] Extension: {file_type_info['extension']}")
+            print(f"[+] Magic bytes: {file_type_info['magic_bytes'][:32]}...")
+            if file_type_info['file_command']:
+                print(f"[+] File command: {file_type_info['file_command']}")
+            
+            self.results['analysis']['file_type'] = file_type_info
+            return file_type_info
+        except Exception as e:
+            print(f"[-] Error identifying file type: {e}")
+            return file_type_info
+
+    def analyze_iso(self):
+        print(f"[*] Analyzing ISO file...")
+        
+        iso_info = {
+            'volume_descriptors': [],
+            'primary_volume': {},
+            'files': [],
+            'directories': [],
+            'boot_info': {}
+        }
+        
+        try:
+            # Get ISO information using isoinfo
+            result = subprocess.run(['isoinfo', '-d', '-i', self.file_path], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                # Parse volume descriptors
+                lines = result.stdout.split('\n')
+                current_descriptor = {}
+                
+                for line in lines:
+                    if line.startswith('CD-ROM is in'):
+                        iso_info['volume_type'] = line
+                    elif ':' in line:
+                        parts = line.split(':', 1)
+                        if len(parts) == 2:
+                            key = parts[0].strip()
+                            value = parts[1].strip()
+                            current_descriptor[key] = value
+                
+                iso_info['primary_volume'] = current_descriptor
+                
+                # Get file listing
+                try:
+                    listing_result = subprocess.run(['isoinfo', '-l', '-i', self.file_path], 
+                                                  capture_output=True, text=True, timeout=30)
+                    
+                    if listing_result.returncode == 0:
+                        # Simple parsing of directory listing
+                        lines = listing_result.stdout.split('\n')
+                        for line in lines:
+                            if line.strip():
+                                iso_info['files'].append(line.strip())
+                except Exception as e:
+                    print(f"[-] Error getting ISO file listing: {e}")
+                
+                print(f"[+] Volume type: {iso_info.get('volume_type', 'N/A')}")
+                print(f"[+] Volume ID: {iso_info['primary_volume'].get('Volume id', 'N/A')}")
+                print(f"[+] Files found: {len(iso_info['files'])}")
+                
+            else:
+                print(f"[-] Error analyzing ISO: {result.stderr}")
+                
+        except FileNotFoundError:
+            print("[-] isoinfo not found. Please install cdrtools package")
+        except Exception as e:
+            print(f"[-] Error analyzing ISO: {e}")
+        
+        self.results['analysis']['iso_info'] = iso_info
+        return iso_info
+
+    def analyze_img(self):
+        print(f"[*] Analyzing IMG file...")
+        
+        img_info = {
+            'file_command': None,
+            'strings_analysis': [],
+            'entropy': None
+        }
+        
+        try:
+            # Use file command for basic info
+            try:
+                result = subprocess.run(['file', '-k', self.file_path], 
+                                      capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    img_info['file_command'] = result.stdout.strip()
+                    print(f"[+] File command: {img_info['file_command']}")
+            except Exception as e:
+                print(f"[-] Error with file command: {e}")
+            
+            # Extract readable strings
+            try:
+                result = subprocess.run(['strings', '-n', '10', self.file_path], 
+                                      capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    # Get unique strings and filter common ones
+                    strings_list = list(set(result.stdout.split('\n')))
+                    # Filter interesting strings (remove common noise)
+                    interesting_strings = []
+                    for s in strings_list[:50]:  # Limit to first 50
+                        if len(s) > 10 and not re.match(r'^[0-9\s]+$', s):
+                            interesting_strings.append(s)
+                    img_info['strings_analysis'] = interesting_strings[:20]  # Limit to 20
+                    
+                    if img_info['strings_analysis']:
+                        print(f"[+] Found {len(img_info['strings_analysis'])} interesting strings")
+                        for s in img_info['strings_analysis'][:5]:
+                            print(f"    - {s}")
+            except Exception as e:
+                print(f"[-] Error extracting strings: {e}")
+            
+            # Calculate entropy for IMG files
+            img_info['entropy'] = self.calculate_entropy()
+                
+        except Exception as e:
+            print(f"[-] Error analyzing IMG: {e}")
+        
+        self.results['analysis']['img_info'] = img_info
+        return img_info
+
+    def analyze_ova(self):
+        print(f"[*] Analyzing OVA file...")
+        
+        ova_info = {
+            'file_list': [],
+            'ovf_content': None,
+            'certificates': [],
+            'metadata': {}
+        }
+        
+        try:
+            # List contents using tar
+            result = subprocess.run(['tar', '-tf', self.file_path], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                files = result.stdout.strip().split('\n')
+                ova_info['file_list'] = files
+                
+                print(f"[+] OVA contains {len(files)} files:")
+                for f in files[:10]:  # Show first 10 files
+                    print(f"    - {f}")
+                if len(files) > 10:
+                    print(f"    ... and {len(files) - 10} more files")
+                
+                # Look for OVF file (main descriptor)
+                ovf_files = [f for f in files if f.endswith('.ovf')]
+                if ovf_files:
+                    print(f"[+] Found OVF descriptor: {ovf_files[0]}")
+                    # Try to extract and read OVF content
+                    try:
+                        extract_result = subprocess.run(['tar', '-xOf', self.file_path, ovf_files[0]], 
+                                                      capture_output=True, text=True, timeout=30)
+                        if extract_result.returncode == 0:
+                            # Just store first 1000 chars to avoid huge output
+                            ova_info['ovf_content'] = extract_result.stdout[:1000] + "..." if len(extract_result.stdout) > 1000 else extract_result.stdout
+                    except Exception as e:
+                        print(f"[-] Error extracting OVF content: {e}")
+                
+                # Look for certificate files
+                cert_files = [f for f in files if f.endswith(('.cert', '.crt', '.pem'))]
+                if cert_files:
+                    ova_info['certificates'] = cert_files
+                    print(f"[+] Found certificate files: {cert_files}")
+            else:
+                print(f"[-] Error listing OVA contents: {result.stderr}")
+                
+        except FileNotFoundError:
+            print("[-] tar command not found")
+        except Exception as e:
+            print(f"[-] Error analyzing OVA: {e}")
+        
+        self.results['analysis']['ova_info'] = ova_info
+        return ova_info
+
+    def extract_intel(self):
+        print(f"[*] Extracting intelligence...")
+        
+        intel = {
+            'urls': [],
+            'emails': [],
+            'ip_addresses': [],
+            'domains': [],
+            'software_info': [],
+            'version_info': []
+        }
+        
+        try:
+            # Extract strings from file
+            result = subprocess.run(['strings', '-n', '8', self.file_path], 
+                                  capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                content = result.stdout
+                
+                # Extract URLs
+                urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', content)
+                intel['urls'] = list(set(urls))[:20]  # Limit to 20 unique URLs
+                
+                # Extract email addresses
+                emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content)
+                intel['emails'] = list(set(emails))[:20]  # Limit to 20 unique emails
+                
+                # Extract IP addresses
+                ips = re.findall(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b', content)
+                # Filter valid IPs
+                valid_ips = []
+                for ip in ips:
+                    parts = ip.split('.')
+                    if len(parts) == 4 and all(0 <= int(part) <= 255 for part in parts):
+                        valid_ips.append(ip)
+                intel['ip_addresses'] = list(set(valid_ips))[:20]  # Limit to 20 unique IPs
+                
+                # Extract potential domain names
+                domains = re.findall(r'[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', content)
+                # Filter likely domains (exclude IPs and obvious false positives)
+                likely_domains = []
+                for domain in domains:
+                    if not re.match(r'^\d+\.\d+\.\d+\.\d+$', domain) and \
+                       not domain.startswith('.') and not domain.endswith('.') and \
+                       len(domain.split('.')) > 1:
+                        likely_domains.append(domain)
+                intel['domains'] = list(set(likely_domains))[:20]  # Limit to 20 unique domains
+                
+                # Extract software/package names (common patterns)
+                software_patterns = [
+                    r'(?:Ubuntu|Debian|CentOS|Red Hat|Fedora|SUSE|Windows|Linux)\s*[\d.]*',
+                    r'(?:Apache|Nginx|MySQL|PostgreSQL|PHP|Python|Java|Node\.js)\s*[\d.]*',
+                    r'(?:VMware|VirtualBox|Docker|Kubernetes)\s*[\w.]*'
+                ]
+                
+                for pattern in software_patterns:
+                    matches = re.findall(pattern, content, re.IGNORECASE)
+                    intel['software_info'].extend(matches)
+                
+                intel['software_info'] = list(set(intel['software_info']))[:20]
+                
+                # Extract version information
+                versions = re.findall(r'[vV]ersion\s*[\d.]+|[\d.]+(?:\.[\d.]+)+', content)
+                intel['version_info'] = list(set(versions))[:20]
+                
+                # Print summary
+                if intel['urls']:
+                    print(f"[+] Found {len(intel['urls'])} URLs")
+                if intel['emails']:
+                    print(f"[+] Found {len(intel['emails'])} email addresses")
+                if intel['ip_addresses']:
+                    print(f"[+] Found {len(intel['ip_addresses'])} IP addresses")
+                if intel['domains']:
+                    print(f"[+] Found {len(intel['domains'])} domain names")
+                if intel['software_info']:
+                    print(f"[+] Found {len(intel['software_info'])} software references")
+                if intel['version_info']:
+                    print(f"[+] Found {len(intel['version_info'])} version references")
+                
+            else:
+                print(f"[-] Error extracting strings: {result.stderr}")
+                
+        except FileNotFoundError:
+            print("[-] strings command not found")
+        except Exception as e:
+            print(f"[-] Error extracting intelligence: {e}")
+        
+        self.results['analysis']['intelligence'] = intel
+        return intel
+
+    def run_analysis(self):
+        print(f"[*] Starting disk image analysis: {self.file_path}")
+        print("=" * 60)
+        
+        # Validate file
+        if not self.validate_file():
+            return None
+        
+        # Basic file info
+        self.get_file_basic_info()
+        
+        # Calculate hashes
+        self.calculate_hashes()
+        
+        # Calculate entropy
+        self.calculate_entropy()
+        
+        # Identify file type
+        file_type = self.identify_file_type()
+        
+        # Perform file-specific analysis
+        extension = file_type.get('extension', '').lower()
+        
+        if extension == '.iso':
+            self.analyze_iso()
+        elif extension == '.img':
+            self.analyze_img()
+        elif extension == '.ova':
+            self.analyze_ova()
+        else:
+            print(f"[!] Unknown file type. Attempting generic analysis...")
+            # Try generic analysis methods
+            self.analyze_img()
+        
+        # Extract intelligence
+        self.extract_intel()
+        
+        return self.results
+
+    def save_results(self, output_file=None):
+        if not output_file:
+            # Generate filename based on input file and timestamp
+            input_name = Path(self.file_path).stem
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_file = f"usblade_{input_name}_{timestamp}.json"
+        
+        try:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(self.results, f, indent=2, ensure_ascii=False)
+            print(f"[+] Results saved to: {output_file}")
+            return output_file
+        except Exception as e:
+            print(f"[-] Error saving results: {e}")
+            return None
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="usblade - Disk Image OSINT Analysis Tool",
+        epilog="""Examples:
+  python usbfdf-iso disk_image.iso
+  python usbfdf-iso system_image.img
+  python usbfdf-iso virtual_appliance.ova
+  python usbfdf-iso disk_image.iso -o analysis.json
+  python usbfdf-iso disk_image.iso --verbose""",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    parser.add_argument('file', help='Path to ISO, IMG, or OVA file to analyze')
+    parser.add_argument('-o', '--output', help='Output file name (default: usblade_<filename>_<timestamp>.json)')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('--version', action='version', version='usblade v1.0')
+    
+    # Add help text for required tools
+    parser_help = """
+usblade Help Menu:
+==================
+
+DESCRIPTION:
+    usblade is a passive OSINT analysis tool for disk image files (ISO, IMG, OVA).
+    It extracts intelligence without modifying the original files.
+
+USAGE:
+    python usbfdf-iso [OPTIONS] <file>
+    
+OPTIONS:
+    -h, --help            Show this help message and exit
+    -o, --output FILE     Output results to specified JSON file
+    -v, --verbose         Enable verbose output
+    --version             Show version information
+
+REQUIRED TOOLS:
+    The following tools should be installed for full functionality:
+    - file: File type identification
+    - strings: Extract strings from binary files
+    - isoinfo: Analyze ISO files (part of cdrtools)
+    - tar: Analyze OVA files
+    
+    Installation on Debian/Ubuntu:
+        sudo apt-get install file binutils cdrtools tar
+    
+    Installation on RHEL/CentOS/Fedora:
+        sudo yum install file binutils cdrtools tar
+        # or on newer versions:
+        sudo dnf install file binutils cdrtools tar
+
+SUPPORTED FILE FORMATS:
+    - ISO: Optical disc image files
+    - IMG: Disk image files
+    - OVA: Open Virtualization Archive files
+
+ANALYSIS FEATURES:
+    - File information (size, timestamps, permissions)
+    - Cryptographic hashes (MD5, SHA1, SHA256)
+    - Entropy analysis for encryption/compression detection
+    - File type identification using magic bytes
+    - Format-specific analysis (ISO structure, OVA contents)
+    - Intelligence extraction (URLs, emails, IPs, domains)
+    - Software and version information detection
+
+OUTPUT:
+    Results are saved in JSON format with timestamp.
+    Verbose mode provides detailed real-time output.
+
+EXAMPLES:
+    python usbfdf-iso disk_image.iso
+    python usbfdf-iso system_image.img -o results.json
+    python usbfdf-iso virtual_appliance.ova --verbose
+"""
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    print("usblade - Disk Image OSINT Analysis Tool")
+    print("=" * 40)
+    
+    # Check for required tools
+    required_tools = ['file', 'strings']
+    missing_tools = []
+    
+    for tool in required_tools:
+        if not subprocess.run(['which', tool], capture_output=True).returncode == 0:
+            missing_tools.append(tool)
+    
+    if missing_tools:
+        print(f"[!] Warning: Missing tools: {', '.join(missing_tools)}")
+        print("[!] Install them for full functionality:")
+        print("    Ubuntu/Debian: sudo apt-get install file binutils")
+        print("    CentOS/RHEL: sudo yum install file binutils")
+        print("    Fedora: sudo dnf install file binutils")
+    
+    # Check for format-specific tools
+    format_tools = {
+        '.iso': ['isoinfo'],
+        '.ova': ['tar']
+    }
+    
+    file_ext = Path(args.file).suffix.lower()
+    if file_ext in format_tools:
+        for tool in format_tools[file_ext]:
+            if not subprocess.run(['which', tool], capture_output=True).returncode == 0:
+                print(f"[!] Warning: Missing {tool} for {file_ext} analysis")
+                if tool == 'isoinfo':
+                    print("    Install cdrtools package for isoinfo")
+    
+    # Initialize analyzer
+    try:
+        analyzer = DiskImageAnalyzer(args.file)
+        results = analyzer.run_analysis()
+        
+        if results:
+            # Save results
+            output_file = analyzer.save_results(args.output)
+            
+            # Print summary
+            print("\n[*] Analysis Summary:")
+            analysis = results.get('analysis', {})
+            
+            file_info = analysis.get('file_info', {})
+            print(f"File Size: {file_info.get('size_human', 'N/A')}")
+            
+            hashes = analysis.get('hashes', {})
+            if hashes.get('sha256'):
+                print(f"SHA256: {hashes['sha256'][:16]}...")
+            
+            file_type = analysis.get('file_type', {})
+            print(f"File Type: {file_type.get('extension', 'N/A')}")
+            
+            entropy = analysis.get('entropy', {})
+            if entropy.get('normalized_entropy') is not None:
+                print(f"Entropy: {entropy['normalized_entropy']:.4f}")
+            
+            intel = analysis.get('intelligence', {})
+            if intel.get('urls'):
+                print(f"URLs Found: {len(intel['urls'])}")
+            if intel.get('emails'):
+                print(f"Emails Found: {len(intel['emails'])}")
+            if intel.get('ip_addresses'):
+                print(f"IPs Found: {len(intel['ip_addresses'])}")
+            
+            # Verbose output
+            if args.verbose and output_file:
+                print(f"\n[+] Detailed results saved to: {output_file}")
+                print("[+] For detailed analysis, examine the JSON output file")
+        
+        else:
+            print("[-] Analysis failed!")
+            sys.exit(1)
+            
+    except Exception as e:
+        print(f"[-] Error during analysis: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

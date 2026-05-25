@@ -1,0 +1,23 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=OSINT Framework
+Comment=Open Source Intelligence Tools Framework
+Comment[tr]=Açık Kaynak İstihbarat Araçları Çerçevesi
+Comment[es]=Marco de herramientas de inteligencia de código abierto
+Comment[fr]=Cadre d'outils de renseignement Open Source
+Comment[de]=Open Source Intelligence Tools Framework
+Comment[ar]=إطار أدوات استخبارات مفتوح المصدر
+Comment[ru]=Фреймворк инструментов разведки по открытым источникам
+Comment[zh]=开源情报工具框架
+Comment[ja]=オープンソースインテリジェンスツールフレームワーク
+Comment[ko]=오픈 소스 인텔리전스 도구 프레임워크
+Comment[pt]=Framework de ferramentas de inteligência de código aberto
+Comment[it]=Framework di strumenti di intelligence open source
+Comment[nl]=Open Source Intelligence Tools raamwerk
+Comment[sv]=Ramverk för Open Source Intelligence-verktyg
+Comment[pl]=Ramy narzędzi wywiadu Open Source
+Exec=xdg-open https://osintframework.com
+Icon=/usr/share/icons/almighty/browser-osint.png
+Terminal=false
+Categories=Network;

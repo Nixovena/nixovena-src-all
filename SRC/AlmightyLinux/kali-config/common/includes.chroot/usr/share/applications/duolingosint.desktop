@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=DuolingOSINT
+Comment=Duolingo OSINT and Intelligence Tool
+Comment[tr]=Duolingo OSINT ve İstihbarat Aracı
+Comment[es]=Herramienta de inteligencia y OSINT de Duolingo
+Comment[fr]=Outil de renseignement et OSINT Duolingo
+Comment[de]=Duolingo OSINT- und Intelligence-Tool
+Comment[ar]=أداة استخبارات و OSINT لـ Duolingo
+Comment[ru]=Инструмент OSINT и разведки Duolingo
+Comment[zh]=Duolingo OSINT和情报工具
+Comment[ja]=Duolingo OSINTおよびインテリジェンスツール
+Comment[ko]=Duolingo OSINT 및 인텔리전스 도구
+Comment[pt]=Ferramenta de inteligência e OSINT do Duolingo
+Comment[it]=Strumento di intelligence e OSINT di Duolingo
+Comment[nl]=Duolingo OSINT- en inlichtingentool
+Comment[sv]=Duolingo OSINT och underrättelseverktyg
+Comment[pl]=Narzędzie wywiadowcze i OSINT Duolingo
+Exec=mate-terminal -- bash -c "duolingosint -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=enum4linux
+Comment=Tool for enumerating information from Windows and Samba systems
+Comment[tr]=Windows ve Samba sistemlerinden bilgi numaralandırma aracı
+Comment[es]=Herramienta para enumerar información de sistemas Windows y Samba
+Comment[fr]=Outil pour énumérer les informations des systèmes Windows et Samba
+Comment[de]=Tool zum Aufzählen von Informationen aus Windows- und Samba-Systemen
+Comment[ar]=أداة لسرد المعلومات من أنظمة Windows و Samba
+Comment[ru]=Инструмент для перечисления информации из систем Windows и Samba
+Comment[zh]=枚举Windows和Samba系统信息的工具
+Comment[ja]=WindowsおよびSambaシステムから情報を列挙するためのツール
+Comment[ko]=Windows 및 Samba 시스템에서 정보를 열거하기 위한 도구
+Comment[pt]=Ferramenta para enumerar informações de sistemas Windows e Samba
+Comment[it]=Strumento per enumerare le informazioni dai sistemi Windows e Samba
+Comment[nl]=Hulpmiddel voor het opsommen van informatie uit Windows- en Samba-systemen
+Comment[sv]=Verktyg för att räkna upp information från Windows- och Samba-system
+Comment[pl]=Narzędzie do pobierania informacji z systemów Windows i Samba
+Exec=mate-terminal -- bash -c "enum4linux -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=NetworkOSINT;
+StartupNotify=false

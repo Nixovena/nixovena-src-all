@@ -1,0 +1,513 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import asyncio
+import argparse
+import sys
+import re
+import json
+import socket
+import hashlib
+import os
+import requests
+from datetime import datetime
+
+try:
+    import dns.resolver
+    HAS_DNS = True
+except ImportError:
+    HAS_DNS = False
+
+try:
+    import whois
+    HAS_WHOIS = True
+except ImportError:
+    HAS_WHOIS = False
+
+try:
+    import httpx
+    HAS_HTTPX = True
+except ImportError:
+    HAS_HTTPX = False
+
+try:
+    from holehe.core import import_submodules, get_functions
+    HAS_HOLEHE = True
+except ImportError:
+    try:
+        from holohe.core import import_submodules, get_functions
+        HAS_HOLEHE = True
+    except ImportError:
+        HAS_HOLEHE = False
+
+VERSION = "1.0.0"
+
+
+class C:
+    RED = '\033[91m'; GREEN = '\033[92m'; YELLOW = '\033[93m'
+    BLUE = '\033[94m'; CYAN = '\033[96m'; WHITE = '\033[97m'
+    BOLD = '\033[1m'; DIM = '\033[2m'; RESET = '\033[0m'
+
+
+BANNER = (
+    C.CYAN + C.BOLD +
+    "\n  __  __    _    ___ _     ____  _   _ _     _     \n"
+    " |  \\/  |  / \\  |_ _| |   | __ )| | | | |   | |   \n"
+    " | |\\/| | / _ \\  | || |   |  _ \\| | | | |   | |   \n"
+    " | |  | |/ ___ \\ | || |___| |_) | |_| | |___| |___\n"
+    " |_|  |_/_/   \\_\\___|_____|____/ \\___/|_____|_____|\n"
+    + C.RESET + C.YELLOW +
+    "\n     Email OSINT Tool based on Holehe Engine v" + VERSION +
+    "\n     Developed by Nixovena Labs\n"
+    + C.RESET
+)
+
+EMAIL_RE = re.compile(r'^[a-zA-Z0-9_.+\-]+@[a-zA-Z0-9\-]+\.[a-zA-Z0-9\-.]+$')
+
+DISPOSABLE = {
+    "mailinator.com","guerrillamail.com","temp-mail.org","sharklasers.com",
+    "guerrillamailblock.com","grr.la","guerrillamail.info","guerrillamail.biz",
+    "guerrillamail.de","guerrillamail.net","guerrillamail.org","spam4.me",
+    "yopmail.com","yopmail.fr","trashmail.com","trashmail.at","trashmail.io",
+    "trashmail.me","trashmail.net","trashmail.xyz","dispostable.com",
+    "maildrop.cc","mailnull.com","spamgourmet.com","mytrashmail.com",
+    "throwam.com","fakeinbox.com","mailcatch.com","tempmail.com",
+    "tempr.email","discard.email","spambog.com","filzmail.com",
+    "getnada.com","mohmal.com","10minutemail.com","10minutemail.net",
+    "mailexpire.com","spamfree24.org","jetable.fr.nf","cool.fr.nf",
+    "nospam.ze.tc","nomail.xl.cx","mega.zik.dj","speed.1s.fr",
+}
+
+
+def _div(title=""):
+    w = 58
+    if title:
+        pad = (w - len(title) - 4) // 2
+        line = "{}  {}  {}".format("=" * pad, title, "=" * (w - pad - len(title) - 4))
+    else:
+        line = "=" * w
+    print("\n" + C.BOLD + C.CYAN + line + C.RESET)
+
+
+def _ok(label, val=""):
+    print("  {}[+]{} {}{:<30}{} {}{}{}".format(C.GREEN, C.RESET, C.BOLD, label, C.RESET, C.WHITE, val, C.RESET))
+
+def _warn(label, val=""):
+    print("  {}[!]{} {}{:<30}{} {}{}{}".format(C.YELLOW, C.RESET, C.BOLD, label, C.RESET, C.YELLOW, val, C.RESET))
+
+def _fail(label, val=""):
+    print("  {}[-]{} {}{:<30}{} {}{}{}".format(C.RED, C.RESET, C.BOLD, label, C.RESET, C.DIM, val, C.RESET))
+
+def _info(label, val=""):
+    print("  {}[i]{} {}{:<30}{} {}{}{}".format(C.BLUE, C.RESET, C.BOLD, label, C.RESET, C.WHITE, val, C.RESET))
+
+
+def validate_email(email):
+    return bool(EMAIL_RE.match(email))
+
+
+def check_mx(domain):
+    if not HAS_DNS:
+        return None
+    try:
+        answers = dns.resolver.resolve(domain, 'MX')
+        return sorted([(r.preference, str(r.exchange).rstrip('.')) for r in answers])
+    except Exception:
+        return []
+
+
+def check_a(domain):
+    try:
+        return socket.gethostbyname(domain)
+    except Exception:
+        return None
+
+
+def get_whois(domain):
+    if not HAS_WHOIS:
+        return None
+    try:
+        return whois.whois(domain)
+    except Exception:
+        return None
+
+
+def check_gravatar(email):
+    h = hashlib.md5(email.lower().strip().encode()).hexdigest()
+    try:
+        r = requests.get("https://www.gravatar.com/avatar/{}?d=404".format(h), timeout=6)
+        exists = r.status_code == 200
+        return {
+            "exists": exists, "hash": h,
+            "avatar": "https://www.gravatar.com/avatar/" + h,
+            "profile": "https://www.gravatar.com/" + h,
+        }
+    except Exception:
+        return {"exists": None, "hash": h}
+
+
+def check_github(email):
+    res = {}
+    try:
+        r = requests.get(
+            "https://api.github.com/search/users?q={}+in:email".format(email),
+            headers={"Accept": "application/vnd.github.v3+json"}, timeout=8,
+        )
+        data = r.json()
+        if data.get("total_count", 0) > 0:
+            item = data["items"][0]
+            res.update({"found": True, "username": item["login"],
+                        "profile": item["html_url"], "avatar": item["avatar_url"]})
+            u = requests.get("https://api.github.com/users/" + item["login"], timeout=8)
+            if u.status_code == 200:
+                ud = u.json()
+                for f_ in ["name","company","blog","location","bio",
+                           "public_repos","followers","created_at"]:
+                    if ud.get(f_):
+                        res[f_] = ud[f_]
+        else:
+            res["found"] = False
+    except Exception as e:
+        res.update({"found": None, "error": str(e)})
+    return res
+
+
+def check_protonmail(email):
+    res = {}
+    try:
+        r = requests.get(
+            "https://api.protonmail.ch/pks/lookup?op=index&search=" + email,
+            timeout=8,
+        )
+        body = r.text
+        if "info:1:1" in body:
+            res["exists"] = True
+            for pat, enc in [
+                (r"2048:(.*?)::", "RSA-2048"),
+                (r"4096:(.*?)::", "RSA-4096"),
+                (r"22::(.*?)::", "X25519"),
+            ]:
+                m = re.search(pat, body)
+                if m:
+                    try:
+                        res["created"] = datetime.fromtimestamp(int(m.group(1))).strftime("%Y-%m-%d %H:%M:%S")
+                        res["encryption"] = enc
+                    except Exception:
+                        pass
+                    break
+        else:
+            res["exists"] = False
+    except Exception as e:
+        res.update({"exists": None, "error": str(e)})
+    return res
+
+
+def check_hibp(email):
+    res = {}
+    try:
+        r = requests.get(
+            "https://haveibeenpwned.com/api/v3/breachedaccount/" + email,
+            headers={"User-Agent": "mailbull-osint", "hibp-api-key": ""},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            breaches = r.json()
+            res["found"] = True
+            res["count"] = len(breaches)
+            res["breaches"] = [b.get("Name") for b in breaches]
+        elif r.status_code == 404:
+            res["found"] = False
+        elif r.status_code == 401:
+            res["found"] = None
+            res["note"] = "API key required (hibp.haveibeenpwned.com)"
+        else:
+            res["found"] = None
+            res["note"] = "HTTP {}".format(r.status_code)
+    except Exception as e:
+        res.update({"found": None, "error": str(e)})
+    return res
+
+
+def get_permutations(email):
+    local, domain = email.split("@", 1)
+    perms = []
+    if domain in ("gmail.com", "googlemail.com"):
+        clean = local.replace(".", "")
+        if clean != local:
+            perms.append("{}@gmail.com".format(clean))
+        if "+" in local:
+            perms.append("{}@gmail.com".format(local.split("+")[0]))
+        perms.append("{}@googlemail.com".format(clean))
+    for alt in ["gmail.com","googlemail.com","outlook.com","hotmail.com",
+                "yahoo.com","protonmail.com","icloud.com"]:
+        if domain != alt:
+            perms.append("{}@{}".format(local, alt))
+    return list(dict.fromkeys(perms))
+
+
+async def _holehe_async(email):
+    modules = import_submodules("holehe.modules")
+    functions = get_functions(modules)
+    out = []
+    sem = asyncio.Semaphore(10)
+
+    async def bounded(func):
+        async with sem:
+            try:
+                await func(email, client, out)
+            except Exception:
+                pass
+
+    async with httpx.AsyncClient() as client:
+        await asyncio.gather(*[bounded(f) for f in functions])
+    return out
+
+
+def run_holehe(email):
+    if not HAS_HOLEHE:
+        return None, "holehe not installed – run: pip install holehe"
+    if not HAS_HTTPX:
+        return None, "httpx not installed"
+    try:
+        return asyncio.run(_holehe_async(email)), None
+    except Exception as e:
+        return None, str(e)
+
+
+def print_holehe(results):
+    found    = [r for r in results if r.get("exists") is True and not r.get("rateLimit")]
+    rate_lim = [r for r in results if r.get("rateLimit")]
+    not_found = [r for r in results if r.get("exists") is False]
+    print("\n  {}Scanned:{} {}{}{}  |  {}Found:{} {}{}{}  |  {}Rate-limited:{} {}{}{}".format(
+        C.BOLD, C.RESET, C.WHITE, len(results), C.RESET,
+        C.BOLD, C.RESET, C.GREEN, len(found), C.RESET,
+        C.BOLD, C.RESET, C.YELLOW, len(rate_lim), C.RESET,
+    ))
+    if found:
+        print("\n  {}{}[REGISTERED ACCOUNTS]{}".format(C.BOLD, C.GREEN, C.RESET))
+        for r in sorted(found, key=lambda x: x.get("name", "")):
+            name = r.get("name", "Unknown")
+            extras = []
+            if r.get("emailrecovery"): extras.append("recovery={}".format(r["emailrecovery"]))
+            if r.get("phoneNumber"):   extras.append("phone={}".format(r["phoneNumber"]))
+            if r.get("others"):
+                for k, v in r["others"].items():
+                    if v: extras.append("{}={}".format(k, v))
+            extra = "  {}({}){}".format(C.DIM, ", ".join(extras), C.RESET) if extras else ""
+            print("  {}  [v] {}{:<28}{}{}".format(C.GREEN, C.BOLD, name, C.RESET, extra))
+    if rate_lim:
+        names = ", ".join(r.get("name", "?") for r in rate_lim)
+        print("\n  {}[~] Rate-limited (inconclusive):{} {}{}{}".format(
+            C.YELLOW, C.RESET, C.DIM, names, C.RESET))
+
+
+def scan_email(email, args, store):
+    print("\n{}  Target >> {}{}{}".format(C.BOLD + C.WHITE, C.CYAN, email, C.RESET))
+    if not validate_email(email):
+        _fail("Format", "Invalid email address – aborting")
+        return
+
+    local, domain = email.split("@", 1)
+    store.update({"email": email, "local": local, "domain": domain,
+                  "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+    _div("VALIDATION")
+    _ok("Format", "Valid")
+    if domain.lower() in DISPOSABLE:
+        _warn("Disposable Domain", "{} – throwaway detected".format(domain))
+        store["disposable"] = True
+    else:
+        _ok("Disposable Domain", "No")
+        store["disposable"] = False
+
+    _div("DOMAIN INTELLIGENCE")
+    ip = check_a(domain)
+    if ip:
+        _ok("A Record", ip); store["domain_ip"] = ip
+    else:
+        _fail("A Record", "Could not resolve")
+
+    mx = check_mx(domain)
+    if mx is None:
+        _warn("MX Records", "dnspython unavailable – pip install dnspython")
+    elif mx:
+        store["mx_records"] = mx
+        _ok("MX Records", "{} record(s) found".format(len(mx)))
+        for pref, exch in mx:
+            _info("  MX [{}]".format(pref), exch)
+    else:
+        _fail("MX Records", "None found")
+
+    if not args.no_whois:
+        w = get_whois(domain)
+        if w:
+            store["whois"] = {}
+            for field in ["registrar","creation_date","expiration_date","country","name_servers"]:
+                val = getattr(w, field, None)
+                if val:
+                    if isinstance(val, list): val = val[0]
+                    if isinstance(val, datetime): val = val.strftime("%Y-%m-%d")
+                    label = field.replace("_", " ").title()
+                    _ok(label, str(val)[:60])
+                    store["whois"][field] = str(val)
+        else:
+            _fail("WHOIS", "No data available")
+
+    _div("GRAVATAR")
+    g = check_gravatar(email)
+    store["gravatar"] = g
+    if g.get("exists"):
+        _ok("Profile", "EXISTS")
+        _ok("MD5 Hash", g["hash"])
+        _ok("Avatar URL", g["avatar"])
+        _ok("Profile URL", g["profile"])
+    elif g.get("exists") is False:
+        _fail("Profile", "Not found")
+    else:
+        _warn("Profile", "Check failed")
+
+    _div("GITHUB OSINT")
+    gh = check_github(email)
+    store["github"] = gh
+    if gh.get("found"):
+        _ok("Account", "FOUND")
+        _ok("Username", gh.get("username", ""))
+        _ok("Profile URL", gh.get("profile", ""))
+        for f_ in ["name","company","location","bio","blog","public_repos","followers","created_at"]:
+            if gh.get(f_):
+                _info(f_.replace("_", " ").title(), str(gh[f_]))
+    elif gh.get("found") is False:
+        _fail("Account", "Not found via email search")
+    else:
+        _warn("GitHub", "Error – {}".format(gh.get("error", "unknown")))
+
+    _div("PROTONMAIL")
+    pm = check_protonmail(email)
+    store["protonmail"] = pm
+    if pm.get("exists"):
+        _ok("Account", "EXISTS")
+        if pm.get("created"):    _ok("Key Created", pm["created"])
+        if pm.get("encryption"): _ok("Encryption", pm["encryption"])
+    elif pm.get("exists") is False:
+        _fail("Account", "Not found")
+    else:
+        _warn("ProtonMail", pm.get("error", "Check failed"))
+
+    _div("HAVEIBEENPWNED")
+    hibp = check_hibp(email)
+    store["hibp"] = hibp
+    if hibp.get("found") is True:
+        _warn("BREACHED", "{} breach(es) found!".format(hibp["count"]))
+        for b in hibp.get("breaches", []):
+            print("  {}  [!] {}{}{}".format(C.YELLOW, C.DIM, b, C.RESET))
+    elif hibp.get("found") is False:
+        _ok("Breaches", "No known breaches found")
+    else:
+        note = hibp.get("note", hibp.get("error", "unavailable"))
+        _warn("HIBP", note)
+
+    _div("HOLEHE SERVICE SCAN")
+    if not HAS_HOLEHE:
+        _warn("holehe", "Not installed – run: pip install holehe")
+    else:
+        print("  {}Scanning 100+ platforms, please wait...{}".format(C.DIM, C.RESET))
+        results, err = run_holehe(email)
+        if err:
+            _warn("Error", err)
+        else:
+            store["holehe"] = results
+            print_holehe(results)
+
+    if args.permutations:
+        _div("EMAIL PERMUTATIONS")
+        perms = get_permutations(email)
+        if perms:
+            _info("Variants found", str(len(perms)))
+            for p in perms:
+                print("    {}>>>{} {}".format(C.DIM, C.RESET, p))
+            store["permutations"] = perms
+        else:
+            _fail("Permutations", "None generated")
+
+
+def main():
+    print(BANNER)
+    parser = argparse.ArgumentParser(
+        prog="mailbull",
+        description="Holehe-based Email OSINT Tool – Almighty Linux",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument("email", nargs="?", help="Target email address")
+    parser.add_argument("-e", "--emails", nargs="+", metavar="EMAIL",
+                        help="One or more email addresses")
+    parser.add_argument("-f", "--file", metavar="FILE",
+                        help="File with email list (one per line)")
+    parser.add_argument("-o", "--output", metavar="FILE",
+                        help="Save results to JSON file")
+    parser.add_argument("--json", action="store_true",
+                        help="Print JSON output to stdout")
+    parser.add_argument("--no-whois", action="store_true",
+                        help="Skip WHOIS lookup (faster)")
+    parser.add_argument("--permutations", action="store_true",
+                        help="Show possible email permutations/aliases")
+    parser.add_argument("--holehe-only", action="store_true",
+                        help="Run only holehe account scan")
+    args = parser.parse_args()
+
+    targets = []
+    if args.email:  targets.append(args.email)
+    if args.emails: targets.extend(args.emails)
+    if args.file:
+        if not os.path.isfile(args.file):
+            print("  {}[-]{} File not found: {}".format(C.RED, C.RESET, args.file))
+            sys.exit(1)
+        with open(args.file) as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    targets.append(line)
+
+    if not targets:
+        parser.print_help()
+        sys.exit(1)
+
+    all_results = {}
+
+    for target in targets:
+        store = {}
+        if args.holehe_only:
+            _div("HOLEHE SCAN: " + target)
+            if not validate_email(target):
+                _fail("Invalid email", target)
+                continue
+            print("  {}Scanning 100+ platforms...{}".format(C.DIM, C.RESET))
+            results, err = run_holehe(target)
+            if err:
+                _warn("Error", err)
+            else:
+                store["holehe"] = results
+                print_holehe(results)
+        else:
+            scan_email(target, args, store)
+        all_results[target] = store
+
+    _div()
+    print("  {}Scan complete  |  {} target(s) processed{}".format(
+        C.BOLD, len(targets), C.RESET))
+
+    if args.output:
+        try:
+            with open(args.output, "w") as fh:
+                json.dump(all_results, fh, indent=2, default=str)
+            _ok("Results saved to", args.output)
+        except Exception as e:
+            _fail("Save error", str(e))
+
+    if args.json:
+        print(json.dumps(all_results, indent=2, default=str))
+
+    print("")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=drawasp99
+Comment=Advanced Google Dorks scanner tool
+Comment[tr]=Gelişmiş Google Dorks tarayıcı aracı
+Comment[es]=Herramienta avanzada de escaneo de Google Dorks
+Comment[fr]=Outil avancé de scanner Google Dorks
+Comment[de]=Erweitertes Google Dorks Scanner-Tool
+Comment[ar]=أداة فحص Google Dorks المتقدمة
+Comment[ru]=Расширенный инструмент сканера Google Dorks
+Comment[zh]=高级 Google Dorks 扫描工具
+Comment[ja]=高度な Google Dorks スキャナーツール
+Comment[ko]=고급 Google Dorks 스캐너 도구
+Comment[pt]=Ferramenta avançada de verificação do Google Dorks
+Comment[it]=Strumento scanner Google Dorks avanzato
+Comment[nl]=Geavanceerde Google Dorks-scannertool
+Comment[sv]=Avancerat Google Dorks skannerverktyg
+Comment[pl]=Zaawansowane narzędzie do skanowania Google Dorks
+Exec=mate-terminal -- bash -c "drawasp99 -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/drawasp99.png
+Categories=Domain;
+StartupNotify=false

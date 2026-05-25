@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Change Mac
+Comment=Change network interface MAC address for anonymity
+Comment[tr]=Anonimlik için ağ arayüzü MAC adresini değiştir
+Comment[es]=Cambia la dirección MAC de la interfaz de red para anonimato
+Comment[fr]=Modifie l'adresse MAC de l'interface réseau pour l'anonymat
+Comment[de]=Ändert die MAC-Adresse der Netzwerkschnittstelle für Anonymität
+Comment[ar]=تغيير عنوان MAC لواجهة الشبكة للبقاء مجهول الهوية
+Comment[ru]=Изменение MAC-адреса сетевого интерфейса для обеспечения анонимности
+Comment[zh]=更改网络接口MAC地址以实现匿名性
+Comment[ja]=匿名性のためにネットワークインターフェースのMACアドレスを変更
+Comment[ko]=익명성을 위해 네트워크 인터페이스 MAC 주소 변경
+Comment[pt]=Altera o endereço MAC da interface de rede para anonimato
+Comment[it]=Modifica l'indirizzo MAC dell'interfaccia di rete per l'anonimato
+Comment[nl]=Wijzig het MAC-adres van de netwerkinterface voor anonimiteit
+Comment[sv]=Ändra nätverksgränssnittets MAC-adress för anonymitet
+Comment[pl]=Zmień adres MAC interfejsu sieciowego dla anonimowości
+Exec=mate-terminal -- bash -c "sudo change-mac; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

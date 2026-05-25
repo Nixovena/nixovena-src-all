@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#set -euo pipefail
+
+# --- Parrot GPG + repo 
+# cd /tmp
+
+# wget -c https://deb.parrot.sh/parrot/pool/main/p/parrot-archive-keyring/parrot-archive-keyring_2024.12_all.deb
+
+# sudo dpkg -i parrot-archive-keyring_2024.12_all.deb
+
+# echo "deb [signed-by=/usr/share/keyrings/parrot-archive-keyring.gpg] https://deb.parrot.sh/parrot lory main contrib non-free non-free-firmware" \
+#   | sudo tee /etc/apt/sources.list.d/parrot.list
+
+
+# sudo apt update
+
+#cat <<'EOF' | sudo tee /etc/apt/preferences.d/99-parrot
+#Package: *
+#Pin: release o=Parrot
+#Pin-Priority: 50
+#EOF
+
+############################# 
+
+#echo "Installing tools..."
+
+# sudo apt-get install -y  
+
+
+# echo "[+] Script finished. Review the output above for packages that failed to install."

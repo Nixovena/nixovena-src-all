@@ -1,0 +1,862 @@
+#!/usr/bin/python3
+
+try:
+    import requests
+except ImportError:
+    import sys; sys.exit("[!] Missing: requests")
+import os
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    import sys; sys.exit("[!] Missing: bs4")
+import json
+from time import sleep
+import base64
+import hashlib
+import random
+import sys
+import argparse
+
+
+# Fixed path for agreement file — avoids writing to random CWD
+AGREEMENT_DIR = os.path.expanduser("~/.noderat")
+AGREEMENT_FILE = os.path.join(AGREEMENT_DIR, "Agreement.txt")
+OUTPUT_DIR = "output"
+
+
+def safe_int_input(prompt, min_val=None, max_val=None, default=None):
+    """Safely read an integer from user input with optional range validation."""
+    while True:
+        try:
+            raw = input(prompt).strip()
+            if not raw and default is not None:
+                return default
+            val = int(raw)
+            if min_val is not None and val < min_val:
+                print(f"  [!] Value must be at least {min_val}")
+                continue
+            if max_val is not None and val > max_val:
+                print(f"  [!] Value must be at most {max_val}")
+                continue
+            return val
+        except ValueError:
+            print("  [!] Please enter a valid number")
+        except (KeyboardInterrupt, EOFError):
+            print("\n")
+            sys.exit(0)
+
+
+class Utils:
+    YELLOW = "\033[0;93m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    BLUE = "\033[94m"
+    WHITE = "\033[97m"
+    RESET = "\033[0m"
+
+    @staticmethod
+    def Clear_Screen():
+        os.system("cls" if os.name == "nt" else "clear")
+
+class Engine:
+    proxy = {
+        "http": "socks5h://127.0.0.1:9050",
+        "https": "socks5h://127.0.0.1:9050"
+    }
+    
+    # Enhanced headers with more options
+    headers_list = [
+        {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        },
+        {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        },
+        {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        },
+        {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/91.0.864.59",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+    ]
+    
+    # Default headers
+    headers = headers_list[0]
+    count = 1
+    timeout = 15
+
+    @staticmethod
+    def get_random_headers():
+        return random.choice(Engine.headers_list)
+
+    @staticmethod
+    def make_request(url, proxies=None, headers=None, timeout=None, retries=2):
+        if headers is None:
+            headers = Engine.get_random_headers()
+        if proxies is None:
+            proxies = Engine.proxy
+        if timeout is None:
+            timeout = Engine.timeout
+            
+        for attempt in range(retries):
+            try:
+                response = requests.get(url, proxies=proxies, headers=headers, timeout=timeout)
+                return response
+            except requests.exceptions.Timeout:
+                if attempt < retries - 1:
+                    print(Utils.YELLOW + "[!]" + Utils.WHITE + f" Request timed out, retrying ({attempt + 1}/{retries})...")
+                    sleep(2 ** attempt)
+                else:
+                    print(Utils.RED + "[!]" + Utils.WHITE + f" Request timed out after {retries} attempts: {url[:60]}")
+            except requests.exceptions.ConnectionError:
+                if attempt < retries - 1:
+                    print(Utils.YELLOW + "[!]" + Utils.WHITE + f" Connection error, retrying ({attempt + 1}/{retries})...")
+                    sleep(2 ** attempt)
+                else:
+                    print(Utils.RED + "[!]" + Utils.WHITE + f" Connection failed after {retries} attempts: {url[:60]}")
+            except requests.exceptions.RequestException as e:
+                print(Utils.RED + "[!]" + Utils.WHITE + " Request failed: {}".format(str(e)))
+                return None
+        return None
+
+    @staticmethod
+    def encoding(report, name):
+        quest = safe_int_input(
+            Utils.BLUE + "\n[?]" + Utils.WHITE + "Do you want to encode the {} report? (1)Yes (2)No".format(name) + Utils.RED + "\n\n[:NODERAT:]" + Utils.WHITE + "-->",
+            min_val=1, max_val=2
+        )
+        if quest == 1:
+            EncodedFile = report.replace(".txt", ".Dk")
+            try:
+                with open(report, "r") as f:
+                    reader = f.read()
+                print(Utils.GREEN + "\n[+]" +
+                          Utils.WHITE + "Encoding report...")
+                sleep(2)
+                encodingString = reader.encode("utf-8")
+                Base64_Byte = base64.b64encode(encodingString)
+                FinalString = Base64_Byte.decode("utf-8")
+                with open(EncodedFile, "w", encoding="ascii") as f:
+                    f.write(FinalString)
+                print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                          "Report Encoded: {}".format(Utils.GREEN + os.path.basename(EncodedFile)))
+                os.remove(report)
+                print(Utils.GREEN + "\n[+]" + Utils.WHITE + "Report saved in: {}".format(
+                    Utils.GREEN + EncodedFile))
+            except OSError as e:
+                print(Utils.RED + "[!]" + Utils.WHITE + f" Encoding failed: {e}")
+        else:
+            print(Utils.GREEN + "\n[+]" + Utils.WHITE + "Report saved in: {}".format(
+                Utils.GREEN + report))
+                
+    @staticmethod
+    def HtmlReport(report, name):
+        content = """\
+<!--This Report has been created with Noderat-->
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=0.9">
+        <meta charset="UTF-8">
+        <title>Noderat Report</title>
+        <style>
+            body{
+                background-color: rgba(0, 0, 0, 0.836);
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+            }
+
+            h1, h2, h3{
+                color: #ff4444;
+                text-align: center;
+            }
+
+            p, h4{
+                color: white;
+                font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+            }
+
+            p{
+                font-size: 15px;
+            }
+
+            h3{
+                font-size: 25px;
+                font-weight: bold;
+            }
+
+            h4{
+                font-size: 18px;
+                font-weight: bold;
+            }
+
+            .results{
+                display: block;
+                height: fit-content;
+                width: fit-content;
+                border: 3px solid #ff4444;
+                border-radius: 10px;
+                background-color: #1a1a1a;
+                margin: 20px auto;
+                padding: 15px;
+                box-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
+            }
+
+            .results p, .results h4{
+                margin-left: 10px;
+                margin-top: 5px;
+            }
+
+            .results h4{
+                margin-top: 10px;
+                border-bottom: 1px solid #444;
+                padding-bottom: 5px;
+            }
+
+            a{
+                text-decoration: none;
+                color: #4da6ff;
+            }
+
+            a:hover{
+                text-decoration: underline;
+            }
+
+            .header{
+                text-align: center;
+                padding: 20px;
+                background: rgba(30, 30, 30, 0.8);
+                border-radius: 10px;
+                margin-bottom: 20px;
+            }
+
+            .footer{
+                text-align: center;
+                margin-top: 20px;
+                color: #777;
+                font-size: 12px;
+            }
+       </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>NODERAT</h1>
+            <h2>Onion Links Report</h2>
+        </div>
+        <h3>Onion Links found</h3>
+        <div class="results">
+
+"""
+        htmlrep = report.replace(".txt", ".html")
+        try:
+            with open(htmlrep, "w", encoding="utf-8") as f:
+                f.write(content)
+        except OSError as e:
+            print(Utils.RED + "[!]" + Utils.WHITE + f" Failed to create HTML report: {e}")
+        return htmlrep
+    
+    @staticmethod
+    def HashCheck(url):
+        report = os.path.join(OUTPUT_DIR, "Banned.txt")
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        md5url = hashlib.md5(url.encode('utf-8')).hexdigest()
+        print(Utils.GREEN + "\n[+]" + Utils.WHITE + "Url Hashed: {}".format(Utils.GREEN + md5url + Utils.WHITE))
+        CheckUrl = "http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/blacklist/banned/"
+        req = Engine.make_request(CheckUrl)
+        if req and md5url in req.text:
+            print(Utils.RED + "\n[!]" + Utils.WHITE + "Url: {} Have been Banned it may be a dangerous link".format(Utils.GREEN + url + Utils.WHITE))
+            try:
+                with open(report, "a") as f:
+                    f.write(url + "\r\n")
+            except OSError:
+                pass
+        else:
+            CheckUrl = "https://ahmia.fi/blacklist/banned/"
+            req = Engine.make_request(CheckUrl)
+            if req and md5url in req.text:
+                print(Utils.RED + "[!]" + Utils.WHITE + "Url: {} Have been Banned it may be a dangerous link".format(Utils.GREEN + url + Utils.WHITE))
+                try:
+                    with open(report, "a") as f:
+                        f.write(url + "\r\n")
+                except OSError:
+                    pass
+            else:
+                print(Utils.YELLOW + "[v]" + Utils.WHITE + "Url: {} Have not been Banned".format(Utils.GREEN + url + Utils.WHITE))
+
+    @staticmethod
+    def Agreement():
+        Utils.Clear_Screen()
+        print(Utils.BLUE + "[I]" + Utils.WHITE + "Checking Usage Agreement")
+        sleep(2)
+        
+        os.makedirs(AGREEMENT_DIR, exist_ok=True)
+        
+        if os.path.exists(AGREEMENT_FILE):
+            try:
+                with open(AGREEMENT_FILE, "r") as f:
+                    content = f.read().strip()
+                if content == "Agreement Accepted":
+                    print(Utils.YELLOW + "\n[v]" +
+                          Utils.WHITE + "Usage Agreement found")
+                    sleep(1)
+                    return
+            except OSError:
+                pass
+        
+        # Agreement not found or not accepted — show prompt
+        Utils.Clear_Screen()
+        Engine.PrintBanner()
+        sleep(0.3)
+        try:
+            choice = input(
+                Utils.WHITE + "\nThis tool is intended only for research and educational purposes only. "
+                "I do not assume any liability for any bad/illegal usage of this tool.\n\nPress" +
+                Utils.GREEN + "(Y)" + Utils.WHITE + "To accept" + Utils.RED + "(N)" + Utils.WHITE + "To decline\n\n" +
+                Utils.RED + "[:NODERAT:]" + Utils.WHITE + "-->").strip()
+            if choice.lower() == "y":
+                try:
+                    with open(AGREEMENT_FILE, "w") as f:
+                        f.write("Agreement Accepted")
+                except OSError:
+                    pass
+                Utils.Clear_Screen()
+                print(Utils.YELLOW + "[v]" + Utils.WHITE + "Agreement Accepted")
+                sleep(1)
+            elif choice.lower() == "n":
+                print(Utils.RED + "Agreement refused. You cannot use this tool if you do not accept this condition...\nExit")
+                sys.exit(0)
+            else:
+                Engine.Agreement()
+        except (ValueError, KeyboardInterrupt, EOFError):
+            print("\n")
+            sys.exit(0)
+
+    @staticmethod
+    def PrintBanner():
+        print(Utils.WHITE + "\n  NODERAT - Onion Searcher")
+        print(Utils.RED + "====================================")
+
+    @staticmethod
+    def Banner():
+        Utils.Clear_Screen()
+        Engine.PrintBanner()
+        sleep(0.3)
+        print(Utils.RED + "====================================")
+        print(Utils.WHITE + "  NODERAT - Onion Searcher")
+        print(Utils.RED + "====================================")
+
+    @staticmethod
+    def dataExtraction(parser, name, report, out, htmlReport):
+        """Extract data from search engine results and write to report files."""
+        i = 0
+        
+        try:
+            with open(htmlReport, "a", encoding="utf-8") as f2:
+                if name == "Ahmia":
+                    with open(report, "a", encoding="utf-8") as f:
+                        f.write(name + " onion-links\r\n\n")
+                        list1 = parser.find_all("li", class_="result")
+                        for link in list1:
+                            try:
+                                title = link.find("h4").text.replace(" ", "").replace("\n", "")
+                                url = link.find("a")["href"].split("redirect_url=")[-1].lstrip()
+                                md5url = hashlib.md5(url.encode('utf-8')).hexdigest()
+                                description = link.find("p").text.replace("\n", "")
+                                try:
+                                    timestamp = link.find("span", class_="lastSeen")[
+                                        "data-timestamp"].replace("\n", "").replace("  ", "")
+                                except (TypeError, KeyError):
+                                    timestamp = "None"
+                                
+                                if out == 1:
+                                    print(Utils.GREEN + "[+]" +
+                                        Utils.WHITE + "Title: {}".format(Utils.GREEN + title))
+                                    print(Utils.YELLOW + "[v]" +
+                                        Utils.WHITE + "Url: {}".format(Utils.GREEN + url))
+                                    print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                        "Description: {}".format(Utils.GREEN + description))
+                                    print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                        "Timestamp: {}".format(Utils.GREEN + timestamp))
+                                    print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                        "MD5-url: {}\n".format(Utils.BLUE + md5url))
+                                f.write("Title: {}\r\n".format(title))
+                                f.write("Url: {}\r\n".format(url))
+                                f.write("Description: {}\r\n".format(description))
+                                f.write("Timestamp: {}\r\n".format(timestamp))
+                                f.write("MD5-Url: {}\r\n\n".format(md5url))
+
+                                f2.write("<h4>({})Title: {}</h4>".format(Engine.count, title))
+                                f2.write("<p>Url: {}</p>".format("<a href ='" + url + "' target = 'blank'>" + url + "</a>"))
+                                f2.write("<p>Description: {}</p>".format(description))
+                                f2.write("<p>Timestamp: {}</p>".format(timestamp))
+                                f2.write("<p>MD5-Url: <a>{}</a></p>".format(md5url))
+                                Engine.count += 1
+                                i += 1
+                            except (AttributeError, TypeError, KeyError) as e:
+                                print(Utils.YELLOW + "[!]" + Utils.WHITE + f" Skipping malformed result: {e}")
+                                continue
+                        
+                        f.write("Total Onion {} Site Found: {}\r\n".format(name, str(i)))
+
+                elif name == "Torch":
+                    with open(report, "a", encoding="utf-8") as f:
+                        f.write(name + " onion-links\r\n\n")
+                        list1 = parser.find_all("div", class_="result mb-3")
+                        for link in list1:
+                            try:
+                                title = link.find("h5").text.replace("  ", "").replace("\n", "")
+                                url = link.find("a")["href"]
+                                description = link.find("p").text.replace("\n", "")
+                                md5url = hashlib.md5(url.encode('utf-8')).hexdigest()
+                                if out == 1:
+                                    print(Utils.GREEN + "[+]" +
+                                        Utils.WHITE + "Title: {}".format(Utils.GREEN + title))
+                                    print(Utils.YELLOW + "[v]" +
+                                        Utils.WHITE + "Url: {}".format(Utils.GREEN + url))
+                                    print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                        "Description: {}".format(Utils.GREEN + description))
+                                    print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                        "MD5-url: {}\n".format(Utils.BLUE + md5url))
+                                f.write("Title: {}\r\n".format(title))
+                                f.write("Url: {}\r\n".format(url))
+                                f.write("Description: {}\r\n".format(description))
+                                f.write("MD5-Url: {}\r\n\n".format(md5url))
+
+                                f2.write("<h4>({})Title: {}</h4>".format(Engine.count, title))
+                                f2.write("<p>Url: {}</p>".format("<a href ='" + url + "' target = 'blank'>" + url + "</a>"))
+                                f2.write("<p>Description: {}</p>".format(description))
+                                f2.write("<p>MD5-Url: <a>{}</a></p>".format(md5url))
+                                Engine.count += 1
+                                i += 1
+                            except (AttributeError, TypeError, KeyError) as e:
+                                print(Utils.YELLOW + "[!]" + Utils.WHITE + f" Skipping malformed result: {e}")
+                                continue
+                        
+                        f.write("Total Onion {} Site Found: {}\r\n".format(name, str(i)))
+
+                elif name == "Torch-Images":
+                    image_report = report.replace(".txt", "_image.txt")
+                    with open(image_report, "a", encoding="utf-8") as f:
+                        f.write(name + " onion-links\r\n\n")
+                        list1 = parser.find_all("div", class_="imagehold")
+                        for link in list1:
+                            link2 = link.find_all("a")
+                            for link3 in link2:
+                                try:
+                                    title = link3.find("img")["alt"].replace("  ", "").replace("\n", "")
+                                    url = link3["href"]
+                                    image = link3.find("img")["src"]
+                                    md5url = hashlib.md5(url.encode('utf-8')).hexdigest()
+                                    if out == 1:
+                                        print(Utils.GREEN +
+                                            "[+]" + Utils.WHITE + "Title: {}".format(Utils.GREEN + title))
+                                        print(Utils.YELLOW + "[v]" +
+                                            Utils.WHITE + "Url: {}".format(Utils.GREEN + url))
+                                        print(Utils.YELLOW +
+                                            "[v]" + Utils.WHITE + "Image-Url: {}".format(Utils.GREEN + image))
+                                        print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                            "MD5-url: {}\n".format(Utils.BLUE + md5url))
+                                    f.write("Title: {}\r\n".format(title))
+                                    f.write("Url: {}\r\n".format(url))
+                                    f.write("Image-Url: {}\r\n".format(image))
+                                    f.write("MD5-Url: {}\r\n\n".format(md5url))
+
+                                    f2.write("<h4>({})Title: {}</h4>".format(Engine.count, title))
+                                    f2.write("<p>Url: {}</p>".format("<a href ='" + url + "' target = 'blank'>" + url + "</a>"))
+                                    f2.write("<p>Image-Url: {}</p>".format("<a href ='" + image + "' target = 'blank'>" + image + "</a>"))
+                                    f2.write("<p>MD5-Url: <a>{}</a></p>".format(md5url))
+                                    i += 1
+                                    Engine.count += 1
+                                except (AttributeError, TypeError, KeyError) as e:
+                                    print(Utils.YELLOW + "[!]" + Utils.WHITE + f" Skipping malformed image result: {e}")
+                                    continue
+                        
+                        f.write("Total Onion {} Site Found: {}\r\n".format(name, str(i)))
+
+                elif name == "notevil":
+                    with open(report, "a", encoding="utf-8") as f:
+                        f.write(name + " onion-links\r\n\n")
+                        list1 = parser.find_all("div", class_="row")
+                        for link in list1:
+                            try:
+                                all_links = link.find_all("a")
+                                if len(all_links) < 3:
+                                    continue
+                                title = all_links[2].text.replace("  ", "").replace("\n", "")
+                                url = all_links[2]["href"]
+                                span = link.find("span")
+                                description = span.text.replace("\n", "") if span else ""
+                                md5url = hashlib.md5(url.encode('utf-8')).hexdigest()
+                                if out == 1:
+                                    print(Utils.GREEN + "[+]" +
+                                        Utils.WHITE + "Title: {}".format(Utils.GREEN + title))
+                                    print(Utils.YELLOW + "[v]" +
+                                        Utils.WHITE + "Url: {}".format(Utils.GREEN + url))
+                                    print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                        "Description: {}".format(Utils.GREEN + description))
+                                    print(Utils.YELLOW + "[v]" + Utils.WHITE +
+                                        "MD5-url: {}\n".format(Utils.BLUE + md5url))
+                                f.write("Title: {}\r\n".format(title))
+                                f.write("Url: {}\r\n".format(url))
+                                f.write("Description: {}\r\n".format(description))
+                                f.write("MD5-Url: {}\r\n\n".format(md5url))
+
+                                f2.write("<h4>({})Title: {}</h4>".format(Engine.count, title))
+                                f2.write("<p>Url: {}</p>".format("<a href ='" + url + "' target = 'blank'>" + url + "</a>"))
+                                f2.write("<p>Description: {}</p>".format(description))
+                                f2.write("<p>MD5-Url: <a>{}</a></p>".format(md5url))
+                                Engine.count += 1
+                                i += 1
+                            except (AttributeError, TypeError, KeyError, IndexError) as e:
+                                print(Utils.YELLOW + "[!]" + Utils.WHITE + f" Skipping malformed result: {e}")
+                                continue
+                        
+                        f.write("Total Onion {} Site Found: {}\r\n".format(name, str(i)))
+                
+                else:
+                    print(Utils.YELLOW + "[!]" + Utils.WHITE + f" Unknown search engine: {name}")
+        
+        except OSError as e:
+            print(Utils.RED + "[!]" + Utils.WHITE + f" File error during extraction: {e}")
+            return
+        
+        print(Utils.BLUE + "[I]" + Utils.WHITE + "Total {} Onion Site Found: {}".format(
+            Utils.GREEN + name + Utils.WHITE, Utils.GREEN + str(i) + Utils.WHITE))
+
+    @staticmethod
+    def Torch(parameter, report, out, htmlReport):
+        images = safe_int_input(
+            Utils.GREEN + "\n[+]" + Utils.WHITE +
+            "Do you want to search images? (1)Yes (2)No" + Utils.RED + "\n\n[:NODERAT:]" + Utils.WHITE + "-->",
+            min_val=1, max_val=2
+        )
+        
+        image_url = None
+        if images == 1:
+            image_url = "http://torchdeedp3i2jigzjdmfpn5ttjhthh5wbmda2rr3jvqjg5p77c54dqd.onion/images?query={}".format(
+                parameter)
+        
+        print(Utils.GREEN + "\n[+]" + Utils.WHITE +
+              "Searching Torch Results for : {}\n".format(Utils.GREEN + parameter))
+        url = "http://torchdeedp3i2jigzjdmfpn5ttjhthh5wbmda2rr3jvqjg5p77c54dqd.onion/search?query={}&action=search".format(
+            parameter)
+        req = Engine.make_request(url)
+        if req:
+            parser = soup(req.content, "html.parser")
+            Engine.dataExtraction(parser, "Torch", report, out, htmlReport)
+            if images == 1 and image_url:
+                print(Utils.GREEN + "\n[+]" + Utils.WHITE +
+                      "Searching Torch Images Results for : {}\n".format(Utils.GREEN + parameter))
+                req = Engine.make_request(image_url)
+                if req:
+                    parser = soup(req.content, "html.parser")
+                    Engine.dataExtraction(parser, "Torch-Images", report, out, htmlReport)
+        else:
+            print(Utils.RED + "[!]" + Utils.WHITE + " Failed to connect to Torch search engine")
+
+    @staticmethod
+    def Notevil(parameter, report, out, htmlReport):
+        print(Utils.GREEN + "\n[+]" + Utils.WHITE +
+              "Searching notevil Results for : {}\n".format(Utils.GREEN + parameter))
+        url = "http://notevilmtxf25uw7tskqxj6njlpebyrmlrerfv5hc4tuq7c7hilbyiqd.onion/index.php?q={}".format(
+            parameter)
+        req = Engine.make_request(url)
+        if req:
+            parser = soup(req.content, "html.parser")
+            Engine.dataExtraction(parser, "notevil", report, out, htmlReport)
+        else:
+            print(Utils.RED + "[!]" + Utils.WHITE + " Failed to connect to notevil search engine")
+
+    @staticmethod
+    def Ahmia(parameter, report, out, htmlReport):
+        print(Utils.GREEN + "\n[+]" + Utils.WHITE +
+              "Input Parameter: {}".format(parameter))
+        period = safe_int_input(
+            Utils.GREEN + "\n[+]" + Utils.WHITE +
+            "Insert a Period of time\n(1)Last-Day\t\t(2)Last-Week\n(3)Last-Month\t\t(4)All-Results" + Utils.RED + "\n\n[:NODERAT:]" + Utils.WHITE + "-->",
+            min_val=1, max_val=4
+        )
+        
+        period_map = {1: "1", 2: "7", 3: "30", 4: "all"}
+        period_val = period_map[period]
+        
+        url = "http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/search/?q={}&d={}".format(
+            parameter, period_val)
+        resc_url = "https://ahmia.fi/search/?q={}&d={}".format(parameter, period_val)
+        
+        print(Utils.GREEN + "\n[+]" + Utils.WHITE +
+              "Searching Ahmia Results for : {}\n".format(Utils.GREEN + parameter))
+        req = Engine.make_request(url)
+        if req:
+            parser = soup(req.content, "html.parser")
+            Engine.dataExtraction(parser, "Ahmia", report, out, htmlReport)
+        else:
+            print(Utils.YELLOW + "[v]" + Utils.WHITE + " Trying alternative Ahmia URL...")
+            req = Engine.make_request(resc_url)
+            if req:
+                parser = soup(req.content, "html.parser")
+                Engine.dataExtraction(parser, "Ahmia", report, out, htmlReport)
+            else:
+                print(Utils.RED + "[!]" + Utils.WHITE + " Failed to connect to Ahmia search engine")
+
+    @staticmethod
+    def HelpMsg():
+        print(Utils.RED + "____________________________________________________________________")
+        print(Utils.RED + "|" + Utils.WHITE + " DB-A = Execute Local Database" + Utils.RED + "                                    |")
+        print(Utils.RED + "|" + Utils.WHITE + " DB-D = Deactivate Local Database" + Utils.RED + "                                 |")
+        print(Utils.RED + "|" + Utils.WHITE + " DB-S = Local Database Status" + Utils.RED + "                                     |")
+        print(Utils.RED + "|" + Utils.WHITE + " Noderat-Exit = Exit from the programm" + Utils.RED + "                             |")
+        print(Utils.RED + "|" + Utils.WHITE + " --Check = Check if the given url is included on Ahmia Blacklist" + Utils.RED + "   |")
+        print(Utils.RED + "|" + Utils.WHITE + " --json  = Export results as JSON" + Utils.RED + "                                  |")
+        print(Utils.RED + "--------------------------------------------------------------------")
+        Engine.Main("No-Res")
+
+    @staticmethod
+    def Requirements():
+        Engine.Agreement()
+        Utils.Clear_Screen()
+        print(Utils.BLUE + "[I]" + Utils.WHITE +
+              "Checking if Tor Service is active...")
+        sleep(2)
+        try:
+            requests.get("http://localhost:9050", timeout=3)
+            print(Utils.GREEN + "\n[+]" +
+                  Utils.WHITE + "Tor Service is active, restarting...")
+            os.system("sudo service tor restart")
+        except requests.ConnectionError:
+            print(Utils.RED + "\n[!]" + Utils.WHITE +
+                  "Tor Service is not active. Activating Tor Service...\n")
+            os.system("sudo service tor start")
+            print(Utils.GREEN + "\n[+]" +
+                  Utils.WHITE + "Tor Service activated\n")
+        except requests.exceptions.RequestException:
+            print(Utils.YELLOW + "\n[!]" + Utils.WHITE +
+                  "Could not verify Tor status, attempting to start...")
+            os.system("sudo service tor start")
+
+    @staticmethod
+    def export_json(report_dir, param):
+        json_file = os.path.join(report_dir, f"{param}.json")
+        results = {
+            "search_term": param,
+            "timestamp": __import__('datetime').datetime.now().isoformat(),
+            "total_results": Engine.count,
+            "engines_used": ["Ahmia", "Torch", "notevil"],
+            "links": []
+        }
+        
+        # Parse the text report to extract links
+        txt_report = os.path.join(report_dir, f"{param}.txt")
+        if os.path.exists(txt_report):
+            try:
+                with open(txt_report, "r", encoding="utf-8", errors="ignore") as f:
+                    current = {}
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("Title: "):
+                            if current:
+                                results["links"].append(current)
+                            current = {"title": line[7:]}
+                        elif line.startswith("Url: "):
+                            current["url"] = line[5:]
+                        elif line.startswith("Description: "):
+                            current["description"] = line[13:]
+                        elif line.startswith("Timestamp: "):
+                            current["timestamp_seen"] = line[11:]
+                        elif line.startswith("MD5-Url: "):
+                            current["md5"] = line[9:]
+                        elif line.startswith("Image-Url: "):
+                            current["image_url"] = line[11:]
+                    if current:
+                        results["links"].append(current)
+            except OSError:
+                pass
+        
+        try:
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
+            print(Utils.GREEN + "\n[+]" + Utils.WHITE + f"JSON report saved: {json_file}")
+        except OSError as e:
+            print(Utils.RED + "[!]" + Utils.WHITE + f" JSON export failed: {e}")
+
+    @staticmethod
+    def Main(mode):
+        if mode == "Res":
+            print(Utils.BLUE + "[I]" + Utils.WHITE +
+                "Checking internet connection...")
+            sleep(2)
+        ipUrl = "http://ip-api.com/json"
+        req = Engine.make_request(ipUrl)
+        if req:
+            if mode == "Res":
+                Engine.Banner()
+                try:
+                    reader = req.text
+                    converted = json.loads(reader)
+                    ip = converted.get("query", "Unknown")
+                    country = converted.get("country", "Unknown")
+                    print(Utils.BLUE + "\n[I]" + Utils.WHITE +
+                        "Your Tor-Proxy ip address: {}".format(Utils.GREEN + ip))
+                    print(Utils.BLUE + "\n[I]" + Utils.WHITE +
+                        "Your are currently located in: {}".format(Utils.GREEN + country))
+                except (json.JSONDecodeError, KeyError):
+                    print(Utils.YELLOW + "\n[!]" + Utils.WHITE + "Could not parse IP info")
+                print(Utils.BLUE + "\n[I]" + Utils.WHITE +
+                    "Noderat-Exit for quitting the program")
+            
+            param = input(Utils.GREEN + "\n[+]" + Utils.WHITE +
+                        "Insert a Parameter to search (Help for all options)" + Utils.RED + "\n\n[:NODERAT:]" + Utils.WHITE + "-->").strip()
+            while param == "":
+                param = input(
+                    Utils.GREEN + "\n[+]" + Utils.WHITE + "Insert a Parameter to search (Noderat-Exit for quitting)" + Utils.RED + "\n\n[:NODERAT:]" + Utils.WHITE + "-->").strip()
+            
+            if param == "Noderat-Exit":
+                print(Utils.BLUE + "\n[I]" +
+                    Utils.WHITE + "Stopping Tor Service...")
+                os.system("sudo service tor stop")
+                sleep(1)
+                print(Utils.WHITE + "\nExit Thank you for having used Noderat...")
+                return
+            
+            if param.lower() == "help":
+                Engine.HelpMsg()
+                return
+            elif param == "DB-A":
+                os.system("sudo php -S 127.0.0.1:5600  >/dev/null 2>&1 &")
+                print(Utils.BLUE + "\n[I]" + Utils.WHITE + "Local Database started at http://127.0.0.1:5600")
+                Engine.Main("No-Res")
+                return
+            elif param == "DB-D":
+                os.system("sudo killall php >/dev/null 2>&1 &")
+                print(Utils.BLUE + "\n[I]" + Utils.WHITE + "Local Database stopped")
+                Engine.Main("No-Res")
+                return
+            elif param == "DB-S":
+                try:
+                    requests.get("http://localhost:5600", timeout=3)
+                    print(Utils.GREEN + "\n[+]" +
+                        Utils.WHITE + "Local Database Active at http://127.0.0.1:5600 ")
+                except requests.ConnectionError:
+                    print(Utils.RED + "\n[!]" + Utils.WHITE +
+                        "Local Database is not Active")
+                except requests.exceptions.RequestException:
+                    print(Utils.RED + "\n[!]" + Utils.WHITE +
+                        "Could not check Database status")
+                Engine.Main("No-Res")
+                return
+            elif "--Check" in param:
+                url = param.replace("--Check", "").strip()
+                if url == "" or ".onion" not in url:
+                    print(Utils.BLUE + "[I]" + Utils.WHITE + "Please insert a valid onion url before '--Check'")
+                else:
+                    Engine.HashCheck(url)
+            else:
+                # Search mode
+                json_export = "--json" in param
+                if json_export:
+                    param = param.replace("--json", "").strip()
+                
+                fold = os.path.join(OUTPUT_DIR, param)
+                os.makedirs(fold, exist_ok=True)
+                
+                report = os.path.join(fold, f"{param}.txt")
+                # Clean up old reports
+                for old_file in [report, report.replace(".txt", "_image.txt"),
+                                 report.replace(".txt", ".Dk"), report.replace(".txt", ".html")]:
+                    if os.path.exists(old_file):
+                        try:
+                            os.remove(old_file)
+                        except OSError:
+                            pass
+                
+                htmlReport = Engine.HtmlReport(report, param)
+
+                out = safe_int_input(
+                    Utils.GREEN + "\n[+]" + Utils.WHITE +
+                    "Do you want to print the output on Screen? (1)Yes (2)No" + Utils.RED + "\n\n[:NODERAT:]" + Utils.WHITE + "-->",
+                    min_val=1, max_val=2
+                )
+                
+                Engine.Ahmia(param, report, out, htmlReport)
+                Engine.Torch(param, report, out, htmlReport)
+                Engine.Notevil(param, report, out, htmlReport)
+                
+                # Finalize text report
+                try:
+                    with open(report, "a", encoding="utf-8") as f:
+                        f.write("Total Onion Site Found: {}\r\n\nReport created with Noderat".format(str(Engine.count)))
+                except OSError:
+                    pass
+                
+                print(Utils.BLUE + "\n[I]" + Utils.WHITE + "Total Onion Site Found: {}".format(
+                        Utils.GREEN + str(Engine.count) + Utils.WHITE))
+                
+                report2 = report.replace(".txt", "_image.txt")
+                
+                # Finalize HTML report
+                print(Utils.BLUE + "\n[I]" + Utils.WHITE + "Html Report Created at: {} ".format(Utils.GREEN + htmlReport + Utils.WHITE))
+                try:
+                    with open(htmlReport, "a", encoding="utf-8") as f:
+                        f.write("</div>\n<div class='footer'>\n<p>Report generated by Noderat - Onion Website Searcher</p>\n</div>\n</body>\n</html>")
+                except OSError:
+                    pass
+                
+                # JSON export
+                if json_export:
+                    Engine.export_json(fold, param)
+                
+                Engine.encoding(report, "Web")
+                if os.path.isfile(report2):
+                    Engine.encoding(report2, "Image")
+                Engine.count = 1  # Reset to 1 (not 0) for next search
+            
+            # Continue prompt
+            input(Utils.WHITE + "\nPress enter to continue...")
+            Utils.Clear_Screen()
+            Engine.Main("Res")
+
+        else:
+            print(Utils.RED + "\n\n[!]" + Utils.WHITE +
+                  "Cannot connect to Network, check your internet connection")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Noderat - Onion Website Searcher')
+    parser.add_argument('-p', '--parameter', help='Search parameter')
+    parser.add_argument('-c', '--check', help='Check if URL is banned')
+    parser.add_argument('--no-banner', action='store_true', help='Skip banner display')
+    parser.add_argument('--json', action='store_true', help='Export results as JSON')
+    
+    args = parser.parse_args()
+    
+    try:
+        if not args.no_banner:
+            Engine.Requirements()
+        Engine.Main("Res")
+    except KeyboardInterrupt:
+        print(Utils.RED + "\n\n[!]" + Utils.WHITE +
+              "You Have pressed CTRL+C, stopping Tor Services and Exit")
+        os.system("sudo service tor stop")
+        sys.exit(0)
+    except Exception as e:
+        print(Utils.RED + "\n[!]" + Utils.WHITE + f" Unexpected error: {e}")
+        sys.exit(1)

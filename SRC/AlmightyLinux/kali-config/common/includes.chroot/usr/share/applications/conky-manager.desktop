@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Conky Manager
+Comment=Conky Manager tool
+Exec=mate-terminal -- bash -c "conky-manager; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=System;
+StartupNotify=false

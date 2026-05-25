@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Nmap
+Comment=Network discovery and security auditing tool
+Comment[tr]=Ağ keşfi ve güvenlik denetimi aracı
+Comment[es]=Herramienta de descubrimiento de redes y auditoría de seguridad
+Comment[fr]=Outil de découverte réseau et d'audit de sécurité
+Comment[de]=Netzwerkerkennungs- und Sicherheitsaudit-Tool
+Comment[ar]=أداة اكتشاف الشبكات ومراجعة الأمان
+Comment[ru]=Инструмент обнаружения сетей и проверки безопасности
+Comment[zh]=网络发现和安全审计工具
+Comment[ja]=ネットワーク発見およびセキュリティ監査ツール
+Comment[ko]=네트워크 발견 및 보안 감사 도구
+Comment[pt]=Ferramenta de descoberta de rede e auditoria de segurança
+Comment[it]=Strumento di rilevamento della rete e audit di sicurezza
+Comment[nl]=Netwerkdiscoverie en beveiligingsaudit-hulpmiddel
+Comment[sv]=Nätverksupptäckts- och säkerhetsgranskningsverktyg
+Comment[pl]=Narzędzie do wykrywania sieci i audytu bezpieczeństwa
+Exec=mate-terminal -- bash -c "nmap; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/nmap.png
+Categories=NetworkOSINT;
+StartupNotify=false

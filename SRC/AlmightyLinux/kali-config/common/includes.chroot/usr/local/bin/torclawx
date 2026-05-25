@@ -1,0 +1,939 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import time
+import signal
+try:
+    import requests
+except ImportError:
+    import sys; sys.exit("[!] Missing: requests")
+import hashlib
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    import sys; sys.exit("[!] Missing: bs4")
+from urllib.parse import urljoin, urlparse
+from urllib.robotparser import RobotFileParser
+from datetime import datetime
+import json
+import mimetypes
+import pickle
+import sqlite3
+import re
+import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import socket
+import random
+
+BANNER = r"""
+═══════════════════════════════════════
+   _____           ____ _                      
+ |_   _|__  _ __ / ___| | __ ___      ____  __
+   | |/ _ \| '__| |   | |/ _` \ \ /\ / /\ \/ /
+   | | (_) | |  | |___| | (_| |\ V  V /  >  < 
+   |_|\___/|_|   \____|_|\__,_| \_/\_/  /_/\_\
+
+═══════════════════════════════════════
+Onion Crawler & Archive Tool                                             
+═══════════════════════════════════════
+"""
+
+LEGAL_WARNING = """
+⚠ LEGAL WARNING ⚠
+This tool is for EDUCATIONAL purposes only.
+You are responsible for compliance with all laws.
+Misuse may result in legal consequences.
+
+Accept? (yes/no): """
+
+# Global flag for graceful shutdown
+_shutdown_requested = False
+
+def _signal_handler(signum, frame):
+    global _shutdown_requested
+    _shutdown_requested = True
+    print("\n[SIGNAL] Shutdown requested, finishing current tasks...")
+
+signal.signal(signal.SIGINT, _signal_handler)
+signal.signal(signal.SIGTERM, _signal_handler)
+
+
+class OnionCrawler:
+    # Map file categories to their corresponding stats keys
+    CATEGORY_STAT_MAP = {
+        'html': 'total_pages',
+        'images': 'total_images',
+        'css': 'total_css',
+        'js': 'total_js',
+        'other': 'total_other'
+    }
+
+    def __init__(self, proxy_url="socks5h://127.0.0.1:9050", max_workers=5, use_database=True, tor_control_port=9051):
+        self.session = requests.Session()
+        self.session.proxies = {
+            'http': proxy_url,
+            'https': proxy_url
+        }
+        
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0',
+            'Mozilla/5.0 (Windows NT 10.0; rv:102.0) Gecko/20100101 Firefox/102.0',
+            'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/115.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+        ]
+        
+        self.set_realistic_headers()
+        
+        self.visited_urls = set()
+        self.failed_urls = {}
+        self.content_hashes = set()
+        self.archive_dir = "onion_archive"
+        self.session_file = "crawler_session.pkl"
+        self.db_file = os.path.join(self.archive_dir, "crawler.db")
+        self.use_database = use_database
+        self.db_conn = None
+        self.max_workers = max_workers
+        self.lock = Lock()
+        self.db_lock = Lock()
+        self.tor_control_port = tor_control_port
+        self.blacklist = []
+        self.whitelist = []
+        self.stats = {
+            'total_pages': 0,
+            'total_images': 0,
+            'total_css': 0,
+            'total_js': 0,
+            'total_other': 0,
+            'total_failed': 0,
+            'total_bytes': 0,
+            'total_duplicates': 0,
+            'bandwidth_saved': 0,
+            'circuits_rotated': 0,
+            'headers_rotated': 0,
+            'start_time': None,
+            'end_time': None
+        }
+        self.robots_cache = {}
+        self.max_retries = 3
+        self.domain_last_access = {}
+        self.domain_rate_lock = Lock()
+        self.min_domain_delay = 1.0
+    
+    def set_realistic_headers(self, rotate=False):
+        if rotate:
+            user_agent = random.choice(self.user_agents)
+        else:
+            user_agent = self.user_agents[0]
+        
+        self.session.headers.update({
+            'User-Agent': user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0'
+        })
+        
+        if rotate:
+            with self.lock:
+                self.stats['headers_rotated'] += 1
+            print(f"[HEADERS] Rotated to: {user_agent[:50]}...")
+        
+    def create_archive_structure(self):
+        dirs = [
+            self.archive_dir,
+            os.path.join(self.archive_dir, 'html'),
+            os.path.join(self.archive_dir, 'images'),
+            os.path.join(self.archive_dir, 'css'),
+            os.path.join(self.archive_dir, 'js'),
+            os.path.join(self.archive_dir, 'other'),
+            os.path.join(self.archive_dir, 'reports'),
+            os.path.join(self.archive_dir, 'exports'),
+            os.path.join(self.archive_dir, 'text')
+        ]
+        for d in dirs:
+            os.makedirs(d, exist_ok=True)
+        
+        if self.use_database:
+            self.init_database()
+    
+    def init_database(self):
+        try:
+            self.db_conn = sqlite3.connect(self.db_file, check_same_thread=False)
+            cursor = self.db_conn.cursor()
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS urls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT UNIQUE,
+                    content_hash TEXT,
+                    category TEXT,
+                    depth INTEGER,
+                    timestamp TEXT,
+                    file_size INTEGER,
+                    success INTEGER,
+                    error TEXT
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS content (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url_id INTEGER,
+                    content_type TEXT,
+                    filepath TEXT,
+                    extracted_text TEXT,
+                    FOREIGN KEY (url_id) REFERENCES urls(id)
+                )
+            ''')
+            
+            self.db_conn.commit()
+        except sqlite3.Error as e:
+            print(f"[DB ERROR] Failed to initialize database: {str(e)}")
+            self.use_database = False
+            self.db_conn = None
+    
+    def close_database(self):
+        if self.db_conn:
+            try:
+                self.db_conn.close()
+            except sqlite3.Error:
+                pass
+            finally:
+                self.db_conn = None
+    
+    def get_hash(self, url):
+        return hashlib.md5(url.encode()).hexdigest()
+    
+    def get_content_hash(self, content):
+        if isinstance(content, str):
+            content = content.encode()
+        return hashlib.sha256(content).hexdigest()
+    
+    def is_duplicate(self, content):
+        content_hash = self.get_content_hash(content)
+        with self.lock:
+            if content_hash in self.content_hashes:
+                return True
+            self.content_hashes.add(content_hash)
+            return False
+    
+    def add_blacklist(self, patterns):
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        for p in patterns:
+            try:
+                self.blacklist.append(re.compile(p))
+            except re.error as e:
+                print(f"[FILTER] Invalid blacklist regex '{p}': {e}")
+    
+    def add_whitelist(self, patterns):
+        if isinstance(patterns, str):
+            patterns = [patterns]
+        for p in patterns:
+            try:
+                self.whitelist.append(re.compile(p))
+            except re.error as e:
+                print(f"[FILTER] Invalid whitelist regex '{p}': {e}")
+    
+    def is_url_allowed(self, url):
+        if self.whitelist:
+            return any(pattern.search(url) for pattern in self.whitelist)
+        
+        if self.blacklist:
+            return not any(pattern.search(url) for pattern in self.blacklist)
+        
+        return True
+    
+    def rate_limit_domain(self, url):
+        """Enforce minimum delay between requests to the same domain."""
+        domain = urlparse(url).netloc
+        with self.domain_rate_lock:
+            last = self.domain_last_access.get(domain, 0)
+            now = time.time()
+            elapsed = now - last
+            if elapsed < self.min_domain_delay:
+                time.sleep(self.min_domain_delay - elapsed)
+            self.domain_last_access[domain] = time.time()
+    
+    def rotate_tor_circuit(self):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(10)
+                s.connect(("127.0.0.1", self.tor_control_port))
+                s.send(b"AUTHENTICATE\r\n")
+                response = s.recv(1024)
+                
+                if b"250 OK" in response:
+                    s.send(b"SIGNAL NEWNYM\r\n")
+                    response = s.recv(1024)
+                    
+                    if b"250 OK" in response:
+                        with self.lock:
+                            self.stats['circuits_rotated'] += 1
+                        print("[TOR] Circuit rotated successfully")
+                        self.set_realistic_headers(rotate=True)
+                        time.sleep(5)
+                        return True
+                    else:
+                        print(f"[TOR] NEWNYM failed: {response.decode(errors='ignore').strip()}")
+                else:
+                    print(f"[TOR] Authentication failed: {response.decode(errors='ignore').strip()}")
+        except socket.timeout:
+            print("[TOR] Control port connection timed out")
+        except ConnectionRefusedError:
+            print("[TOR] Control port not available (is Tor running?)")
+        except Exception as e:
+            print(f"[TOR] Failed to rotate circuit: {str(e)}")
+        return False
+    
+    def extract_text_from_html(self, html_content):
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            for script in soup(["script", "style"]):
+                script.decompose()
+            
+            text = soup.get_text()
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = ' '.join(chunk for chunk in chunks if chunk)
+            
+            return text
+        except Exception:
+            return ""
+    
+    def check_robots_txt(self, url):
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        if base_url in self.robots_cache:
+            return self.robots_cache[base_url]
+        
+        robots_url = f"{base_url}/robots.txt"
+        try:
+            rp = RobotFileParser()
+            rp.set_url(robots_url)
+            response = self.session.get(robots_url, timeout=10)
+            if response.status_code == 200:
+                rp.parse(response.text.splitlines())
+                self.robots_cache[base_url] = rp
+                return rp
+        except Exception:
+            pass
+        
+        self.robots_cache[base_url] = None
+        return None
+    
+    def can_fetch(self, url):
+        rp = self.check_robots_txt(url)
+        if rp:
+            return rp.can_fetch("*", url)
+        return True
+    
+    def fetch_page(self, url, timeout=30, retries=None):
+        if retries is None:
+            retries = self.max_retries
+            
+        for attempt in range(retries):
+            if _shutdown_requested:
+                return None
+            try:
+                self.rate_limit_domain(url)
+                response = self.session.get(url, timeout=timeout)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.Timeout:
+                print(f"[TIMEOUT] {url} (attempt {attempt + 1}/{retries})")
+            except requests.exceptions.ConnectionError:
+                print(f"[CONN ERR] {url} (attempt {attempt + 1}/{retries})")
+            except requests.exceptions.HTTPError as e:
+                print(f"[HTTP {e.response.status_code}] {url}")
+                with self.lock:
+                    self.failed_urls[url] = f"HTTP {e.response.status_code}"
+                    self.stats['total_failed'] += 1
+                return None
+            except Exception as e:
+                if attempt == retries - 1:
+                    print(f"[ERROR] {url}: {str(e)}")
+                    with self.lock:
+                        self.failed_urls[url] = str(e)
+                        self.stats['total_failed'] += 1
+                    return None
+            
+            backoff = min(2 ** attempt, 30)
+            time.sleep(backoff)
+        
+        with self.lock:
+            self.failed_urls[url] = "Max retries exceeded"
+            self.stats['total_failed'] += 1
+        return None
+    
+    def get_file_category(self, url, content_type):
+        ext = os.path.splitext(urlparse(url).path)[1].lower()
+        
+        if 'html' in content_type or ext in ['.html', '.htm']:
+            return 'html'
+        elif any(img in content_type for img in ['image/', 'img/']) or ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.ico']:
+            return 'images'
+        elif 'css' in content_type or ext == '.css':
+            return 'css'
+        elif 'javascript' in content_type or ext == '.js':
+            return 'js'
+        else:
+            return 'other'
+    
+    def save_resource(self, url, response, depth=0):
+        content = response.content if hasattr(response, 'content') else response.text.encode()
+        
+        if self.is_duplicate(content):
+            with self.lock:
+                self.stats['total_duplicates'] += 1
+                self.stats['bandwidth_saved'] += len(content)
+            print(f"[DUPLICATE] Skipped: {url[:60]}")
+            return None
+        
+        url_hash = self.get_hash(url)
+        content_hash = self.get_content_hash(content)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        content_type = response.headers.get('Content-Type', 'text/html')
+        category = self.get_file_category(url, content_type)
+        
+        domain = urlparse(url).netloc
+        save_dir = os.path.join(self.archive_dir, category, domain)
+        os.makedirs(save_dir, exist_ok=True)
+        
+        ext = os.path.splitext(urlparse(url).path)[1]
+        if not ext:
+            ext = mimetypes.guess_extension(content_type.split(';')[0]) or '.bin'
+        
+        filename = f"{url_hash}_{timestamp}{ext}"
+        filepath = os.path.join(save_dir, filename)
+        extracted_text = ""
+        
+        try:
+            if category in ['html', 'css', 'js']:
+                with open(filepath, 'w', encoding='utf-8', errors='ignore') as f:
+                    f.write(response.text)
+                
+                if category == 'html':
+                    extracted_text = self.extract_text_from_html(response.text)
+                    text_dir = os.path.join(self.archive_dir, 'text', domain)
+                    os.makedirs(text_dir, exist_ok=True)
+                    text_file = os.path.join(text_dir, f"{url_hash}_{timestamp}.txt")
+                    with open(text_file, 'w', encoding='utf-8', errors='ignore') as f:
+                        f.write(extracted_text)
+            else:
+                with open(filepath, 'wb') as f:
+                    f.write(content)
+            
+            file_size = os.path.getsize(filepath)
+            
+            # Use the correct stats key via the mapping
+            stat_key = self.CATEGORY_STAT_MAP.get(category, 'total_other')
+            with self.lock:
+                self.stats['total_bytes'] += file_size
+                self.stats[stat_key] += 1
+            
+            metadata = {
+                "url": url,
+                "timestamp": timestamp,
+                "content_type": content_type,
+                "category": category,
+                "filepath": filepath,
+                "size": file_size,
+                "hash": url_hash,
+                "content_hash": content_hash,
+                "depth": depth
+            }
+            
+            meta_filepath = os.path.join(save_dir, f"{url_hash}_{timestamp}.json")
+            with open(meta_filepath, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            if self.use_database and self.db_conn:
+                with self.db_lock:
+                    try:
+                        cursor = self.db_conn.cursor()
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO urls (url, content_hash, category, depth, timestamp, file_size, success)
+                            VALUES (?, ?, ?, ?, ?, ?, 1)
+                        ''', (url, content_hash, category, depth, timestamp, file_size))
+                        
+                        url_id = cursor.lastrowid
+                        if url_id:
+                            cursor.execute('''
+                                INSERT INTO content (url_id, content_type, filepath, extracted_text)
+                                VALUES (?, ?, ?, ?)
+                            ''', (url_id, content_type, filepath, extracted_text))
+                        
+                        self.db_conn.commit()
+                    except sqlite3.Error as e:
+                        print(f"[DB ERROR] Saving resource: {str(e)}")
+            
+            print(f"[{category.upper():6s}] {url[:60]}")
+            return filepath
+            
+        except OSError as e:
+            print(f"[SAVE ERROR] {url}: {str(e)}")
+            return None
+        
+    def extract_all_resources(self, base_url, html_content):
+        soup = BeautifulSoup(html_content, 'html.parser')
+        resources = set()
+        
+        for tag in soup.find_all('a', href=True):
+            resources.add(urljoin(base_url, tag['href']))
+        
+        for tag in soup.find_all('img', src=True):
+            resources.add(urljoin(base_url, tag['src']))
+        
+        for tag in soup.find_all('link', href=True):
+            resources.add(urljoin(base_url, tag['href']))
+        
+        for tag in soup.find_all('script', src=True):
+            resources.add(urljoin(base_url, tag['src']))
+        
+        # Also extract from srcset attributes
+        for tag in soup.find_all(attrs={"srcset": True}):
+            for entry in tag['srcset'].split(','):
+                src = entry.strip().split()[0]
+                if src:
+                    resources.add(urljoin(base_url, src))
+        
+        # Extract from inline style url() references
+        for tag in soup.find_all(style=True):
+            for match in re.findall(r'url\(["\']?([^)"\']+)["\']?\)', tag['style']):
+                resources.add(urljoin(base_url, match))
+        
+        # Also check <style> blocks
+        for style_tag in soup.find_all('style'):
+            if style_tag.string:
+                for match in re.findall(r'url\(["\']?([^)"\']+)["\']?\)', style_tag.string):
+                    resources.add(urljoin(base_url, match))
+        
+        onion_resources = {url for url in resources if '.onion' in urlparse(url).netloc}
+        
+        return onion_resources
+    
+    def save_session(self):
+        session_data = {
+            'visited_urls': self.visited_urls,
+            'failed_urls': self.failed_urls,
+            'stats': self.stats
+        }
+        try:
+            with open(self.session_file, 'wb') as f:
+                pickle.dump(session_data, f)
+            print(f"[SESSION] Saved to {self.session_file}")
+        except (OSError, pickle.PicklingError) as e:
+            print(f"[SESSION] Failed to save: {str(e)}")
+    
+    def load_session(self):
+        if os.path.exists(self.session_file):
+            try:
+                with open(self.session_file, 'rb') as f:
+                    session_data = pickle.load(f)
+                self.visited_urls = session_data.get('visited_urls', set())
+                self.failed_urls = session_data.get('failed_urls', {})
+                self.stats = session_data.get('stats', self.stats)
+                print(f"[SESSION] Loaded {len(self.visited_urls)} visited URLs")
+                return True
+            except (OSError, pickle.UnpicklingError, EOFError) as e:
+                print(f"[SESSION] Failed to load: {str(e)}")
+                return False
+        return False
+    
+    def generate_report(self, start_url):
+        start_time = self.stats.get('start_time')
+        end_time = self.stats.get('end_time')
+        
+        if start_time and end_time:
+            duration = end_time - start_time
+        else:
+            duration = 0
+        
+        report_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Crawl Report - {urlparse(start_url).netloc}</title>
+    <style>
+        body {{ font-family: monospace; background: #1a1a1a; color: #00ff00; padding: 20px; }}
+        h1 {{ color: #00ff00; border-bottom: 2px solid #00ff00; }}
+        table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+        th, td {{ border: 1px solid #00ff00; padding: 10px; text-align: left; }}
+        th {{ background: #2a2a2a; }}
+        .stats {{ background: #2a2a2a; padding: 15px; margin: 10px 0; border-left: 4px solid #00ff00; }}
+    </style>
+</head>
+<body>
+    <h1>Onion Crawler Report</h1>
+    <div class="stats">
+        <h2>Statistics</h2>
+        <p><strong>Target:</strong> {start_url}</p>
+        <p><strong>Duration:</strong> {duration:.2f} seconds</p>
+        <p><strong>Total Downloaded:</strong> {self.stats['total_bytes'] / 1024 / 1024:.2f} MB</p>
+        <p><strong>HTML Pages:</strong> {self.stats['total_pages']}</p>
+        <p><strong>Images:</strong> {self.stats['total_images']}</p>
+        <p><strong>CSS Files:</strong> {self.stats['total_css']}</p>
+        <p><strong>JS Files:</strong> {self.stats['total_js']}</p>
+        <p><strong>Other Files:</strong> {self.stats['total_other']}</p>
+        <p><strong>Failed:</strong> {self.stats['total_failed']}</p>
+        <p><strong>Duplicates Skipped:</strong> {self.stats['total_duplicates']}</p>
+        <p><strong>Bandwidth Saved:</strong> {self.stats['bandwidth_saved'] / 1024 / 1024:.2f} MB</p>
+    </div>
+    
+    <h2>Visited URLs ({len(self.visited_urls)})</h2>
+    <table>
+        <tr><th>#</th><th>URL</th></tr>
+"""
+        for i, url in enumerate(sorted(self.visited_urls), 1):
+            report_html += f"        <tr><td>{i}</td><td>{url}</td></tr>\n"
+        
+        report_html += "    </table>\n"
+        
+        if self.failed_urls:
+            report_html += f"""
+    <h2>Failed URLs ({len(self.failed_urls)})</h2>
+    <table>
+        <tr><th>#</th><th>URL</th><th>Error</th></tr>
+"""
+            for i, (url, error) in enumerate(sorted(self.failed_urls.items()), 1):
+                report_html += f"        <tr><td>{i}</td><td>{url}</td><td>{error}</td></tr>\n"
+            report_html += "    </table>\n"
+        
+        report_html += """
+</body>
+</html>
+"""
+        
+        report_file = os.path.join(self.archive_dir, 'reports', f'report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.html')
+        with open(report_file, 'w', encoding='utf-8') as f:
+            f.write(report_html)
+        
+        print(f"\n[REPORT] Generated: {report_file}")
+        return report_file
+    
+    def export_to_json(self):
+        # Make stats JSON-safe by converting epoch floats to ISO strings
+        safe_stats = dict(self.stats)
+        if safe_stats.get('start_time'):
+            safe_stats['start_time'] = datetime.fromtimestamp(safe_stats['start_time']).isoformat()
+        if safe_stats.get('end_time'):
+            safe_stats['end_time'] = datetime.fromtimestamp(safe_stats['end_time']).isoformat()
+        
+        export_data = {
+            'metadata': {
+                'export_time': datetime.now().isoformat(),
+                'stats': safe_stats
+            },
+            'visited_urls': list(self.visited_urls),
+            'failed_urls': self.failed_urls
+        }
+        
+        if self.use_database and self.db_conn:
+            with self.db_lock:
+                try:
+                    cursor = self.db_conn.cursor()
+                    cursor.execute('SELECT url, category, depth, timestamp, file_size FROM urls WHERE success = 1')
+                    export_data['database_urls'] = [
+                        {
+                            'url': row[0],
+                            'category': row[1],
+                            'depth': row[2],
+                            'timestamp': row[3],
+                            'file_size': row[4]
+                        }
+                        for row in cursor.fetchall()
+                    ]
+                except sqlite3.Error as e:
+                    print(f"[DB ERROR] Export: {str(e)}")
+        
+        export_file = os.path.join(self.archive_dir, 'exports', f'export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+        with open(export_file, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"[EXPORT] JSON: {export_file}")
+        return export_file
+    
+    def export_to_csv(self):
+        export_file = os.path.join(self.archive_dir, 'exports', f'export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv')
+        
+        with open(export_file, 'w', newline='', encoding='utf-8') as f:
+            if self.use_database and self.db_conn:
+                with self.db_lock:
+                    try:
+                        cursor = self.db_conn.cursor()
+                        cursor.execute('SELECT url, category, depth, timestamp, file_size, success FROM urls')
+                        
+                        writer = csv.writer(f)
+                        writer.writerow(['URL', 'Category', 'Depth', 'Timestamp', 'File Size', 'Success'])
+                        writer.writerows(cursor.fetchall())
+                    except sqlite3.Error as e:
+                        print(f"[DB ERROR] CSV export: {str(e)}")
+            else:
+                writer = csv.writer(f)
+                writer.writerow(['URL', 'Status'])
+                for url in self.visited_urls:
+                    writer.writerow([url, 'Success'])
+                for url, error in self.failed_urls.items():
+                    writer.writerow([url, f'Failed: {error}'])
+        
+        print(f"[EXPORT] CSV: {export_file}")
+        return export_file
+    
+    def export_url_list(self):
+        export_file = os.path.join(self.archive_dir, 'exports', f'urls_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
+        
+        with open(export_file, 'w', encoding='utf-8') as f:
+            f.write("# Visited URLs\n")
+            for url in sorted(self.visited_urls):
+                f.write(f"{url}\n")
+        
+        print(f"[EXPORT] URL List: {export_file}")
+        return export_file
+    
+    def export_all(self):
+        print("\n[EXPORT] Generating exports...")
+        self.export_to_json()
+        self.export_to_csv()
+        self.export_url_list()
+    
+    def print_stats(self):
+        print("\n" + "="*50)
+        print("CRAWL STATISTICS")
+        print("="*50)
+        print(f"Total URLs Visited: {len(self.visited_urls)}")
+        print(f"HTML Pages:         {self.stats['total_pages']}")
+        print(f"Images:             {self.stats['total_images']}")
+        print(f"CSS Files:          {self.stats['total_css']}")
+        print(f"JavaScript Files:   {self.stats['total_js']}")
+        print(f"Other Files:        {self.stats['total_other']}")
+        print(f"Failed Downloads:   {self.stats['total_failed']}")
+        print(f"Duplicates Skipped: {self.stats['total_duplicates']}")
+        print(f"Bandwidth Saved:    {self.stats['bandwidth_saved'] / 1024 / 1024:.2f} MB")
+        print(f"Total Downloaded:   {self.stats['total_bytes'] / 1024 / 1024:.2f} MB")
+        print(f"Tor Circuits:       {self.stats['circuits_rotated']}")
+        print(f"Headers Rotated:    {self.stats['headers_rotated']}")
+        if self.stats['end_time'] and self.stats['start_time']:
+            duration = self.stats['end_time'] - self.stats['start_time']
+            speed = self.stats['total_bytes'] / duration / 1024 if duration > 0 else 0
+            print(f"Duration:           {duration:.2f} seconds")
+            print(f"Average Speed:      {speed:.2f} KB/s")
+        print("="*50)
+    
+    def process_url(self, url, depth, download_resources):
+        if _shutdown_requested:
+            return []
+        
+        with self.lock:
+            if url in self.visited_urls:
+                return []
+            self.visited_urls.add(url)
+        
+        if not self.is_url_allowed(url):
+            print(f"[FILTERED] Blocked by filter: {url}")
+            return []
+        
+        if not self.can_fetch(url):
+            print(f"[ROBOTS] Blocked by robots.txt: {url}")
+            return []
+        
+        print(f"\n[DEPTH {depth}] Crawling: {url}")
+        
+        response = self.fetch_page(url)
+        
+        if not response:
+            return []
+        
+        self.save_resource(url, response, depth)
+        
+        new_urls = []
+        content_type = response.headers.get('Content-Type', '')
+        
+        if 'html' in content_type.lower():
+            resources = self.extract_all_resources(url, response.text)
+            
+            for resource_url in resources:
+                if resource_url not in self.visited_urls:
+                    is_page = not any(ext in resource_url.lower() for ext in ['.jpg', '.png', '.gif', '.css', '.js', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.eot'])
+                    
+                    if is_page or download_resources:
+                        new_urls.append(resource_url)
+        
+        return new_urls
+    
+    def crawl(self, start_url, max_depth=2, delay=1, download_resources=True, rotate_circuit_every=50):
+        global _shutdown_requested
+        self.create_archive_structure()
+        self.stats['start_time'] = time.time()
+        
+        queue = [(start_url, 0)]
+        processed_count = 0
+        
+        try:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                while queue and not _shutdown_requested:
+                    batch = []
+                    batch_size = min(self.max_workers, len(queue))
+                    
+                    for _ in range(batch_size):
+                        if queue:
+                            url, depth = queue.pop(0)
+                            if url not in self.visited_urls and depth <= max_depth:
+                                batch.append((url, depth))
+                    
+                    if not batch:
+                        break
+                    
+                    futures = {
+                        executor.submit(self.process_url, url, depth, download_resources): (url, depth)
+                        for url, depth in batch
+                    }
+                    
+                    for future in as_completed(futures):
+                        if _shutdown_requested:
+                            break
+                        
+                        url, depth = futures[future]
+                        try:
+                            new_urls = future.result()
+                            
+                            if depth < max_depth:
+                                for new_url in new_urls:
+                                    if new_url not in self.visited_urls:
+                                        queue.append((new_url, depth + 1))
+                            
+                            processed_count += 1
+                            
+                            if rotate_circuit_every > 0 and processed_count % rotate_circuit_every == 0:
+                                print(f"\n[TOR] Rotating circuit after {processed_count} URLs...")
+                                self.rotate_tor_circuit()
+                            
+                        except Exception as e:
+                            print(f"[ERROR] Processing {url}: {str(e)}")
+                    
+                    time.sleep(delay)
+        finally:
+            self.stats['end_time'] = time.time()
+        
+        if _shutdown_requested:
+            print("\n[SHUTDOWN] Crawl stopped gracefully")
+        
+        self.print_stats()
+        print(f"\n[ARCHIVE] Files saved to: {os.path.abspath(self.archive_dir)}")
+
+
+def safe_int_input(prompt, default):
+    """Safely read an integer from input with a default fallback."""
+    raw = input(prompt).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"[WARN] Invalid number, using default: {default}")
+        return default
+
+
+def safe_float_input(prompt, default):
+    """Safely read a float from input with a default fallback."""
+    raw = input(prompt).strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"[WARN] Invalid number, using default: {default}")
+        return default
+
+
+def main():
+    print(BANNER)
+    
+    response = input(LEGAL_WARNING).strip().lower()
+    
+    if response not in ['yes', 'y']:
+        print("\n[EXIT] You must accept the terms to continue.")
+        sys.exit(0)
+    
+    print("\n" + "="*50)
+    
+    onion_url = input("Enter .onion URL: ").strip()
+    
+    if not onion_url.endswith('.onion') and '.onion/' not in onion_url:
+        print("[ERROR] Invalid .onion URL")
+        sys.exit(1)
+    
+    if not onion_url.startswith('http'):
+        onion_url = 'http://' + onion_url
+    
+    max_depth = safe_int_input("Max crawl depth (default 2): ", 2)
+    delay = safe_float_input("Delay between requests (default 1): ", 1.0)
+    max_workers = safe_int_input("Max concurrent workers (default 5): ", 5)
+    
+    # Clamp workers to reasonable range
+    max_workers = max(1, min(max_workers, 20))
+    
+    download_res = input("Download all resources? (yes/no, default yes): ").strip().lower() or "yes"
+    download_resources = download_res in ['yes', 'y']
+    use_db = input("Use database? (yes/no, default yes): ").strip().lower() or "yes"
+    use_database = use_db in ['yes', 'y']
+    rotate_circuit = safe_int_input("Rotate Tor circuit every N URLs (0=disable, default 50): ", 50)
+    
+    blacklist_input = input("Enter blacklist patterns (comma-separated, optional): ").strip()
+    blacklist = [p.strip() for p in blacklist_input.split(',') if p.strip()] if blacklist_input else []
+    
+    resume = input("Resume previous session? (yes/no): ").strip().lower()
+    
+    crawler = OnionCrawler(max_workers=max_workers, use_database=use_database)
+    
+    if blacklist:
+        crawler.add_blacklist(blacklist)
+        print(f"[FILTER] Added {len(blacklist)} blacklist patterns")
+    
+    if resume in ['yes', 'y']:
+        crawler.load_session()
+    
+    print(f"\n[INFO] Target: {onion_url}")
+    print(f"[INFO] Max depth: {max_depth}")
+    print(f"[INFO] Delay: {delay}s")
+    print(f"[INFO] Concurrent workers: {max_workers}")
+    print(f"[INFO] Download resources: {download_resources}")
+    print(f"[INFO] Database: {use_database}")
+    print(f"[INFO] Circuit rotation: {'Every ' + str(rotate_circuit) + ' URLs' if rotate_circuit > 0 else 'Disabled'}")
+    print(f"[INFO] Proxy: socks5h://127.0.0.1:9050\n")
+    
+    try:
+        crawler.crawl(onion_url, max_depth=max_depth, delay=delay, download_resources=download_resources, rotate_circuit_every=rotate_circuit)
+        crawler.generate_report(onion_url)
+        crawler.export_all()
+        crawler.save_session()
+    except KeyboardInterrupt:
+        print("\n\n[INTERRUPTED] Crawl stopped by user")
+        crawler.stats['end_time'] = time.time()
+        crawler.print_stats()
+        crawler.save_session()
+        crawler.generate_report(onion_url)
+        crawler.export_all()
+        print("[INFO] Session saved. Run again with 'resume' to continue.")
+    except Exception as e:
+        print(f"\n[FATAL ERROR] {str(e)}")
+        import traceback
+        traceback.print_exc()
+        crawler.save_session()
+    finally:
+        if use_database:
+            crawler.close_database()
+
+if __name__ == "__main__":
+    main()

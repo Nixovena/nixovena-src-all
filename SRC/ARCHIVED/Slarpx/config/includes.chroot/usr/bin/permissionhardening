@@ -1,0 +1,122 @@
+#!/bin/bash
+
+# Must be run as root
+if [ "$EUID" -ne 0 ]; then
+    echo "ERROR: This script must be run as root."
+    exit 1
+fi
+
+echo "[+] Starting permission hardening..."
+
+# Critical files and their permissions: mode:uid:gid
+declare -A CRITICAL_FILES=(
+    ["/etc/passwd"]="644:root:root"
+    ["/etc/shadow"]="600:root:root"
+    ["/etc/shadow-"]="600:root:root"
+    ["/etc/group"]="644:root:root"
+    ["/etc/gshadow"]="600:root:root"
+    ["/etc/gshadow-"]="600:root:root"
+    ["/etc/sudoers"]="440:root:root"
+    ["/etc/hosts"]="644:root:root"
+    ["/etc/fstab"]="600:root:root"
+    ["/etc/sysctl.conf"]="600:root:root"
+    ["/etc/ssh/sshd_config"]="600:root:root"
+    ["/boot/grub/grub.cfg"]="600:root:root"
+    ["/etc/nftables.conf"]="600:root:root"
+    ["/etc/security/faillock.conf"]="600:root:root"
+    ["/etc/security/limits.d/hardened.conf"]="600:root:root"
+    ["/etc/sysctl.d/sysctl.conf"]="600:root:root"
+    ["/etc/crypttab"]="600:root:root"
+    ["/usr/bin/slarpx-coldboot"]="755:root:root"
+    ["/usr/bin/slarpx-dns"]="755:root:root"
+    ["/usr/bin/permissionhardening"]="755:root:root"
+    ["/etc/systemd/system/slarpx-coldboot.service"]="644:root:root"
+)
+
+# Files to be made immutable (chattr +i)
+# WARNING: These files cannot be modified (even by root) until 'chattr -i' is run.
+IMMUTABLE_FILES=(
+    "/etc/sudoers"
+    "/etc/fstab"
+    "/etc/nftables.conf"
+)
+
+# Restrict Access to Compilers (Prevent compilation on production)
+COMPILERS=(
+    "/usr/bin/gcc"
+    "/usr/bin/g++"
+    "/usr/bin/make"
+    "/usr/bin/as"
+    "/usr/bin/cc"
+    "/usr/bin/clang"
+)
+
+# Critical directories
+declare -A DIRS=(
+    ["/etc/sudoers.d"]="750:root:root"
+    ["/root"]="700:root:root"
+    ["/var/log"]="750:root:root"
+    ["/boot"]="700:root:root"
+    ["/etc/cron.d"]="700:root:root"
+    ["/etc/cron.daily"]="700:root:root"
+    ["/etc/cron.hourly"]="700:root:root"
+    ["/etc/cron.monthly"]="700:root:root"
+    ["/etc/cron.weekly"]="700:root:root"
+    ["/etc/ssh"]="700:root:root"
+)
+
+apply_perms() {
+    local path="$1"
+    local perms="$2"
+    local mode="${perms%%:*}"
+    local owner="${perms#*:}"
+
+    if [ -e "$path" ]; then
+        chmod "$mode" "$path"
+        chown "$owner" "$path"
+        echo "Set permissions for $path: $mode $owner"
+    fi
+}
+
+make_immutable() {
+    local path="$1"
+    if [ -e "$path" ]; then
+        # Check if chattr exists
+        if command -v chattr &> /dev/null; then
+            chattr +i "$path"
+            echo "Made immutable: $path"
+        else
+            echo "WARNING: chattr not found, cannot make $path immutable."
+        fi
+    fi
+}
+
+echo "[+] Locking down critical files..."
+for path in "${!CRITICAL_FILES[@]}"; do
+    apply_perms "$path" "${CRITICAL_FILES[$path]}"
+done
+
+echo "[+] Restricting compilers..."
+for comp in "${COMPILERS[@]}"; do
+    if [ -f "$comp" ]; then
+        chmod 700 "$comp"
+        chown root:root "$comp"
+        echo "Restricted: $comp"
+    fi
+done
+
+echo "[+] Securing directories..."
+for path in "${!DIRS[@]}"; do
+    apply_perms "$path" "${DIRS[$path]}"
+done
+
+echo "[+] Applying immutable attributes..."
+for path in "${IMMUTABLE_FILES[@]}"; do
+    make_immutable "$path"
+done
+
+# Ensure sticky bit on tmp directories
+chmod 1777 /tmp 2>/dev/null
+chmod 1777 /var/tmp 2>/dev/null
+
+echo "[+] Permission hardening completed."

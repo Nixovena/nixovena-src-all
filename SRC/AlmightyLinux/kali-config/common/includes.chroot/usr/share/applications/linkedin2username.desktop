@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=linkedin2username
+Comment=Extract usernames from LinkedIn profiles for OSINT
+Comment[tr]=OSINT için LinkedIn profillerinden kullanıcı adlarını çıkar
+Comment[es]=Extrae nombres de usuario de perfiles de LinkedIn para OSINT
+Comment[fr]=Extrait les noms d'utilisateur des profils LinkedIn pour OSINT
+Comment[de]=Extrahiert Benutzernamen aus LinkedIn-Profilen für OSINT
+Comment[ar]=استخراج أسماء المستخدمين من ملفات LinkedIn الشخصية لـ OSINT
+Comment[ru]=Извлечение имен пользователей из профилей LinkedIn для OSINT
+Comment[zh]=从LinkedIn个人资料中提取用户名用于OSINT
+Comment[ja]=OSINTのためのLinkedInプロファイルからユーザー名を抽出
+Comment[ko]=OSINT를 위한 LinkedIn 프로필에서 사용자 이름 추출
+Comment[pt]=Extrai nomes de usuário de perfis do LinkedIn para OSINT
+Comment[it]=Estrae nomi utente dai profili LinkedIn per OSINT
+Comment[nl]=Extraheer gebruikersnamen uit LinkedIn-profielen voor OSINT
+Comment[sv]=Extrahera användarnamn från LinkedIn-profiler för OSINT
+Comment[pl]=Wyodrębnia nazwy użytkowników z profili LinkedIn do OSINT
+Exec=mate-terminal -- bash -c "linkedin2username; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false

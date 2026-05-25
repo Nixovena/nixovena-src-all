@@ -1,0 +1,152 @@
+#!/bin/bash
+set -e
+
+# ========================
+# rt-isolate.sh
+# ========================
+cat > /usr/local/bin/rt-isolate.sh << 'EOF'
+#!/bin/bash
+echo 1 > /sys/kernel/rcu_normal 2>/dev/null || true
+echo 1 > /sys/kernel/rcu_normal_after_boot 2>/dev/null || true
+exit 0
+EOF
+
+# ========================
+# rt-cpu-isolation.service
+# ========================
+cat > /etc/systemd/system/rt-cpu-isolation.service << 'EOF'
+[Unit]
+Description=RT CPU Isolation
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/rt-isolate.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ========================
+# irq-affinity.sh
+# ========================
+cat > /usr/local/bin/irq-affinity.sh << 'EOF'
+#!/bin/bash
+for irq in /proc/irq/*/smp_affinity; do
+    echo "1" > "$irq" 2>/dev/null || true
+done
+exit 0
+EOF
+
+# ========================
+# irq-affinity.service
+# ========================
+cat > /etc/systemd/system/irq-affinity.service << 'EOF'
+[Unit]
+Description=Pin IRQs to CPU0
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/irq-affinity.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ========================
+# memory-tune.sh
+# ========================
+cat > /usr/local/bin/memory-tune.sh << 'EOF'
+#!/bin/bash
+[ -f /sys/kernel/mm/transparent_hugepage/enabled ] && \
+    echo madvise > /sys/kernel/mm/transparent_hugepage/enabled || true
+
+[ -f /sys/kernel/mm/transparent_hugepage/defrag ] && \
+    echo always > /sys/kernel/mm/transparent_hugepage/defrag || true
+
+[ -f /proc/sys/kernel/numa_balancing ] && \
+    echo 0 > /proc/sys/kernel/numa_balancing || true
+
+exit 0
+EOF
+
+# ========================
+# memory-tune.service
+# ========================
+cat > /etc/systemd/system/memory-tune.service << 'EOF'
+[Unit]
+Description=Memory RT Tuning
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/memory-tune.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ========================
+# udev rules
+# ========================
+cat > /etc/udev/rules.d/60-ioschedulers.rules << 'EOF'
+ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/scheduler}="none"
+ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/nr_requests}="32"
+ACTION=="add|change", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/read_ahead_kb}="128"
+ACTION=="add|change", KERNEL=="sd[a-z]*|mmcblk[0-9]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="bfq"
+ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
+EOF
+
+cat > /etc/udev/rules.d/50-sata.rules << 'EOF'
+ACTION=="add", SUBSYSTEM=="scsi_host", KERNEL=="host*", ATTR{link_power_management_policy}="max_performance"
+EOF
+
+cat > /etc/udev/rules.d/69-hdparm.rules << 'EOF'
+ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", RUN+="/usr/bin/hdparm -B 254 -S 0 /dev/%k"
+EOF
+
+cat > /etc/udev/rules.d/70-usb-autosuspend.rules << 'EOF'
+ACTION=="add", SUBSYSTEM=="usb", TEST=="power/autosuspend", ATTR{power/autosuspend}="-1"
+ACTION=="add", SUBSYSTEM=="usb", TEST=="power/control", ATTR{power/control}="on"
+EOF
+
+# ========================
+# tmpfiles.d
+# ========================
+cat > /etc/tmpfiles.d/cpu-governor.conf << 'EOF'
+w /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor - - - - performance
+EOF
+
+cat > /etc/tmpfiles.d/energy-performance-preference.conf << 'EOF'
+w /sys/devices/system/cpu/cpufreq/policy*/energy_performance_preference - - - - performance
+EOF
+
+cat > /etc/tmpfiles.d/pcie-aspm-performance.conf << 'EOF'
+w /sys/module/pcie_aspm/parameters/policy - - - - performance
+EOF
+
+# ========================
+# RT priority limitleri
+# ========================
+cat > /etc/security/limits.d/99-rt-limits.conf << 'EOF'
+@audio   -  rtprio     95
+@audio   -  memlock    unlimited
+@audio   -  nice       -19
+*        -  rtprio     50
+*        -  memlock    524288
+EOF
+
+# ========================
+# chmod + enable
+# ========================
+chmod +x /usr/local/bin/rt-isolate.sh
+chmod +x /usr/local/bin/irq-affinity.sh
+chmod +x /usr/local/bin/memory-tune.sh
+
+systemctl enable rt-cpu-isolation.service
+systemctl enable irq-affinity.service
+systemctl enable memory-tune.service

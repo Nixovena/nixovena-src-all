@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=email2phonenumber
+Comment=OSINT tool to obtain a phone number from an email address
+Comment[tr]=E-posta adresinden telefon numarası elde eden OSINT aracı
+Comment[es]=Herramienta OSINT para obtener un número de teléfono de una dirección de correo electrónico
+Comment[fr]=Outil OSINT pour obtenir un numéro de téléphone à partir d'une adresse e-mail
+Comment[de]=OSINT-Tool, um eine Telefonnummer von einer E-Mail-Adresse zu erhalten
+Comment[ar]=أداة OSINT للحصول على رقم هاتف من عنوان بريد إلكتروني
+Comment[ru]=Инструмент OSINT для получения номера телефона по адресу электронной почты
+Comment[zh]=通过电子邮件地址获取电话号码的OSINT工具
+Comment[ja]=メールアドレスから電話番号を取得するOSINTツール
+Comment[ko]=이메일 주소에서 전화번호를 얻는 OSINT 도구
+Comment[pt]=Ferramenta OSINT para obter um número de telefone de um endereço de e-mail
+Comment[it]=Strumento OSINT per ottenere un numero di telefono da un indirizzo email
+Comment[nl]=OSINT-tool om een ​​telefoonnummer te verkrijgen via een e-mailadres
+Comment[sv]=OSINT-verktyg för att få ett telefonnummer från en e-postadress
+Comment[pl]=Narzędzie OSINT, służące do zdobycia numeru telefonu z adresu e-mail
+Exec=mate-terminal -- bash -c "email2phonenumber -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Phone;Emails;
+StartupNotify=false

@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+#BY: emka'thas
+
+import os
+import sys
+try:
+    import requests
+except ImportError:
+    sys.exit("[!] Missing: requests")
+import json
+import argparse
+try:
+    import phonenumbers
+    from phonenumbers import carrier, geocoder, timezone
+except ImportError:
+    sys.exit("[!] Missing dependency: phonenumbers\n    Install: pip install phonenumbers")
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    sys.exit("[!] Missing dependency: python-dotenv\n    Install: pip install python-dotenv")
+
+try:
+    from colorama import Fore, Style, init
+except ImportError:
+    sys.exit("[!] Missing dependency: colorama\n    Install: pip install colorama")
+
+# Initialize Colorama
+init(autoreset=True)
+
+# Load environment variables from .env file
+load_dotenv()
+
+def validate_phone_number(phone_number):
+    try:
+        # Parse the phone number
+        parsed_number = phonenumbers.parse(phone_number, None)
+        
+        # Check if the number is valid
+        if not phonenumbers.is_valid_number(parsed_number):
+            return False, "Invalid phone number format"
+        
+        # Check if the number is possible
+        if not phonenumbers.is_possible_number(parsed_number):
+            return False, "Impossible phone number"
+        
+        # Format to E.164 (standard format)
+        formatted_number = phonenumbers.format_number(parsed_number, phonenumbers.PhoneNumberFormat.E164)
+        
+        # Get additional info
+        country = geocoder.description_for_number(parsed_number, "en")
+        carrier_name = carrier.name_for_number(parsed_number, "en")
+        time_zones = timezone.time_zones_for_number(parsed_number)
+        
+        return True, {
+            "formatted": formatted_number,
+            "country": country,
+            "carrier": carrier_name,
+            "timezones": list(time_zones)
+        }
+    except phonenumbers.NumberParseException as e:
+        return False, f"Phone number parsing error: {str(e)}"
+    except Exception as e:
+        return False, f"Unexpected error: {str(e)}"
+
+def get_api_credentials():
+    api_key = os.getenv('RAPIDAPI_KEY')
+    api_host = os.getenv('RAPIDAPI_HOST')
+    
+    # If not found in environment, ask user
+    if not api_key:
+        api_key = input("Enter your RapidAPI key: ").strip()
+    
+    if not api_host:
+        api_host = input("Enter the RapidAPI host: ").strip()
+    
+    # Validate credentials
+    if not api_key or not api_host:
+        print(f"{Fore.RED}Error: API key and host are required.{Style.RESET_ALL}")
+        return None, None
+    
+    return api_key, api_host
+
+def print_colored_json(data, level=0):
+    indent = "    " * level
+    if isinstance(data, dict):
+        for key, value in data.items():
+            print(f"{indent}{Fore.CYAN}{key}{Style.RESET_ALL}: ", end="")
+            print_colored_json(value, level + 1)
+    elif isinstance(data, list):
+        print()  # New line before list items
+        for i, item in enumerate(data):
+            print(f"{indent}[{i}]: ", end="")
+            print_colored_json(item, level + 1)
+    else:
+        print(f"{Fore.YELLOW}{data}{Style.RESET_ALL}")
+
+def query_whatsapp_number(phone_number, api_key, api_host):
+    url = f"https://{api_host}/number/{phone_number}"
+    headers = {
+        "x-rapidapi-key": api_key,
+        "x-rapidapi-host": api_host
+    }
+    
+    try:
+        print(f"{Fore.BLUE}[*] Querying WhatsApp data for {phone_number}...{Style.RESET_ALL}")
+        
+        # Make GET request to the API
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        # Handle specific HTTP status codes
+        if response.status_code == 404:
+            print(f"{Fore.RED}[!] Error: Number not found in database{Style.RESET_ALL}")
+            return
+        elif response.status_code == 429:
+            print(f"{Fore.RED}[!] Error: Rate limit exceeded. Please wait before making another request.{Style.RESET_ALL}")
+            return
+        elif response.status_code >= 500:
+            print(f"{Fore.RED}[!] Error: Server error ({response.status_code}). Please try again later.{Style.RESET_ALL}")
+            return
+        elif response.status_code == 401:
+            print(f"{Fore.RED}[!] Error: Unauthorized. Check your API key.{Style.RESET_ALL}")
+            return
+        elif response.status_code == 403:
+            print(f"{Fore.RED}[!] Error: Forbidden. Check your API key and host.{Style.RESET_ALL}")
+            return
+        
+        # Raise an exception for other bad status codes
+        response.raise_for_status()
+        
+        # Get response in JSON format
+        data = response.json()
+        
+        # Print formatted and colored JSON
+        print(f"{Fore.GREEN}[+] WhatsApp data retrieved successfully:{Style.RESET_ALL}")
+        print_colored_json(data)
+        
+        # Check for empty or missing data
+        if not data:
+            print(f"{Fore.YELLOW}[!] Warning: No data returned from API{Style.RESET_ALL}")
+        elif isinstance(data, dict) and all(value is None or value == "" for value in data.values()):
+            print(f"{Fore.YELLOW}[!] Warning: All returned fields are empty{Style.RESET_ALL}")
+    
+    except requests.exceptions.Timeout:
+        print(f"{Fore.RED}[!] Error: Request timed out. Check your connection.{Style.RESET_ALL}")
+    except requests.exceptions.ConnectionError:
+        print(f"{Fore.RED}[!] Error: Connection error. Check your internet connection.{Style.RESET_ALL}")
+    except requests.exceptions.HTTPError as http_err:
+        print(f"{Fore.RED}[!] HTTP Error: {http_err}{Style.RESET_ALL}")
+    except requests.exceptions.RequestException as req_err:
+        print(f"{Fore.RED}[!] Request Error: {req_err}{Style.RESET_ALL}")
+    except json.JSONDecodeError:
+        print(f"{Fore.RED}[!] Error: Invalid JSON response from server{Style.RESET_ALL}")
+        print(f"{Fore.RED}Raw response: {response.text}{Style.RESET_ALL}")
+    except Exception as err:
+        print(f"{Fore.RED}[!] An unexpected error occurred: {err}{Style.RESET_ALL}")
+
+def show_legal_warning():
+    warning = f"""
+{Fore.RED}{'='*60}
+WARNING: LEGAL AND ETHICAL USAGE ONLY
+{'='*60}{Style.RESET_ALL}
+This tool is intended for legitimate security research and educational 
+purposes only. 
+
+{Fore.YELLOW}Legal Notice:{Style.RESET_ALL}
+- Only use this tool on phone numbers you own or have explicit permission to check
+- Do not use this tool for harassment, stalking, or any illegal activities
+- The authors are not responsible for misuse of this tool
+- Compliance with local laws and regulations is your responsibility
+
+By using this tool, you agree to use it ethically and legally.
+"""
+    print(warning)
+    
+    consent = input(f"{Fore.CYAN}Do you agree to use this tool responsibly? (y/N): {Style.RESET_ALL}").strip().lower()
+    if consent not in ['y', 'yes']:
+        print(f"{Fore.RED}You must agree to the terms to use this tool.{Style.RESET_ALL}")
+        sys.exit(1)
+
+def main():
+    # Create argument parser
+    parser = argparse.ArgumentParser(description="WHOSINTAPP - WhatsApp OSINT Tool")
+    parser.add_argument("-n", "--number", help="Phone number to investigate (with country code)")
+    parser.add_argument("-k", "--api-key", help="RapidAPI key")
+    parser.add_argument("-H", "--api-host", help="RapidAPI host")
+    parser.add_argument("--no-warning", action="store_true", help="Skip legal warning")
+    
+    args = parser.parse_args()
+    
+    # WHOSINTAPP Banner
+    print(Fore.GREEN + """
+⠀⠀⠀⠀⠀⠀⠀⢀⣠⣤⣤⣶⣶⣶⣶⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢀⣤⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣤⡀⠀⠀⠀⠀
+⠀⠀⠀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⠀⠀⠀
+⠀⢀⣾⣿⣿⣿⣿⡿⠟⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⡀⠀
+⠀⣾⣿⣿⣿⣿⡟⠀⠀⠀⢹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⠀
+⢠⣿⣿⣿⣿⣿⣧⠀⠀⠀⣠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡄
+⢸⣿⣿⣿⣿⣿⣿⣦⠀⠀⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇
+⠘⣿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠈⠻⢿⣿⠟⠉⠛⠿⣿⣿⣿⣿⣿⣿⠃
+⠀⢿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⡀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⡿⠀
+⠀⠈⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣶⣤⣤⣴⣾⣿⣿⣿⣿⡿⠁⠀
+⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟⠀⠀⠀
+⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠛⠁⠀⠀⠀⠀
+⠠⠛⠛⠛⠉⠁⠀⠈⠙⠛⠛⠿⠿⠿⠿⠛⠛⠋⠁⠀⠀⠀⠀⠀⠀⠀
+    WHOSINTAPP - WhatsApp OSINT Tool
+    """ + Style.RESET_ALL)
+    
+    # Show legal warning unless skipped
+    if not args.no_warning:
+        show_legal_warning()
+    
+    # Get phone number from user or command line
+    if args.number:
+        phone_input = args.number
+    else:
+        phone_input = input("\nEnter the phone number (with country code): ").strip()
+    
+    # Validate phone number
+    is_valid, result = validate_phone_number(phone_input)
+    if not is_valid:
+        print(f"{Fore.RED}Error: {result}{Style.RESET_ALL}")
+        sys.exit(1)
+    
+    # Display validated phone info
+    print(f"{Fore.GREEN}[+] Phone number validated successfully{Style.RESET_ALL}")
+    print(f"Formatted: {result['formatted']}")
+    print(f"Country: {result['country']}")
+    print(f"Carrier: {result['carrier']}")
+    print(f"Timezones: {', '.join(result['timezones'])}")
+    
+    # Get API credentials
+    if args.api_key:
+        api_key = args.api_key
+    else:
+        api_key = os.getenv('RAPIDAPI_KEY')
+        if not api_key:
+            api_key = input("Enter your RapidAPI key: ").strip()
+    
+    if args.api_host:
+        api_host = args.api_host
+    else:
+        api_host = os.getenv('RAPIDAPI_HOST')
+        if not api_host:
+            api_host = input("Enter the RapidAPI host: ").strip()
+    
+    # Validate credentials
+    if not api_key or not api_host:
+        print(f"{Fore.RED}Error: API key and host are required.{Style.RESET_ALL}")
+        sys.exit(1)
+    
+    # Query number data
+    query_whatsapp_number(result['formatted'], api_key, api_host)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\n{Fore.YELLOW}[!] Operation cancelled by user.{Style.RESET_ALL}")
+        sys.exit(0)
+    except Exception as e:
+        print(f"{Fore.RED}[!] An unexpected error occurred: {e}{Style.RESET_ALL}")
+        sys.exit(1)

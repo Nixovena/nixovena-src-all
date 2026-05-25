@@ -1,0 +1,619 @@
+#!/usr/bin/env python3
+
+import os
+import struct
+import hashlib
+import json
+import argparse
+from datetime import datetime
+import binascii
+from PIL import Image
+import numpy as np
+import wave
+import zipfile
+
+class SteganographyDetector:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.results = {
+            'file_path': file_path,
+            'timestamp': datetime.now().isoformat(),
+            'file_info': {},
+            'steganography_analysis': {},
+            'hidden_data_found': [],
+            'statistical_analysis': {},
+            'extracted_data': []
+        }
+    
+    def analyze_file_info(self):
+        print(f"[*] Analyzing file: {self.file_path}")
+        
+        try:
+            stat_info = os.stat(self.file_path)
+            
+            self.results['file_info'] = {
+                'filename': os.path.basename(self.file_path),
+                'file_size': stat_info.st_size,
+                'file_extension': os.path.splitext(self.file_path)[1].lower(),
+                'created_time': datetime.fromtimestamp(stat_info.st_ctime).isoformat(),
+                'modified_time': datetime.fromtimestamp(stat_info.st_mtime).isoformat()
+            }
+            
+            # Calculate file hash
+            with open(self.file_path, 'rb') as f:
+                file_data = f.read()
+                self.results['file_info']['md5_hash'] = hashlib.md5(file_data).hexdigest()
+                self.results['file_info']['sha256_hash'] = hashlib.sha256(file_data).hexdigest()
+            
+            print(f"[+] File size: {stat_info.st_size} bytes")
+            print(f"[+] Extension: {self.results['file_info']['file_extension']}")
+            
+        except Exception as e:
+            print(f"[-] Error analyzing file info: {e}")
+    
+    def detect_image_steganography(self):
+        if self.results['file_info']['file_extension'] not in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']:
+            return
+        
+        print("[*] Analyzing image for steganography...")
+        
+        try:
+            with Image.open(self.file_path) as img:
+                # Convert to RGB if needed
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                img_array = np.array(img)
+                height, width, channels = img_array.shape
+                
+                # LSB Analysis
+                lsb_analysis = self.analyze_lsb_steganography(img_array)
+                
+                # Statistical analysis
+                stats = self.calculate_image_statistics(img_array)
+                
+                # Chi-square test for randomness
+                chi_square = self.chi_square_test(img_array)
+                
+                # Check for hidden archives
+                hidden_files = self.check_hidden_files_in_image()
+                
+                stego_analysis = {
+                    'image_dimensions': f"{width}x{height}",
+                    'color_channels': channels,
+                    'lsb_analysis': lsb_analysis,
+                    'statistical_analysis': stats,
+                    'chi_square_test': chi_square,
+                    'hidden_files': hidden_files,
+                    'steganography_score': self.calculate_stego_score(lsb_analysis, stats, chi_square)
+                }
+                
+                self.results['steganography_analysis']['image'] = stego_analysis
+                
+                print(f"[+] Image analyzed: {width}x{height} pixels")
+                print(f"[+] Steganography score: {stego_analysis['steganography_score']}/100")
+        
+        except Exception as e:
+            print(f"[-] Image analysis error: {e}")
+    
+    def analyze_lsb_steganography(self, img_array):
+        height, width, channels = img_array.shape
+        
+        # Extract LSBs from each channel
+        lsb_data = {
+            'red_lsb': [],
+            'green_lsb': [],
+            'blue_lsb': []
+        }
+        
+        for y in range(height):
+            for x in range(width):
+                pixel = img_array[y, x]
+                lsb_data['red_lsb'].append(pixel[0] & 1)
+                lsb_data['green_lsb'].append(pixel[1] & 1)
+                lsb_data['blue_lsb'].append(pixel[2] & 1)
+        
+        # Analyze LSB patterns
+        analysis = {}
+        
+        for channel, bits in lsb_data.items():
+            # Calculate entropy of LSB sequence
+            entropy = self.calculate_entropy(bits)
+            
+            # Look for patterns
+            consecutive_ones = self.count_consecutive_bits(bits, 1)
+            consecutive_zeros = self.count_consecutive_bits(bits, 0)
+            
+            analysis[channel] = {
+                'entropy': entropy,
+                'max_consecutive_ones': max(consecutive_ones) if consecutive_ones else 0,
+                'max_consecutive_zeros': max(consecutive_zeros) if consecutive_zeros else 0,
+                'total_ones': sum(bits),
+                'total_zeros': len(bits) - sum(bits)
+            }
+        
+        return analysis
+    
+    def calculate_entropy(self, data):
+        if not data:
+            return 0
+        
+        # Count occurrences
+        counts = {}
+        for item in data:
+            counts[item] = counts.get(item, 0) + 1
+        
+        # Calculate entropy
+        entropy = 0
+        length = len(data)
+        
+        for count in counts.values():
+            p = count / length
+            if p > 0:
+                entropy -= p * (p.bit_length() - 1)
+        
+        return entropy
+    
+    def count_consecutive_bits(self, bits, target_bit):
+        consecutive_counts = []
+        current_count = 0
+        
+        for bit in bits:
+            if bit == target_bit:
+                current_count += 1
+            else:
+                if current_count > 0:
+                    consecutive_counts.append(current_count)
+                current_count = 0
+        
+        if current_count > 0:
+            consecutive_counts.append(current_count)
+        
+        return consecutive_counts
+    
+    def calculate_image_statistics(self, img_array):
+        stats = {}
+        
+        for i, channel in enumerate(['red', 'green', 'blue']):
+            channel_data = img_array[:, :, i].flatten()
+            
+            stats[channel] = {
+                'mean': float(np.mean(channel_data)),
+                'std': float(np.std(channel_data)),
+                'min': int(np.min(channel_data)),
+                'max': int(np.max(channel_data)),
+                'variance': float(np.var(channel_data))
+            }
+        
+        # Calculate correlation between channels
+        red_flat = img_array[:, :, 0].flatten()
+        green_flat = img_array[:, :, 1].flatten()
+        blue_flat = img_array[:, :, 2].flatten()
+        
+        stats['correlations'] = {
+            'red_green': float(np.corrcoef(red_flat, green_flat)[0, 1]),
+            'red_blue': float(np.corrcoef(red_flat, blue_flat)[0, 1]),
+            'green_blue': float(np.corrcoef(green_flat, blue_flat)[0, 1])
+        }
+        
+        return stats
+    
+    def chi_square_test(self, img_array):
+        # Simplified chi-square test on LSBs
+        lsbs = []
+        
+        for y in range(img_array.shape[0]):
+            for x in range(img_array.shape[1]):
+                for c in range(img_array.shape[2]):
+                    lsbs.append(img_array[y, x, c] & 1)
+        
+        # Count 0s and 1s
+        zeros = lsbs.count(0)
+        ones = lsbs.count(1)
+        total = len(lsbs)
+        
+        # Expected frequency (should be roughly equal for random data)
+        expected = total / 2
+        
+        # Chi-square calculation
+        chi_square = ((zeros - expected) ** 2 + (ones - expected) ** 2) / expected
+        
+        return {
+            'chi_square_value': chi_square,
+            'zeros_count': zeros,
+            'ones_count': ones,
+            'is_suspicious': chi_square > 3.841  # Critical value at 95% confidence
+        }
+    
+    def check_hidden_files_in_image(self):
+        hidden_files = []
+        
+        try:
+            with open(self.file_path, 'rb') as f:
+                data = f.read()
+            
+            # Look for ZIP signatures
+            zip_signatures = [
+                b'PK\x03\x04',  # ZIP file signature
+                b'PK\x05\x06',  # ZIP end of central directory
+                b'Rar!',        # RAR signature
+                b'\x7fELF',     # ELF executable
+                b'MZ'           # PE executable
+            ]
+            
+            for signature in zip_signatures:
+                pos = data.find(signature)
+                if pos > 1000:  # Not at the beginning (likely appended)
+                    hidden_files.append({
+                        'type': self.get_signature_type(signature),
+                        'offset': pos,
+                        'signature': signature.hex()
+                    })
+                    
+                    # Try to extract if it's a ZIP
+                    if signature == b'PK\x03\x04':
+                        self.try_extract_hidden_zip(data, pos)
+            
+        except Exception as e:
+            print(f"[-] Error checking for hidden files: {e}")
+        
+        return hidden_files
+    
+    def get_signature_type(self, signature):
+        signature_types = {
+            b'PK\x03\x04': 'ZIP Archive',
+            b'PK\x05\x06': 'ZIP Archive (End)',
+            b'Rar!': 'RAR Archive',
+            b'\x7fELF': 'ELF Executable',
+            b'MZ': 'PE Executable'
+        }
+        return signature_types.get(signature, 'Unknown')
+    
+    def try_extract_hidden_zip(self, data, offset):
+        try:
+            zip_data = data[offset:]
+            
+            # Write temporary ZIP file
+            temp_zip = f"temp_extracted_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            with open(temp_zip, 'wb') as f:
+                f.write(zip_data)
+            
+            # Try to read ZIP contents
+            with zipfile.ZipFile(temp_zip, 'r') as zf:
+                file_list = zf.namelist()
+                
+                extracted_info = {
+                    'type': 'hidden_zip',
+                    'offset': offset,
+                    'files_count': len(file_list),
+                    'file_list': file_list[:10],  # Limit to first 10 files
+                    'extracted_to': temp_zip
+                }
+                
+                self.results['hidden_data_found'].append(extracted_info)
+                print(f"[+] Hidden ZIP found with {len(file_list)} files")
+            
+        except Exception as e:
+            # Clean up temp file if extraction failed
+            if os.path.exists(temp_zip):
+                os.remove(temp_zip)
+    
+    def analyze_audio_steganography(self):
+        if self.results['file_info']['file_extension'] not in ['.wav', '.mp3', '.flac']:
+            return
+        
+        print("[*] Analyzing audio for steganography...")
+        
+        try:
+            if self.results['file_info']['file_extension'] == '.wav':
+                with wave.open(self.file_path, 'rb') as wav_file:
+                    frames = wav_file.readframes(-1)
+                    audio_data = struct.unpack('<' + ('h' * (len(frames) // 2)), frames)
+                    
+                    # Analyze LSBs of audio samples
+                    lsbs = [sample & 1 for sample in audio_data]
+                    
+                    audio_analysis = {
+                        'sample_rate': wav_file.getframerate(),
+                        'channels': wav_file.getnchannels(),
+                        'sample_width': wav_file.getsampwidth(),
+                        'total_samples': len(audio_data),
+                        'lsb_entropy': self.calculate_entropy(lsbs),
+                        'suspicious_lsb_patterns': self.detect_audio_patterns(lsbs)
+                    }
+                    
+                    self.results['steganography_analysis']['audio'] = audio_analysis
+                    print(f"[+] Audio analyzed: {len(audio_data)} samples")
+        
+        except Exception as e:
+            print(f"[-] Audio analysis error: {e}")
+    
+    def detect_audio_patterns(self, lsbs):
+        patterns = {
+            'repeating_sequences': False,
+            'high_entropy_regions': False,
+            'suspicious_patterns': []
+        }
+        
+        # Look for repeating sequences
+        window_size = 100
+        for i in range(len(lsbs) - window_size):
+            window = lsbs[i:i+window_size]
+            entropy = self.calculate_entropy(window)
+            
+            if entropy > 0.9:  # High entropy threshold
+                patterns['high_entropy_regions'] = True
+                break
+        
+        return patterns
+    
+    def analyze_text_steganography(self):
+        if self.results['file_info']['file_extension'] not in ['.txt', '.doc', '.docx', '.pdf']:
+            return
+        
+        print("[*] Analyzing text for steganography...")
+        
+        try:
+            with open(self.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                text_content = f.read()
+            
+            # Analyze whitespace patterns
+            whitespace_analysis = self.analyze_whitespace_steganography(text_content)
+            
+            # Look for hidden characters
+            hidden_chars = self.detect_hidden_characters(text_content)
+            
+            text_analysis = {
+                'text_length': len(text_content),
+                'whitespace_analysis': whitespace_analysis,
+                'hidden_characters': hidden_chars,
+                'suspicious_patterns': []
+            }
+            
+            # Check for unusual character frequencies
+            char_freq = self.analyze_character_frequency(text_content)
+            if char_freq['unusual_chars'] > 10:
+                text_analysis['suspicious_patterns'].append('Unusual character frequency detected')
+            
+            self.results['steganography_analysis']['text'] = text_analysis
+            print(f"[+] Text analyzed: {len(text_content)} characters")
+        
+        except Exception as e:
+            print(f"[-] Text analysis error: {e}")
+    
+    def analyze_whitespace_steganography(self, text):
+        lines = text.split('\n')
+        
+        trailing_spaces = []
+        tab_patterns = []
+        
+        for line in lines:
+            # Count trailing spaces
+            trailing_count = len(line) - len(line.rstrip(' '))
+            if trailing_count > 0:
+                trailing_spaces.append(trailing_count)
+            
+            # Analyze tab/space patterns
+            leading_whitespace = line[:len(line) - len(line.lstrip())]
+            if '\t' in leading_whitespace or '  ' in leading_whitespace:
+                tab_patterns.append(leading_whitespace)
+        
+        return {
+            'trailing_spaces_count': len(trailing_spaces),
+            'max_trailing_spaces': max(trailing_spaces) if trailing_spaces else 0,
+            'tab_patterns_count': len(tab_patterns),
+            'suspicious_whitespace': len(trailing_spaces) > len(lines) * 0.1  # More than 10% of lines
+        }
+    
+    def detect_hidden_characters(self, text):
+        hidden_chars = {
+            'zero_width_chars': 0,
+            'control_chars': 0,
+            'unusual_unicode': 0
+        }
+        
+        for char in text:
+            unicode_val = ord(char)
+            
+            # Zero-width characters
+            if char in ['\u200b', '\u200c', '\u200d', '\ufeff']:
+                hidden_chars['zero_width_chars'] += 1
+            
+            # Control characters
+            elif unicode_val < 32 and char not in ['\t', '\n', '\r']:
+                hidden_chars['control_chars'] += 1
+            
+            # Unusual Unicode ranges
+            elif unicode_val > 127:
+                hidden_chars['unusual_unicode'] += 1
+        
+        return hidden_chars
+    
+    def analyze_character_frequency(self, text):
+        char_counts = {}
+        for char in text:
+            char_counts[char] = char_counts.get(char, 0) + 1
+        
+        total_chars = len(text)
+        unusual_chars = 0
+        
+        for char, count in char_counts.items():
+            frequency = count / total_chars
+            
+            # Flag characters that appear very infrequently (possible steganography)
+            if frequency < 0.001 and char not in [' ', '\n', '\t']:
+                unusual_chars += 1
+        
+        return {
+            'total_unique_chars': len(char_counts),
+            'unusual_chars': unusual_chars,
+            'most_common_char': max(char_counts, key=char_counts.get),
+            'total_chars': total_chars
+        }
+    
+    def calculate_stego_score(self, lsb_analysis, stats, chi_square):
+        score = 0
+        
+        if lsb_analysis:
+            # Check LSB entropy (high entropy suspicious)
+            for channel_data in lsb_analysis.values():
+                if channel_data['entropy'] > 0.8:
+                    score += 20
+                
+                # Check for unusual patterns
+                if channel_data['max_consecutive_ones'] > 50 or channel_data['max_consecutive_zeros'] > 50:
+                    score += 15
+        
+        # Chi-square test result
+        if chi_square and chi_square['is_suspicious']:
+            score += 30
+        
+        # Statistical analysis
+        if stats and 'correlations' in stats:
+            # Low correlation between channels can indicate manipulation
+            correlations = stats['correlations']
+            avg_correlation = sum(correlations.values()) / len(correlations)
+            if avg_correlation < 0.5:
+                score += 25
+        
+        return min(100, score)
+    
+    def generate_report(self):
+        print("[*] Generating steganography analysis report...")
+        
+        # Determine overall suspicion level
+        max_score = 0
+        suspicious_indicators = []
+        
+        # Check image analysis
+        if 'image' in self.results['steganography_analysis']:
+            img_analysis = self.results['steganography_analysis']['image']
+            score = img_analysis.get('steganography_score', 0)
+            max_score = max(max_score, score)
+            
+            if score > 50:
+                suspicious_indicators.append(f"Image steganography score: {score}/100")
+            
+            if img_analysis.get('hidden_files'):
+                suspicious_indicators.append(f"Hidden files detected: {len(img_analysis['hidden_files'])}")
+        
+        # Check audio analysis
+        if 'audio' in self.results['steganography_analysis']:
+            audio_analysis = self.results['steganography_analysis']['audio']
+            if audio_analysis['lsb_entropy'] > 0.8:
+                suspicious_indicators.append("High entropy in audio LSBs")
+                max_score = max(max_score, 60)
+        
+        # Check text analysis
+        if 'text' in self.results['steganography_analysis']:
+            text_analysis = self.results['steganography_analysis']['text']
+            if text_analysis['whitespace_analysis']['suspicious_whitespace']:
+                suspicious_indicators.append("Suspicious whitespace patterns in text")
+                max_score = max(max_score, 40)
+        
+        # Determine suspicion level
+        if max_score >= 70:
+            suspicion_level = 'High'
+        elif max_score >= 40:
+            suspicion_level = 'Medium'
+        elif max_score >= 20:
+            suspicion_level = 'Low'
+        else:
+            suspicion_level = 'None'
+        
+        report = {
+            'overall_suspicion_level': suspicion_level,
+            'suspicion_score': max_score,
+            'suspicious_indicators': suspicious_indicators,
+            'hidden_data_detected': len(self.results['hidden_data_found']) > 0,
+            'recommendations': self.generate_recommendations(suspicion_level, suspicious_indicators)
+        }
+        
+        self.results['final_report'] = report
+        
+        print(f"\n[*] Steganography Analysis Summary:")
+        print(f"  Suspicion Level: {suspicion_level} ({max_score}/100)")
+        print(f"  Hidden Data Found: {len(self.results['hidden_data_found'])} instances")
+        print(f"  Suspicious Indicators: {len(suspicious_indicators)}")
+    
+    def generate_recommendations(self, suspicion_level, indicators):
+        recommendations = []
+        
+        if suspicion_level == 'High':
+            recommendations.extend([
+                "File shows strong indicators of steganography",
+                "Perform detailed manual analysis",
+                "Use specialized steganography detection tools",
+                "Consider file as evidence in investigation"
+            ])
+        elif suspicion_level == 'Medium':
+            recommendations.extend([
+                "File shows moderate signs of hidden data",
+                "Perform additional analysis with other tools",
+                "Check file provenance and context"
+            ])
+        
+        if 'Hidden files detected' in str(indicators):
+            recommendations.append("Extract and analyze hidden files found")
+        
+        if 'Image steganography' in str(indicators):
+            recommendations.append("Use advanced LSB analysis tools")
+        
+        recommendations.extend([
+            "Cross-reference with other files from same source",
+            "Check metadata for additional clues",
+            "Document findings for forensic report"
+        ])
+        
+        return recommendations
+    
+    def analyze(self):
+        print(f"[*] Starting steganography analysis: {self.file_path}")
+        print("=" * 60)
+        
+        if not os.path.exists(self.file_path):
+            print(f"[-] File not found: {self.file_path}")
+            return None
+        
+        # Basic file analysis
+        self.analyze_file_info()
+        
+        # File type specific analysis
+        extension = self.results['file_info']['file_extension']
+        
+        if extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']:
+            self.detect_image_steganography()
+        elif extension in ['.wav', '.mp3', '.flac']:
+            self.analyze_audio_steganography()
+        elif extension in ['.txt', '.doc', '.docx', '.pdf']:
+            self.analyze_text_steganography()
+        else:
+            print(f"[!] File type {extension} analysis not fully supported")
+        
+        # Generate final report
+        self.generate_report()
+        
+        # Save results
+        output_file = f"steganography_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(self.results, f, indent=2, ensure_ascii=False, default=str)
+        
+        print(f"\n[*] Analysis completed. Results saved to: {output_file}")
+        return self.results
+
+def main():
+    parser = argparse.ArgumentParser(description="Steganography Detector & Hidden Data Extractor")
+    parser.add_argument('file', help='File to analyze for steganography')
+    parser.add_argument('-o', '--output', help='Output file name')
+    
+    args = parser.parse_args()
+    
+    detector = SteganographyDetector(args.file)
+    results = detector.analyze()
+    
+    if args.output and results:
+        with open(args.output, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+
+if __name__ == "__main__":
+    main()

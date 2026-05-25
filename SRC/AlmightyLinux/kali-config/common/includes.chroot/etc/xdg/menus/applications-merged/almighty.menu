@@ -1,0 +1,117 @@
+<?xml version="1.0"?>
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+ "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
+<Menu>
+  <Name>Applications</Name>
+
+  <!-- Almighty root menu -->
+  <Menu>
+    <Name>Almighty OSINT</Name>
+    <Directory>mate-almighty.directory</Directory>
+    <Layout>
+      <Menuname>Domain &amp; IP</Menuname>
+      <Menuname>Social</Menuname>
+      <Menuname>Emails</Menuname>
+      <Menuname>Phone</Menuname>
+      <Menuname>Network</Menuname>
+      <Menuname>Analysis</Menuname>
+      <Menuname>Frameworks</Menuname>
+      <Menuname>Darknet</Menuname>
+      <Menuname>Privacy</Menuname>
+      <Merge type="all"/>
+    </Layout>
+
+    <!-- Submenus -->
+    <Menu>
+      <Name>Domain &amp; IP</Name>
+      <Directory>mate-almighty-domain.directory</Directory>
+      <Include>
+        <And>
+          <Category>Domain</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>Social</Name>
+      <Directory>mate-almighty-social.directory</Directory>
+      <Include>
+        <And>
+          <Category>Social</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>Emails</Name>
+      <Directory>mate-almighty-emails.directory</Directory>
+      <Include>
+        <And>
+          <Category>Emails</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>Phone</Name>
+      <Directory>mate-almighty-phone.directory</Directory>
+      <Include>
+        <And>
+          <Category>Phone</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>Network</Name>
+      <Directory>mate-almighty-network.directory</Directory>
+      <Include>
+        <And>
+          <Category>NetworkOSINT</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>Analysis</Name>
+      <Directory>mate-almighty-analysis.directory</Directory>
+      <Include>
+        <And>
+          <Category>Analysis</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>Frameworks</Name>
+      <Directory>mate-almighty-frameworks.directory</Directory>
+      <Include>
+        <And>
+          <Category>Frameworks</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>Darknet</Name>
+      <Directory>mate-almighty-darknet.directory</Directory>
+      <Include>
+        <And>
+          <Category>Darknet</Category>
+        </And>
+      </Include>
+    </Menu>
+
+    <Menu>
+      <Name>OPSEC</Name>
+      <Directory>mate-almighty-privacy.directory</Directory>
+      <Include>
+        <And>
+          <Category>Privacy</Category>
+        </And>
+      </Include>
+    </Menu>
+
+  </Menu> <!-- End Almighty OSINT -->
+
+</Menu>

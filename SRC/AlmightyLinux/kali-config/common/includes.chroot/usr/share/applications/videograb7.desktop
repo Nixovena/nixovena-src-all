@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=videograb7
+Comment=Multi-Platform Video Downloader
+Comment[tr]=Çok Platformlu Video İndirici
+Comment[es]=Descargador de video multiplataforma
+Comment[fr]=Téléchargeur de vidéos multiplateforme
+Comment[de]=Multi-Plattform Video-Downloader
+Comment[ar]=برنامج تنزيل فيديو متعدد المنصات
+Comment[ru]=Мультиплатформенный загрузчик видео
+Comment[zh]=多平台视频下载器
+Comment[ja]=マルチプラットフォームビデオダウンローダー
+Comment[ko]=다중 플랫폼 비디오 다운로더
+Comment[pt]=Descarregador de vídeo multiplataforma
+Comment[it]=Downloader di video multipiattaforma
+Comment[nl]=Multi-platform video downloader
+Comment[sv]=Multiplattform videonedladdare
+Comment[pl]=Wieloplatformowy downloader wideo
+Exec=mate-terminal -- bash -c "videograb7; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Analysis;
+StartupNotify=false

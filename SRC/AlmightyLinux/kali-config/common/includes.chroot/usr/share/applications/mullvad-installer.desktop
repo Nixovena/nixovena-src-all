@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Mullvad Installer
+Comment=Mullvad VPN and Browser Installer
+Comment[tr]=Mullvad VPN ve Tarayıcı Yükleyici
+Comment[es]=Instalador de Mullvad VPN y Navegador
+Comment[fr]=Installateur de Mullvad VPN et Navigateur
+Comment[de]=Mullvad VPN und Browser Installer
+Comment[ar]=مثبت Mullvad VPN والمتصفح
+Comment[ru]=Установщик Mullvad VPN и браузера
+Comment[zh]=Mullvad VPN和浏览器安装程序
+Comment[ja]=Mullvad VPNおよびブラウザーインストーラー
+Comment[ko]=Mullvad VPN 및 브라우저 설치 프로그램
+Comment[pt]=Instalador do Mullvad VPN e Navegador
+Comment[it]=Programma di installazione di Mullvad VPN e Browser
+Comment[nl]=Mullvad VPN en Browser Installer
+Comment[sv]=Mullvad VPN och webbläsarinstallerare
+Comment[pl]=Instalator Mullvad VPN i przeglądarki
+Exec=mate-terminal -- bash -c "sudo mullvad-installer; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

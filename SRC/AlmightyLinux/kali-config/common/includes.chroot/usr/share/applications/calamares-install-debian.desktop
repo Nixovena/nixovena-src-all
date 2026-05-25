@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Install Almighty
+GenericName=Almighty Installer
+Exec=calamares-install-debian
+Comment=Calamares — Installer for Almighty
+Keywords=calamares;system;install;debian;installer
+Icon=/usr/share/icons/almighty/install.png
+Terminal=false
+Categories=Qt;System;
+StartupWMClass=calamares
+StartupNotify=True

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Guymager
+Comment=LengToolkit - Forensic Disk Imaging Tool
+Exec=pkexec guymager
+Icon=/usr/share/icons/lengtoolkit/guymager.png
+Terminal=false
+Type=Application
+Categories=LengToolkit;

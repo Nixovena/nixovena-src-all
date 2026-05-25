@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Htop
+Comment=LengToolkit - htop
+Exec=mate-terminal -- bash -c "htop; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

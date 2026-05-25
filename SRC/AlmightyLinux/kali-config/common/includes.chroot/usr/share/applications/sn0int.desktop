@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=sn0int
+Comment=Semi-automatic OSINT framework and package manager
+Comment[tr]=Yarı otomatik OSINT çerçevesi ve paket yöneticisi
+Comment[es]=Gestor de paquetes y marco OSINT semiautomático
+Comment[fr]=Gestionnaire de packages et framework OSINT semi-automatique
+Comment[de]=Halbautomatisches OSINT-Framework und Paketmanager
+Comment[ar]=إطار عمل OSINT شبه تلقائي ومدير الحزم
+Comment[ru]=Полуавтоматический фреймворк OSINT и менеджер пакетов
+Comment[zh]=半自动OSINT框架和包管理器
+Comment[ja]=半自動OSINTフレームワークおよびパッケージマネージャー
+Comment[ko]=반자동 OSINT 프레임워크 및 패키지 관리자
+Comment[pt]=Estrutura OSINT semiautomática e gerenciador de pacotes
+Comment[it]=Framework OSINT semiautomatico e gestore di pacchetti
+Comment[nl]=Semi-automatisch OSINT-raamwerk en pakketbeheerder
+Comment[sv]=Halvautomatiskt OSINT-ramverk och pakethanterare
+Comment[pl]=Półautomatyczny framework OSINT i menedżer pakietów
+Exec=mate-terminal -- bash -c "sn0int -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Frameworks;
+StartupNotify=false

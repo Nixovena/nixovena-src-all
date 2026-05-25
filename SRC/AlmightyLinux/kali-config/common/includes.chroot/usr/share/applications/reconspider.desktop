@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Reconspider
+Comment=Advanced Open Source Intelligence (OSINT) Framework
+Comment[tr]=Gelişmiş Açık Kaynak İstihbarat (OSINT) Çerçevesi
+Comment[es]=Marco avanzado de inteligencia de código abierto (OSINT)
+Comment[fr]=Framework de renseignement Open Source (OSINT) avancé
+Comment[de]=Erweitertes Open-Source-Intelligence-Framework (OSINT)
+Comment[ar]=إطار عمل استخبارات مفتوح المصدر (OSINT) المتقدم
+Comment[ru]=Расширенный фреймворк разведки с открытым исходным кодом (OSINT)
+Comment[zh]=高级开源情报（OSINT）框架
+Comment[ja]=高度なオープンソースインテリジェンス（OSINT）フレームワーク
+Comment[ko]=고급 오픈 소스 인텔리전스(OSINT) 프레임워크
+Comment[pt]=Framework Avançado de Inteligência de Código Aberto (OSINT)
+Comment[it]=Framework avanzato di intelligence open source (OSINT)
+Comment[nl]=Geavanceerd Open Source Intelligence (OSINT) Framework
+Comment[sv]=Avancerat Open Source Intelligence (OSINT) Ramverk
+Comment[pl]=Zaawansowane ramy wywiadu z otwartych źródeł (OSINT)
+Exec=mate-terminal -- bash -c "reconspider -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Frameworks;
+StartupNotify=false

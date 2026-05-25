@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Almighty Jails
+Comment=Interactive Firejail Sandbox Tool
+Comment[tr]=Etkileşimli Firejail Korumalı Alan Aracı
+Comment[es]=Herramienta interactiva de sandbox Firejail
+Comment[fr]=Outil de bac à sable interactif Firejail
+Comment[de]=Interaktives Firejail Sandbox-Tool
+Comment[ar]=أداة Firejail Sandbox التفاعلية
+Comment[ru]=Интерактивный инструмент песочницы Firejail
+Comment[zh]=交互式 Firejail 沙箱工具
+Comment[ja]=インタラクティブな Firejail サンドボックスツール
+Comment[ko]=대화형 Firejail 샌드박스 도구
+Comment[pt]=Ferramenta interativa de sandbox Firejail
+Comment[it]=Strumento sandbox interattivo Firejail
+Comment[nl]=Interactieve Firejail Sandbox Tool
+Comment[sv]=Interaktivt Firejail-sandlådeverktyg
+Comment[pl]=Interaktywne narzędzie piaskownicy Firejail
+Exec=mate-terminal -- bash -c "almighty-jails; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

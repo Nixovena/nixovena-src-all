@@ -1,0 +1,8 @@
+PRETTY_NAME="Hardened Slarpx"
+NAME="Hardened Slarpx"
+ID=debian
+ID_LIKE=debian
+RELEASE_TYPE=stable
+VERSION="2.1"
+VERSION_ID="2.1"
+

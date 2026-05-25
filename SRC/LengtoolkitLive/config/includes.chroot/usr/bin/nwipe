@@ -1,0 +1,9 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - nwipe Helper"
+echo "--------------------------------------------------------"
+echo "nwipe is an interactive tool based on dwipe."
+echo ""
+echo "  sudo nwipe                    : Launch interactive menu"
+echo "  sudo nwipe --method=dod       : Use DoD 5220.22-M"
+echo "--------------------------------------------------------"

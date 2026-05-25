@@ -1,0 +1,30 @@
+#!/bin/bash
+# set -euo pipefail
+
+# --- Whonix key ve repo ---
+# sudo wget -O /usr/share/keyrings/whonix-derivative.asc https://www.whonix.org/keys/derivative.asc
+# echo "deb [signed-by=/usr/share/keyrings/whonix-derivative.asc] https://deb.whonix.org trixie main contrib non-free" | sudo tee /etc/apt/sources.list.d/whonix.list
+
+# Whonix pin
+# sudo tee /etc/apt/preferences.d/whonix.pref >/dev/null <<'EOF'
+# Package: *
+# Pin: origin "deb.whonix.org"
+# Pin-Priority: 50
+# EOF
+
+# --- Kicksecure key ve repo ---
+# sudo wget -O /usr/share/keyrings/kicksecure-derivative.asc https://www.kicksecure.com/keys/derivative.asc
+# echo "deb [signed-by=/usr/share/keyrings/kicksecure-derivative.asc] https://deb.kicksecure.com trixie main contrib non-free" | sudo tee /etc/apt/sources.list.d/kicksecure.list
+
+# Kicksecure pin
+# sudo tee /etc/apt/preferences.d/kicksecure.pref >/dev/null <<'EOF'
+# Package: *
+# Pin: origin "deb.kicksecure.com"
+# Pin-Priority: 50
+# EOF
+
+# Update
+# sudo apt update
+
+# Install
+# sudo apt install -y tirdad 

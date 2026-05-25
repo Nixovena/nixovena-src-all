@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Tor Portal
+Comment=Tor detailed connection analysis and node information tool
+Comment[tr]=Tor detaylı bağlantı analizi ve node bilgileri aracı
+Comment[es]=Herramienta de análisis detallado de conexiones Tor e información de nodos
+Comment[fr]=Outil d'analyse détaillée des connexions Tor et d'informations sur les nœuds
+Comment[de]=Tor-Tool für detaillierte Verbindungsanalyse und Knoteninformationen
+Comment[ar]=أداة تحليل اتصال Tor المفصل ومعلومات العقد
+Comment[ru]=Инструмент для детального анализа соединений и информации об узлах Tor
+Comment[zh]=Tor 详细连接分析和节点信息工具
+Comment[ja]=Tor の詳細な接続分析およびノード情報ツール
+Comment[ko]=Tor 상세 연결 분석 및 노드 정보 도구
+Comment[pt]=Ferramenta de análise detalhada de conexões Tor e informações de nós
+Comment[it]=Strumento di analisi dettagliata delle connessioni Tor e informazioni sui nodi
+Comment[nl]=Tor gedetailleerde verbindingsanalyse en knooppuntinformatie tool
+Comment[sv]=Tor-verktyg för detaljerad anslutningsanalys och nodinformation
+Comment[pl]=Narzędzie do szczegółowej analizy połączeń i informacji o węzłach Tor
+Exec=mate-terminal -- bash -c "sudo tor-portal; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/torportal.png
+Categories=Privacy;
+StartupNotify=false

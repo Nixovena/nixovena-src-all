@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=MailBull
+Comment=Email OSINT and account enumeration tool based on Holehe
+Comment[tr]=Holohe tabanlı e-posta OSINT ve hesap numaralandırma aracı
+Comment[es]=Herramienta de enumeración de cuentas y OSINT de correo electrónico basada en Holehe
+Comment[fr]=Outil d'énumération de comptes et d'OSINT par e-mail basé sur Holehe
+Comment[de]=Holehe-basiertes E-Mail-OSINT- und Konten-Enumerations-Tool
+Comment[ar]=أداة تعداد الحسابات و OSINT للبريد الإلكتروني تعتمد على Holehe
+Comment[ru]=Инструмент для сбора информации по электронной почте и перечисления учетных записей на базе Holehe
+Comment[zh]=基于Holehe的电子邮件OSINT和帐户枚举工具
+Comment[ja]=HoleheベースのメールOSINTおよびアカウント列挙ツール
+Comment[ko]=Holehe 기반 이메일 OSINT 및 계정 열거 도구
+Comment[pt]=Ferramenta de enumeração de contas e OSINT de e-mail baseada em Holehe
+Comment[it]=Strumento per OSINT via e-mail ed enumerazione di account basato su Holehe
+Comment[nl]=E-mail OSINT en account-enumeratietool op basis van Holehe
+Comment[sv]=E-post OSINT och konto-enumerationsverktyg baserat på Holehe
+Comment[pl]=Narzędzie OSINT i wyliczania kont e-mail oparte na Holehe
+Exec=mate-terminal -- bash -c "mailbull; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/mailbull.png
+Categories=Emails;
+StartupNotify=false

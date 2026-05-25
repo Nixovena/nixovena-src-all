@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=anti-tr4ce
+Comment=Comprehensive system trace removal and digital footprint eraser
+Comment[tr]=Kapsamlı sistem izi kaldırma ve dijital iz silme aracı
+Comment[es]=Eliminador de huellas digitales y eliminación completa de rastros del sistema
+Comment[fr]=Suppression complète des traces système et effaceur d'empreintes numériques
+Comment[de]=Umfassende System-Trace-Entfernung und digitale Fußabdruck-Löschung
+Comment[ar]=أداة إزالة آثار النظام الشاملة ومحي البصمات الرقمية
+Comment[ru]=Комплексное удаление системных следов и стирание цифровых отпечатков
+Comment[zh]=全面的系统痕迹清除和数字足迹擦除工具
+Comment[ja]=包括的なシステムトレース削除およびデジタルフットプリント消去ツール
+Comment[ko]=포괄적인 시스템 흔적 제거 및 디지털 발자국 삭제기
+Comment[pt]=Removedor abrangente de rastros do sistema e apagador de impressões digitais
+Comment[it]=Rimozione completa delle tracce di sistema e cancellatore di impronte digitali
+Comment[nl]=Uitgebreide systeemspoorverwijdering en digitale vingerafdrukverwijderaar
+Comment[sv]=Omfattande systemspåravlägsning och digital fotavtrycksraderare
+Comment[pl]=Kompleksowe usuwanie śladów systemowych i wymazywanie śladów cyfrowych
+Exec=mate-terminal -- bash -c "sudo anti-tr4ce; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/anti-trace.png
+Categories=Privacy;
+StartupNotify=false

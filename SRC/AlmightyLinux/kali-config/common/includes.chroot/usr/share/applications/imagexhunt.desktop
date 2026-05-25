@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=imagexhunt
+Comment=Image Forensics and Visual Intelligence
+Comment[tr]=Görüntü Adli Bilişimi ve Görsel İstihbarat
+Comment[es]=Análisis forense de imágenes e inteligencia visual
+Comment[fr]=Forensique d'image et intelligence visuelle
+Comment[de]=Bildforensik und visuelle Intelligenz
+Comment[ar]=الطب الشرعي للصور والذكاء المرئي
+Comment[ru]=Криминалистика изображений и визуальная разведка
+Comment[zh]=图像取证与视觉情报
+Comment[ja]=画像フォレンジックおよび視覚インテリジェンス
+Comment[ko]=이미지 포렌식 및 시각 지능
+Comment[pt]=Informática forense de imagens e inteligência visual
+Comment[it]=Informatica forense delle immagini e intelligenza visiva
+Comment[nl]=Afbeeldingsforensisch onderzoek en visuele intelligentie
+Comment[sv]=Bildforensik och visuell intelligens
+Comment[pl]=Śledztwo cyfrowe obrazów i inteligencja wizualna
+Exec=mate-terminal -- bash -c "imagexhunt; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Analysis;
+StartupNotify=false

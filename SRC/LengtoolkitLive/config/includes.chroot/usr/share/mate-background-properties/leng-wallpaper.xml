@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE wallpapers SYSTEM "mate-wp-list.dtd">
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>Default</name>
+    <filename>/usr/share/backgrounds/default.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+</wallpapers>

@@ -1,0 +1,1801 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# Overkill Linux Edition Installer, Tuner & System Setup Utility
+# ==============================================================================
+
+export RED='\033[0;31m'
+export GREEN='\033[0;32m'
+export YELLOW='\033[1;33m'
+export BLUE='\033[0;34m'
+export PURPLE='\033[0;35m'
+export CYAN='\033[0;36m'
+export GOLD='\033[38;5;220m'
+export DARK_BLUE='\033[38;5;18m'
+export BOLD='\033[1m'
+export NC='\033[0m' # No Color
+
+pause_prompt() {
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        return
+    fi
+    read -p "Press ENTER to continue..."
+}
+
+# Draw Banner
+show_banner() {
+    clear
+    echo -e "${GOLD}============================================================================${NC}"
+    echo -e "${GOLD}${BOLD}          ██████╗ ██╗   ██╗███████╗██████╗ ██╗  ██╗██╗██╗     ██╗     ${NC}"
+    echo -e "${GOLD}${BOLD}         ██╔═══██╗██║   ██║██╔════╝██╔══██╗██║ ██╔╝██║██║     ██║     ${NC}"
+    echo -e "${GOLD}${BOLD}         ██║   ██║██║   ██║█████╗  ██████╔╝█████╔╝ ██║██║     ██║     ${NC}"
+    echo -e "${GOLD}${BOLD}         ██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗██╔═██╗ ██║██║     ██║     ${NC}"
+    echo -e "${GOLD}${BOLD}         ╚██████╔╝ ╚████╔╝ ███████╗██║  ██║██║  ██╗██║███████╗███████╗${NC}"
+    echo -e "${GOLD}${BOLD}          ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝${NC}"
+    echo -e "${CYAN}${BOLD}                              O V E R K I L L   L I N U X              ${NC}"
+    echo -e "${GOLD}============================================================================${NC}"
+    echo -e "${CYAN}System Setup, Optimization, Package Management ${NC}"
+    echo -e "${GOLD}============================================================================${NC}"
+}
+
+# Root Privilege Check
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${RED}${BOLD}[ERROR] This script makes system-wide modifications. Please run as root!${NC}"
+        echo -e "${YELLOW}Usage: sudo overkill-setup${NC}"
+        exit 1
+    fi
+}
+
+# Edition Information Path
+CONF_DIR="/usr/share/edition"
+CONF_FILE="$CONF_DIR/edition.conf"
+
+# Read currently installed edition
+get_installed_edition() {
+    if [ -f "$CONF_FILE" ]; then
+        # Sourcing config safely
+        CURRENT_EDITION=$(grep -Po '(?<=^EDITION=")[^"]*' "$CONF_FILE")
+        CURRENT_DATE=$(grep -Po '(?<=^DATE=")[^"]*' "$CONF_FILE")
+        CURRENT_TUNING=$(grep -Po '(?<=^TUNING=")[^"]*' "$CONF_FILE")
+    else
+        CURRENT_EDITION=""
+        CURRENT_DATE=""
+        CURRENT_TUNING=""
+    fi
+}
+
+# Show Status
+show_status() {
+    get_installed_edition
+    if [ -n "$CURRENT_EDITION" ]; then
+        echo -e "${GREEN}${BOLD}CURRENT STATUS: Installed Edition: ${GOLD}${CURRENT_EDITION}${NC}"
+        echo -e "${GREEN}INSTALL DATE: ${CURRENT_DATE}${NC}"
+        if [ "$CURRENT_TUNING" != "none" ] && [ -n "$CURRENT_TUNING" ]; then
+            echo -e "${GREEN}APPLIED TUNING: ${YELLOW}${CURRENT_TUNING^^}${NC}"
+        else
+            echo -e "${GREEN}APPLIED TUNING: ${RED}None / Inactive${NC}"
+        fi
+    else
+        echo -e "${RED}${BOLD}CURRENT STATUS: No installed edition detected!${NC}"
+    fi
+    echo -e "${GOLD}----------------------------------------------------------------------------${NC}"
+}
+
+# Flatpak Setup
+prepare_flatpak() {
+    if ! command -v flatpak &> /dev/null; then
+        echo -e "${CYAN}[INFO] Flatpak is not installed. Installing...${NC}"
+        apt-get update && apt-get install -y flatpak
+    fi
+    # Add flathub remote
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+}
+
+# Apply GRUB Tuning
+apply_grub_tuning() {
+    local cmdline_default_append="$1"
+    local cmdline_append="$2"
+    local disable_recovery="$3"
+
+    echo -e "${CYAN}[GRUB] Optimizing GRUB configuration...${NC}"
+    
+    # Back up GRUB file
+    if [ ! -f "/etc/default/grub.bak" ]; then
+        cp /etc/default/grub /etc/default/grub.bak
+        echo -e "${GREEN}[GRUB] /etc/default/grub backed up to /etc/default/grub.bak.${NC}"
+    fi
+
+    # GRUB_CMDLINE_LINUX_DEFAULT
+    if [ -n "$cmdline_default_append" ]; then
+        sed -i -E 's/^(GRUB_CMDLINE_LINUX_DEFAULT=")([^"]*)(")/\1\2 '"$cmdline_default_append"'\3/' /etc/default/grub
+        sed -i 's/  */ /g' /etc/default/grub
+    fi
+
+    # GRUB_CMDLINE_LINUX
+    if [ -n "$cmdline_append" ]; then
+        sed -i -E 's/^(GRUB_CMDLINE_LINUX=")([^"]*)(")/\1\2 '"$cmdline_append"'\3/' /etc/default/grub
+        sed -i 's/  */ /g' /etc/default/grub
+    fi
+
+    # GRUB_DISABLE_RECOVERY
+    if [ "$disable_recovery" = "true" ]; then
+        if grep -q "^GRUB_DISABLE_RECOVERY=" /etc/default/grub; then
+            sed -i 's/^GRUB_DISABLE_RECOVERY=.*/GRUB_DISABLE_RECOVERY="true"/' /etc/default/grub
+        else
+            echo 'GRUB_DISABLE_RECOVERY="true"' >> /etc/default/grub
+        fi
+    fi
+
+    # Update GRUB
+    if command -v update-grub &> /dev/null; then
+        update-grub
+    elif command -v grub-mkconfig &> /dev/null; then
+        grub-mkconfig -o /boot/grub/grub.cfg
+    else
+        echo -e "${YELLOW}[WARNING] update-grub or grub-mkconfig command not found. Please update GRUB manually.${NC}"
+    fi
+}
+
+# Revert GRUB Tuning
+revert_grub_tuning() {
+    if [ -f "/etc/default/grub.bak" ]; then
+        echo -e "${CYAN}[GRUB] Restoring original GRUB configuration...${NC}"
+        mv /etc/default/grub.bak /etc/default/grub
+        if command -v update-grub &> /dev/null; then
+            update-grub
+        elif command -v grub-mkconfig &> /dev/null; then
+            grub-mkconfig -o /boot/grub/grub.cfg
+        fi
+        echo -e "${GREEN}[GRUB] Configuration restored successfully.${NC}"
+    fi
+}
+
+# Apply Sysctl Tuning
+apply_sysctl_tuning() {
+    local tuning_content="$1"
+    echo -e "${CYAN}[SYSCTL] Applying kernel sysctl parameters...${NC}"
+    echo "$tuning_content" > /etc/sysctl.d/99-edition-tuning.conf
+    sysctl --system
+    echo -e "${GREEN}[SYSCTL] Settings successfully written and reloaded.${NC}"
+}
+
+# Revert Sysctl Tuning
+revert_sysctl_tuning() {
+    if [ -f "/etc/sysctl.d/99-edition-tuning.conf" ]; then
+        echo -e "${CYAN}[SYSCTL] Removing sysctl parameters...${NC}"
+        rm -f /etc/sysctl.d/99-edition-tuning.conf
+        sysctl --system
+        echo -e "${GREEN}[SYSCTL] Default kernel parameters loaded.${NC}"
+    fi
+}
+
+# Apply Modprobe Blacklist
+apply_modprobe_blacklist() {
+    local blacklist_content="$1"
+    echo -e "${CYAN}[MODPROBE] Writing modprobe blacklist configuration...${NC}"
+    echo "$blacklist_content" > /etc/modprobe.d/99-hardened-blacklists.conf
+    echo -e "${GREEN}[MODPROBE] Blacklists saved to /etc/modprobe.d/99-hardened-blacklists.conf.${NC}"
+}
+
+# Revert Modprobe Blacklist
+revert_modprobe_blacklist() {
+    if [ -f "/etc/modprobe.d/99-hardened-blacklists.conf" ]; then
+        echo -e "${CYAN}[MODPROBE] Removing modprobe blacklist configurations...${NC}"
+        rm -f /etc/modprobe.d/99-hardened-blacklists.conf
+        echo -e "${GREEN}[MODPROBE] Modprobe configurations reverted successfully.${NC}"
+    fi
+}
+
+# Apply nftables Firewall
+apply_nftables() {
+    local nft_content="$1"
+    echo -e "${CYAN}[FIREWALL] Configuring hardened nftables firewall...${NC}"
+    
+    # Back up existing nftables config
+    if [ -f "/etc/nftables.conf" ] && [ ! -f "/etc/nftables.conf.bak" ]; then
+        cp /etc/nftables.conf /etc/nftables.conf.bak
+        echo -e "${GREEN}[FIREWALL] Original /etc/nftables.conf backed up.${NC}"
+    fi
+
+    # Package installation check
+    if ! command -v nft &> /dev/null; then
+        echo -e "${CYAN}[FIREWALL] Installing nftables package...${NC}"
+        apt-get update && apt-get install -y nftables
+    fi
+
+    # Write nft rules
+    echo "$nft_content" > /etc/nftables.conf
+    
+    # Start and enable service
+    systemctl stop iptables &> /dev/null || true # Avoid conflicts with iptables
+    systemctl disable iptables &> /dev/null || true
+    systemctl enable nftables
+    systemctl restart nftables
+
+    echo -e "${GREEN}[FIREWALL] nftables configured, loaded, and activated successfully.${NC}"
+}
+
+# Revert nftables Firewall
+revert_nftables() {
+    echo -e "${CYAN}[FIREWALL] Disabling nftables firewall...${NC}"
+    systemctl stop nftables &> /dev/null || true
+    systemctl disable nftables &> /dev/null || true
+    
+    if [ -f "/etc/nftables.conf.bak" ]; then
+        mv /etc/nftables.conf.bak /etc/nftables.conf
+        echo -e "${GREEN}[FIREWALL] Original nftables configuration restored.${NC}"
+    else
+        rm -f /etc/nftables.conf
+    fi
+}
+
+# Save Edition Info
+save_edition_info() {
+    local edition_name="$1"
+    local tuning_type="$2"
+    mkdir -p "$CONF_DIR"
+    cat <<EOF > "$CONF_FILE"
+EDITION="$edition_name"
+DATE="$(date '+%Y-%m-%d %H:%M:%S')"
+TUNING="$tuning_type"
+EOF
+    echo -e "${GREEN}${BOLD}[INFO] Edition details saved to $CONF_FILE.${NC}"
+}
+
+# Uninstall Edition
+uninstall_edition() {
+    get_installed_edition
+    if [ -z "$CURRENT_EDITION" ]; then
+        echo -e "${RED}${BOLD}[WARNING] No installed edition found in the system! Reversion aborted.${NC}"
+        pause_prompt
+        return
+    fi
+
+    echo -e "${YELLOW}${BOLD}WARNING: You are about to uninstall '${CURRENT_EDITION}'!${NC}"
+    echo -e "${YELLOW}This will completely remove all APT packages and Flatpaks associated with this edition.${NC}"
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        confirm="y"
+    else
+        read -p "Are you sure you want to proceed? (y/N): " confirm
+    fi
+    if [[ ! "$confirm" =~ ^[yY]$ ]]; then
+        echo -e "${CYAN}Uninstall process cancelled by user.${NC}"
+        pause_prompt
+        return
+    fi
+
+    echo -e "${CYAN}[UNINSTALL] Reverting changes... Please wait.${NC}"
+
+    local apt_pkgs=""
+    local flat_pkgs=""
+    local is_hardened=false
+    local is_hardened_nofw=false
+    local is_gaming=false
+    local is_multimedia=false
+    local is_ai=false
+
+    case "$CURRENT_EDITION" in
+        "Development Edition")
+            apt_pkgs="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+            flat_pkgs="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand"
+            ;;
+        "AI Edition")
+            apt_pkgs="kde-plasma-desktop kde-standard sddm plasma-nm plasma-discover xdg-desktop-portal-kde fonts-noto-color-emoji firefox-esr network-manager vim nano curl wget git lsof net-tools ca-certificates apt-transport-https smartmontools lsb-release lshw unzip ark kate vlc dbus-x11 fonts-noto-cjk python3-torch python3-torchvision python3-torchaudio python3-xgboost python3-sklearn python3-pandas python3-numpy"
+            flat_pkgs="ai.lmstudio.lm-studio com.jeffser.Alpaca ai.jan.Jan com.cherry_ai.CherryStudio io.github.qwersyk.Newelle io.github.Bavarder.Bavarder io.github.koromelodev.mindmate com.iche2.gai page.codeberg.Imaginer.Imaginer br.com.wiselabs.simplexity"
+            is_ai=true
+            ;;
+        "Education Edition")
+            apt_pkgs="fonts-noto-color-emoji fonts-noto-cjk libreoffice libreoffice-gtk3 geogebra kalgebra kmplot stellarium marble cantor python3-full python3-pip idle geany tuxtype tuxmath ktouch kwordquiz klettres kanagram kturtle parley goldendict kgeography tuxpaint kolourpaint evince eog gnome-calculator gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks"
+            ;;
+        "Engineer Edition")
+            apt_pkgs="freecad blender librecad openscad kicad fritzing octave scilab geogebra evince eog gnome-calculator gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks simple-scan pdfarranger"
+            ;;
+        "Gaming Edition")
+            apt_pkgs="wine wine64 wine32:i386 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 libvulkan1:i386 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv"
+            flat_pkgs="com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+            is_gaming=true
+            ;;
+        "Hardened Edition")
+            apt_pkgs="nftables keepassxc kleopatra"
+            flat_pkgs="org.cryptomator.Cryptomator app.drey.Warp"
+            is_hardened=true
+            ;;
+        "Cryptocurrency Edition")
+            flat_pkgs="com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            ;;
+        "Cryptocurrency Edition Hardened")
+            flat_pkgs="com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            is_hardened_nofw=true
+            ;;
+        "Scientific Edition")
+            apt_pkgs="libreoffice libreoffice-gtk3 texlive-base texlive-latex-extra texlive-science texlive-fonts-recommended pandoc octave octave-signal octave-image octave-statistics gnuplot gnuplot-qt maxima wxmaxima geogebra kalgebra kmplot cantor scilab step avogadro units kalzium gperiodic stellarium marble ugene clustalw emboss r-base r-base-dev python3-full python3-pip python3-numpy python3-scipy python3-matplotlib python3-pandas python3-sympy python3-sklearn jupyter-notebook geany build-essential cmake gfortran paraview gnome-calculator evince eog gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks"
+            ;;
+        "Office Edition")
+            apt_pkgs="libreoffice libreoffice-gtk3 thunderbird evolution planner gnucash homebank evince eog gnome-calculator gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks simple-scan pdfarranger"
+            ;;
+        "Multimedia Edition")
+            apt_pkgs="kdenlive obs-studio shotcut pitivi handbrake ffmpeg audacity ardour lmms hydrogen qjackctl calf-plugins gimp inkscape krita darktable rawtherapee scribus mypaint vlc mpv gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly evince eog file-roller baobab"
+            is_multimedia=true
+            ;;
+        "Development Gaming Mix Edition")
+            apt_pkgs="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby wine wine64  winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv"
+            flat_pkgs="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+            is_gaming=true
+            ;;
+        "Development Gaming Multimedia Mix Edition")
+            apt_pkgs="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby wine wine64 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv kdenlive obs-studio shotcut pitivi handbrake ffmpeg audacity ardour lmms hydrogen qjackctl calf-plugins gimp inkscape krita darktable rawtherapee scribus mypaint vlc mpv gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly evince eog file-roller baobab"
+            flat_pkgs="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+            is_gaming=true
+            ;;
+        "Development AI Mix Edition")
+            apt_pkgs="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby python3-torch python3-torchvision python3-torchaudio python3-xgboost python3-sklearn python3-pandas python3-numpy"
+            flat_pkgs="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand ai.lmstudio.lm-studio com.jeffser.Alpaca ai.jan.Jan com.cherry_ai.CherryStudio io.github.qwersyk.Newelle io.github.Bavarder.Bavarder io.github.koromelodev.mindmate com.iche2.gai page.codeberg.Imaginer.Imaginer br.com.wiselabs.simplexity"
+            is_ai=true
+            ;;
+        "Development Cryptocurrency Mix Edition")
+            apt_pkgs="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+            flat_pkgs="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            ;;
+        "Development Cryptocurrency Hardened Mix Edition")
+            apt_pkgs="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+            flat_pkgs="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            is_hardened_nofw=true
+            ;;
+        "Gaming Lite Edition")
+            apt_pkgs="lutris"
+            flat_pkgs="com.valvesoftware.Steam com.heroicgameslauncher.hgl com.discordapp.Discord"
+            is_gaming=true
+            ;;
+        "Development Lite Edition")
+            flat_pkgs="com.visualstudio.code io.github.shiftey.Desktop"
+            ;;
+        "Development Gaming Lite Mix Edition")
+            apt_pkgs="lutris"
+            flat_pkgs="com.visualstudio.code io.github.shiftey.Desktop com.valvesoftware.Steam com.heroicgameslauncher.hgl com.discordapp.Discord"
+            is_gaming=true
+            ;;
+        "Gamebox Edition")
+            flat_pkgs="com.github.Anuken.Mindustry org.openttd.OpenTTD com.endlessnetwork.aqueducts com.simutrans.Simutrans com.play0ad.zeroad"
+            is_gaming=true
+            ;;
+        *)
+            echo -e "${RED}[UNINSTALL] Unrecognized edition. Please inspect configuration files.${NC}"
+            ;;
+    esac
+
+    # 1. Uninstall APT Packages
+    if [ -n "$apt_pkgs" ]; then
+        echo -e "${CYAN}[APT] Purging packages: $apt_pkgs${NC}"
+        apt-get purge -y $apt_pkgs
+        apt-get autoremove -y
+        echo -e "${GREEN}[APT] APT packages cleared successfully.${NC}"
+    fi
+
+    # 2. Uninstall Flatpaks
+    if [ -n "$flat_pkgs" ]; then
+        echo -e "${CYAN}[FLATPAK] Removing applications...${NC}"
+        flatpak uninstall -y $flat_pkgs
+        flatpak uninstall --unused -y
+        echo -e "${GREEN}[FLATPAK] Flatpaks cleared successfully.${NC}"
+    fi
+
+    # 3. Revert Tuning Configurations
+    if [ "$is_hardened" = true ]; then
+        revert_sysctl_tuning
+        revert_grub_tuning
+        revert_modprobe_blacklist
+        revert_nftables
+    fi
+
+    if [ "$is_hardened_nofw" = true ]; then
+        revert_sysctl_tuning
+        revert_grub_tuning
+        revert_modprobe_blacklist
+    fi
+
+    if [ "$is_gaming" = true ]; then
+        revert_sysctl_tuning
+        revert_grub_tuning
+    fi
+
+    if [ "$is_multimedia" = true ]; then
+        revert_sysctl_tuning
+        revert_grub_tuning
+    fi
+
+    if [ "$is_ai" = true ]; then
+        revert_sysctl_tuning
+        revert_grub_tuning
+    fi
+
+    # 4. Clean Configuration File
+    rm -f "$CONF_FILE"
+    echo -e "${GREEN}${BOLD}Edition removal completed successfully! System cleaned.${NC}"
+    pause_prompt
+}
+
+# ==============================================================================
+# EDITION DEFINITIONS & TUNING CONTENTS
+# ==============================================================================
+
+# Gaming sysctl tuning text
+GAMING_SYSCTL_TUNING='########################################
+# Memory & Swap
+########################################
+vm.swappiness=1
+vm.max_map_count=2097152
+vm.dirty_ratio=10
+vm.dirty_background_ratio=5
+vm.dirty_expire_centisecs=1500
+vm.dirty_writeback_centisecs=300
+vm.vfs_cache_pressure=50
+vm.overcommit_memory=0
+vm.page-cluster=0
+vm.min_free_kbytes=131072
+
+########################################
+# Scheduler & CPU
+########################################
+kernel.sched_migration_cost_ns=5000000
+kernel.sched_autogroup_enabled=1
+kernel.sched_min_granularity_ns=500000
+kernel.sched_wakeup_granularity_ns=500000
+kernel.nmi_watchdog=0
+kernel.watchdog=0
+kernel.watchdog_thresh=0
+
+########################################
+# Network (Low Latency Gaming)
+########################################
+net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_low_latency=1
+net.ipv4.tcp_timestamps=1
+net.ipv4.tcp_fin_timeout=10
+net.ipv4.tcp_keepalive_time=300
+net.ipv4.tcp_keepalive_probes=3
+net.ipv4.tcp_keepalive_intvl=10
+net.core.netdev_max_backlog=32768
+net.core.somaxconn=8192
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.core.rmem_default=1048576
+net.core.rmem_max=16777216
+net.core.wmem_default=1048576
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 1048576 16777216
+net.ipv4.tcp_wmem=4096 1048576 16777216
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+
+########################################
+# I/O & Filesystem
+########################################
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=8192
+fs.file-max=2097152
+
+########################################
+# Misc
+########################################
+kernel.sysrq=176'
+
+# Hardened sysctl tuning text
+HARDENED_SYSCTL_TUNING='kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+kernel.yama.ptrace_scope = 1
+kernel.unprivileged_bpf_disabled = 1
+net.core.bpf_jit_harden = 2
+kernel.panic = 10
+kernel.kexec_load_disabled = 1
+kernel.perf_event_paranoid = 2
+kernel.perf_cpu_time_max_percent = 5
+kernel.perf_event_max_sample_rate = 100000
+kernel.randomize_va_space = 2
+fs.suid_dumpable = 0
+kernel.core_pattern = |/bin/false
+vm.overcommit_memory = 0
+vm.overcommit_ratio = 80
+vm.max_map_count = 262144
+vm.mmap_min_addr = 65536
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.protected_fifos = 2
+fs.protected_regular = 2
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 256
+fs.inotify.max_queued_events = 32768
+fs.file-max = 2097152
+net.ipv4.ip_forward = 0
+net.ipv6.conf.all.forwarding = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv6.conf.default.accept_source_route = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.icmp_echo_ignore_all=0
+net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.tcp_syn_retries = 2
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_abort_on_overflow = 1
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_keepalive_probes = 3
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_rfc1337 = 1
+net.ipv4.tcp_timestamps = 0
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_fack = 1
+net.ipv4.tcp_window_scaling = 1
+net.core.rmem_default = 262144
+net.core.rmem_max = 16777216
+net.core.wmem_default = 262144
+net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 4096 65536 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.netfilter.nf_conntrack_max = 1048576
+net.netfilter.nf_conntrack_tcp_timeout_established = 1800
+net.netfilter.nf_conntrack_generic_timeout = 120
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
+net.core.netdev_max_backlog = 5000
+net.ipv4.icmp_ratelimit = 100
+net.ipv4.icmp_ratemask = 6168
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_invalid_ratelimit = 500
+net.ipv4.conf.all.arp_ignore = 1
+net.ipv4.conf.all.arp_announce = 2
+net.ipv4.conf.all.arp_filter = 1
+net.ipv4.conf.all.drop_gratuitous_arp = 1
+net.ipv4.conf.default.drop_gratuitous_arp = 1
+net.ipv4.neigh.default.gc_thresh1 = 128
+net.ipv4.neigh.default.gc_thresh2 = 512
+net.ipv4.neigh.default.gc_thresh3 = 1024
+net.ipv6.neigh.default.gc_thresh1 = 128
+net.ipv6.neigh.default.gc_thresh2 = 512
+net.ipv6.neigh.default.gc_thresh3 = 1024
+vm.dirty_ratio = 15
+vm.dirty_background_ratio = 5
+vm.dirty_expire_centisecs = 3000
+vm.dirty_writeback_centisecs = 500
+vm.swappiness = 10
+vm.vfs_cache_pressure = 50
+kernel.sched_migration_cost_ns = 500000
+kernel.sched_autogroup_enabled = 1
+vm.page-cluster = 3
+kernel.sysrq = 176
+kernel.shm_rmid_forced = 1
+dev.tty.ldisc_autoload = 0
+kernel.pid_max = 4194304
+kernel.threads-max = 4194304'
+
+# Modprobe blacklist rules text
+HARDENED_BLACKLISTS='# === Firewire (Physical Memory / DMA Attacks) ===
+install dv1394 /bin/false
+install firewire-core /bin/false
+install firewire-ohci /bin/false
+install firewire-net /bin/false
+install firewire-sbp2 /bin/false
+install ohci1394 /bin/false
+install raw1394 /bin/false
+install sbp2 /bin/false
+install video1394 /bin/false
+
+# === Thunderbolt (DMA Attacks) ===
+install intel-wmi-thunderbolt /bin/false
+install thunderbolt /bin/false
+install thunderbolt_net /bin/false
+
+# === GPS (Location Privacy) ===
+install garmin_gps /bin/false
+install gnss /bin/false
+install gnss-mtk /bin/false
+install gnss-serial /bin/false
+install gnss-sirf /bin/false
+install gnss-ubx /bin/false
+install gnss-usb /bin/false
+
+# === Intel Platform Telemetry ===
+install pmt_class /bin/false
+install pmt_crashlog /bin/false
+install pmt_telemetry /bin/false
+
+# === Unused Filesystems ===
+install freevxfs /bin/false
+install hfs /bin/false
+install hfsplus /bin/false
+install jfs /bin/false
+install reiserfs /bin/false
+
+# === Network File Systems ===
+install gfs2 /bin/false
+install ksmbd /bin/false
+install cifs /bin/false
+install cifs_arc4 /bin/false
+install cifs_md4 /bin/false
+install nfs /bin/false
+install nfs_acl /bin/false
+install nfsd /bin/false
+install nfsv2 /bin/false
+install nfsv3 /bin/false
+install nfsv4 /bin/false
+
+# === Legacy / Unused Network Protocols ===
+install af_802154 /bin/false
+install appletalk /bin/false
+install ax25 /bin/false
+install decnet /bin/false
+install dccp /bin/false
+install econet /bin/false
+install ipx /bin/false
+install n-hdlc /bin/false
+install netrom /bin/false
+install p8022 /bin/false
+install p8023 /bin/false
+install psnap /bin/false
+install rose /bin/false
+install x25 /bin/false
+
+# === ATM Protocols ===
+install atm /bin/false
+install ueagle-atm /bin/false
+install usbatm /bin/false
+install xusbatm /bin/false
+
+# === CAN Bus ===
+install c_can /bin/false
+install c_can_pci /bin/false
+install c_can_platform /bin/false
+install can /bin/false
+install can-bcm /bin/false
+install can-dev /bin/false
+install can-gw /bin/false
+install can-isotp /bin/false
+install can-raw /bin/false
+install can-j1939 /bin/false
+install can327 /bin/false
+install ifi_canfd /bin/false
+install m_can /bin/false
+install m_can_pci /bin/false
+install m_can_platform /bin/false
+install slcan /bin/false
+install ucan /bin/false
+install vxcan /bin/false
+install vcan /bin/false
+
+# === TIPC / RDS / SCTP ===
+install tipc /bin/false
+install tipc_diag /bin/false
+install rds /bin/false
+install rds_rdma /bin/false
+install rds_tcp /bin/false
+install sctp /bin/false
+install sctp_diag /bin/false
+
+# === Others ===
+install hamradio /bin/false
+install floppy /bin/false
+
+# === Legacy Framebuffer Drivers ===
+install aty128fb /bin/false
+install atyfb /bin/false
+install cirrusfb /bin/false
+install cyber2000fb /bin/false
+install cyblafb /bin/false
+install gx1fb /bin/false
+install hgafb /bin/false
+install i810fb /bin/false
+install kyrofb /bin/false
+install lxfb /bin/false
+install matroxfb_base /bin/false
+install neofb /bin/false
+install pm2fb /bin/false
+install rivafb /bin/false
+install s1d13xxxfb /bin/false
+install savagefb /bin/false
+install sisfb /bin/false
+install sstfb /bin/false
+install tdfxfb /bin/false
+install tridentfb /bin/false
+install vfb /bin/false
+install viafb /bin/false
+install vt8623fb /bin/false
+install udlfb /bin/false
+install asus_acpi /bin/false
+install bcm43xx /bin/false
+install de4x5 /bin/false
+install prism54 /bin/false'
+
+# Hardened nftables configuration text
+HARDENED_NFTABLES='#!/usr/sbin/nft -f
+
+flush ruleset
+
+table inet firewall {
+    set bogon_ipv4 {
+        type ipv4_addr; flags interval;
+        elements = {
+            0.0.0.0/8,
+            100.64.0.0/10,
+            169.254.0.0/16,
+            192.0.0.0/24,
+            192.0.2.0/24,
+            198.18.0.0/15,
+            198.51.100.0/24,
+            203.0.113.0/24,
+            224.0.0.0/3
+        }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        iif lo accept comment "loopback"
+
+        iif != lo ip  daddr 127.0.0.0/8 drop comment "spoof loopback v4"
+        iif != lo ip6 daddr ::1/128     drop comment "spoof loopback v6"
+
+        ct state invalid drop comment "invalid conntrack"
+
+        ct state { established, related } accept comment "established/related"
+
+        ip saddr @bogon_ipv4 iif != lo drop comment "bogon source drop"
+
+        tcp flags & (fin|syn|rst|ack) != syn ct state new drop comment "invalid tcp new"
+
+        tcp flags syn ct state new limit rate over 25/second burst 50 packets drop comment "syn flood"
+
+        ip  protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem } limit rate 10/second burst 20 packets accept comment "icmpv4"
+        ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, nd-router-solicit, mld-listener-query, destination-unreachable, packet-too-big, time-exceeded, parameter-problem } limit rate 10/second burst 20 packets accept comment "icmpv6"
+
+        ip  protocol icmp   drop comment "icmp overlimit"
+        ip6 nexthdr icmpv6  drop comment "icmpv6 overlimit"
+
+        # Tor relay/bridge, I2P, OpenVPN, WireGuard inbound
+        tcp dport { 9001, 9030, 9050, 9150, 7656, 7657, 7658, 4444, 4447, 1194 } ct state new accept comment "tor-i2p-vpn tcp"
+        udp dport { 51820, 1194 } accept comment "wireguard-openvpn udp"
+
+        udp dport 5353 ip  daddr 224.0.0.251 accept comment "mDNS v4"
+        udp dport 5353 ip6 daddr ff02::fb    accept comment "mDNS v6"
+
+        udp sport 67 udp dport 68   accept comment "DHCP v4"
+        udp sport 547 udp dport 546 accept comment "DHCP v6"
+
+        drop
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
+
+table ip raw_filter {
+    chain prerouting {
+        type filter hook prerouting priority raw; policy accept;
+
+        tcp flags & (fin|syn) == (fin|syn)         drop comment "fin+syn"
+        tcp flags & (syn|rst) == (syn|rst)         drop comment "syn+rst"
+        tcp flags & (fin|syn|rst|psh|ack|urg) == 0 drop comment "null scan"
+        tcp flags & (fin|psh|urg) == (fin|psh|urg) drop comment "xmas scan"
+
+        ip protocol icmp ip frag-off & 0x1fff != 0 drop comment "frag icmp"
+    }
+}'
+
+# Multimedia sysctl tuning text
+MULTIMEDIA_SYSCTL_TUNING='# Reduce swappiness to prevent stutter during heavy editing
+vm.swappiness=10
+
+# Increase memory map areas for large projects (video/3D)
+vm.max_map_count=1048576
+
+# Balanced writeback for smooth IO during large file rendering
+vm.dirty_ratio=10
+vm.dirty_background_ratio=5
+vm.dirty_expire_centisecs=1500
+vm.dirty_writeback_centisecs=500
+
+# Cache pressure
+vm.vfs_cache_pressure=50
+
+# Avoid OOM kills during heavy rendering
+vm.overcommit_memory=0'
+
+# AI sysctl tuning text (performance focused for ML / DL workloads)
+AI_SYSCTL_TUNING='########################################
+# Memory (large model loading & mmap)
+########################################
+vm.swappiness=1
+vm.vfs_cache_pressure=50
+vm.max_map_count=1048576
+vm.overcommit_memory=1
+vm.dirty_ratio=20
+vm.dirty_background_ratio=10
+vm.dirty_expire_centisecs=3000
+vm.dirty_writeback_centisecs=500
+vm.min_free_kbytes=131072
+vm.page-cluster=0
+
+########################################
+# Scheduler / latency
+########################################
+kernel.sched_autogroup_enabled=1
+kernel.sched_migration_cost_ns=5000000
+kernel.numa_balancing=0
+kernel.nmi_watchdog=0
+
+########################################
+# Filesystem / IO (datasets, checkpoints)
+########################################
+fs.file-max=2097152
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=8192
+
+########################################
+# Network (model download throughput)
+########################################
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 1048576 16777216
+net.ipv4.tcp_wmem=4096 1048576 16777216
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr'
+
+# ==============================================================================
+# CORE INSTALL FUNCTIONS
+# ==============================================================================
+
+install_packages_and_tuning() {
+    local edition_name="$1"
+    local apt_list="$2"
+    local flat_list="$3"
+    local tuning_type="$4"
+
+    # Verify if an edition is already installed
+    get_installed_edition
+    if [ -n "$CURRENT_EDITION" ]; then
+        echo -e "${RED}${BOLD}[BLOCKED] '${CURRENT_EDITION}' is already installed on this system!${NC}"
+        echo -e "${YELLOW}Only one edition can be installed at a time. Please uninstall the current edition first.${NC}"
+        pause_prompt
+        return
+    fi
+
+    echo -e "${CYAN}${BOLD}[INSTALL] Beginning installation of ${edition_name}... Please wait.${NC}"
+    echo -e "${GOLD}----------------------------------------------------------------------------${NC}"
+
+    # 1. Install APT Packages
+    if [ -n "$apt_list" ]; then
+        echo -e "${CYAN}[APT] Updating repositories and installing packages...${NC}"
+        apt-get update
+        apt-get install -y $apt_list
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}[WARNING] Failed to install some APT packages. Continuing...${NC}"
+        else
+            echo -e "${GREEN}[APT] Packages installed successfully.${NC}"
+        fi
+    fi
+
+    # 2. Setup Flatpaks
+    if [ -n "$flat_list" ]; then
+        prepare_flatpak
+        echo -e "${CYAN}[FLATPAK] Installing applications...${NC}"
+        for app in $flat_list; do
+            echo -e "${CYAN}[FLATPAK] Installing: $app${NC}"
+            flatpak install -y flathub $app
+        done
+        echo -e "${GREEN}[FLATPAK] Applications installed successfully.${NC}"
+    fi
+
+    # 3. Apply Tuning Optimizations
+    case "$tuning_type" in
+        "gaming")
+            apply_sysctl_tuning "$GAMING_SYSCTL_TUNING"
+            apply_grub_tuning \
+                "mitigations=off transparent_hugepage=never nowatchdog split_lock_detect=off threadirqs preempt=full" \
+                "" \
+                "false"
+            ;;
+        "hardened-nofw")
+            # Hardened profile WITHOUT the nftables firewall (e.g. for
+            # cryptocurrency wallets that need full inbound P2P connectivity).
+            apply_sysctl_tuning "$HARDENED_SYSCTL_TUNING"
+            apply_modprobe_blacklist "$HARDENED_BLACKLISTS"
+            apply_grub_tuning \
+                "rd.emergency=halt rd.shell=0" \
+                "slab_nomerge init_on_alloc=1 init_on_free=1 page_alloc.shuffle=1 pti=on randomize_kstack_offset=on vsyscall=none debugfs=off kfence.sample_interval=100 vdso32=0 cfi=kcfi efi_pstore.pstore_disable=1 erst_disable bdev_allow_write_mounted=0 proc_mem.force_override=never iommu=on iommu.passthrough=0 iommu.strict=0 random.trust_cpu=off random.trust_bootloader=off extra_latent_entropy lockdown=integrity mitigations=full spectre_v2=on spectre_bhi=on kpti=1 spec_store_bypass_disable=on ssbd=force-on l1tf=full mds=full tsx=off tsx_async_abort=full kvm.nx_huge_pages=force l1d_flush=on mmio_stale_data=full retbleed=auto kvm.mitigate_smt_rsb=1 spec_rstack_overflow=ibpb gather_data_sampling=on reg_file_data_sampling=on indirect_target_selection=force vmscape=force" \
+                "true"
+            ;;
+        "hardened")
+            apply_sysctl_tuning "$HARDENED_SYSCTL_TUNING"
+            apply_modprobe_blacklist "$HARDENED_BLACKLISTS"
+            apply_nftables "$HARDENED_NFTABLES"
+            apply_grub_tuning \
+                "rd.emergency=halt rd.shell=0" \
+                "slab_nomerge init_on_alloc=1 init_on_free=1 page_alloc.shuffle=1 pti=on randomize_kstack_offset=on vsyscall=none debugfs=off kfence.sample_interval=100 vdso32=0 cfi=kcfi efi_pstore.pstore_disable=1 erst_disable bdev_allow_write_mounted=0 proc_mem.force_override=never iommu=on iommu.passthrough=0 iommu.strict=0 random.trust_cpu=off random.trust_bootloader=off extra_latent_entropy lockdown=integrity mitigations=full spectre_v2=on spectre_bhi=on kpti=1 spec_store_bypass_disable=on ssbd=force-on l1tf=full mds=full tsx=off tsx_async_abort=full kvm.nx_huge_pages=force l1d_flush=on mmio_stale_data=full retbleed=auto kvm.mitigate_smt_rsb=1 spec_rstack_overflow=ibpb gather_data_sampling=on reg_file_data_sampling=on indirect_target_selection=force vmscape=force" \
+                "true"
+            ;;
+        "multimedia")
+            apply_sysctl_tuning "$MULTIMEDIA_SYSCTL_TUNING"
+            apply_grub_tuning \
+                "mitigations=auto transparent_hugepage=madvise nowatchdog threadirqs preempt=full" \
+                "" \
+                "false"
+            ;;
+        "ai")
+            apply_sysctl_tuning "$AI_SYSCTL_TUNING"
+            apply_grub_tuning \
+                "mitigations=auto transparent_hugepage=always nowatchdog numa_balancing=disable" \
+                "" \
+                "false"
+            ;;
+        "none")
+            echo -e "${YELLOW}[TUNING] No system optimizations are required for this edition.${NC}"
+            ;;
+    esac
+
+    # 4. Save Installation Log
+    save_edition_info "$edition_name" "$tuning_type"
+
+    echo -e "${GREEN}${BOLD}SUCCESS: ${edition_name} and related optimizations applied successfully!${NC}"
+    echo -e "${YELLOW}${BOLD}NOTICE: Please reboot your system to fully apply all changes.${NC}"
+    pause_prompt
+}
+
+# ==============================================================================
+# SYSTEM MANAGEMENT OPTIONS
+# ==============================================================================
+
+# Option 14: System Update
+sys_update() {
+    echo -e "${CYAN}[SYSTEM UPDATE] Updating package databases and upgrading packages...${NC}"
+    apt-get update
+    apt-get dist-upgrade -y
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}[SYSTEM UPDATE] System successfully upgraded.${NC}"
+    else
+        echo -e "${RED}[ERROR] Failed to upgrade the system.${NC}"
+    fi
+    pause_prompt
+}
+
+# Option 15: Install Package
+pkg_install() {
+    echo -e "${CYAN}[INSTALL PACKAGE] Enter package name(s) to install:${NC}"
+    read -p "Package name(s): " pkgs
+    if [ -z "$pkgs" ]; then
+        echo -e "${YELLOW}[WARNING] No package name entered.${NC}"
+    else
+        apt-get install -y $pkgs
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}[INSTALL PACKAGE] Packages installed successfully.${NC}"
+        else
+            echo -e "${RED}[ERROR] Failed to install packages.${NC}"
+        fi
+    fi
+    pause_prompt
+}
+
+# Option 16: Remove Package
+pkg_remove() {
+    echo -e "${CYAN}[REMOVE PACKAGE] Enter package name(s) to purge:${NC}"
+    read -p "Package name(s): " pkgs
+    if [ -z "$pkgs" ]; then
+        echo -e "${YELLOW}[WARNING] No package name entered.${NC}"
+    else
+        apt-get purge -y $pkgs
+        apt-get autoremove -y
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}[REMOVE PACKAGE] Packages purged successfully.${NC}"
+        else
+            echo -e "${RED}[ERROR] Failed to purge packages.${NC}"
+        fi
+    fi
+    pause_prompt
+}
+
+# Option 17: Clean System
+sys_clean() {
+    echo -e "${CYAN}[CLEAN SYSTEM] Cleaning system caches and temporary files...${NC}"
+    
+    # APT cache cleanup
+    echo -e "${CYAN}[CLEAN] Cleaning APT caches...${NC}"
+    apt-get clean
+    apt-get autoclean
+    apt-get autoremove -y
+    
+    # Systemd journal cleanup
+    if command -v journalctl &> /dev/null; then
+        echo -e "${CYAN}[CLEAN] Vacuuming systemd journal logs to 1 day...${NC}"
+        journalctl --vacuum-time=1d
+    fi
+    
+    # Temp folders cleanup
+    echo -e "${CYAN}[CLEAN] Clearing /tmp and /var/tmp directories...${NC}"
+    rm -rf /tmp/* /var/tmp/*
+    
+    echo -e "${GREEN}[CLEAN SYSTEM] System cleaned successfully.${NC}"
+    pause_prompt
+}
+
+# Option 18: Change DNS
+change_dns() {
+    while true; do
+        clear
+        echo -e "${GOLD}============================================================================${NC}"
+        echo -e "${CYAN}${BOLD}                          CHANGE SYSTEM DNS CONFIGURATION                  ${NC}"
+        echo -e "${GOLD}============================================================================${NC}"
+        echo -e "  ${GOLD}1)${NC} Cloudflare DNS (1.1.1.1 / 1.0.0.1)"
+        echo -e "  ${GOLD}2)${NC} Google DNS (8.8.8.8 / 8.8.4.4)"
+        echo -e "  ${GOLD}3)${NC} Quad9 DNS (9.9.9.9 / 149.112.112.112)"
+        echo -e "  ${GOLD}4)${NC} Custom DNS Configuration"
+        echo -e "  ${GOLD}B)${NC} Back to Main Menu"
+        echo -e "${GOLD}============================================================================${NC}"
+        read -p "Select choice [1-4, B]: " dns_choice
+
+        case "$dns_choice" in
+            1)
+                echo -e "${CYAN}[DNS] Applying Cloudflare DNS...${NC}"
+                apply_dns "1.1.1.1" "1.0.0.1"
+                echo -e "${GREEN}[DNS] Cloudflare DNS applied successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            2)
+                echo -e "${CYAN}[DNS] Applying Google DNS...${NC}"
+                apply_dns "8.8.8.8" "8.8.4.4"
+                echo -e "${GREEN}[DNS] Google DNS applied successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            3)
+                echo -e "${CYAN}[DNS] Applying Quad9 DNS...${NC}"
+                apply_dns "9.9.9.9" "149.112.112.112"
+                echo -e "${GREEN}[DNS] Quad9 DNS applied successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            4)
+                echo -e "${CYAN}[DNS] Custom DNS Setup:${NC}"
+                read -p "Primary DNS Server: " primary_dns
+                read -p "Secondary DNS Server (Optional): " secondary_dns
+                if [ -n "$primary_dns" ]; then
+                    apply_dns "$primary_dns" "$secondary_dns"
+                    echo -e "${GREEN}[DNS] Custom DNS applied successfully.${NC}"
+                else
+                    echo -e "${RED}[ERROR] Primary DNS cannot be empty.${NC}"
+                fi
+                sleep 2
+                break
+                ;;
+            [bB])
+                break
+                ;;
+            *)
+                echo -e "${RED}[WARNING] Invalid choice! Select 1-4 or B.${NC}"
+                sleep 2
+                ;;
+        esac
+    done
+}
+
+# Option 19: Change Hostname
+change_hostname() {
+    local current_hn=$(cat /etc/hostname)
+    echo -e "${CYAN}[HOSTNAME] Current Hostname: ${GOLD}${current_hn}${NC}"
+    read -p "Enter new hostname: " new_hn
+    if [ -z "$new_hn" ]; then
+        echo -e "${YELLOW}[WARNING] Hostname cannot be empty.${NC}"
+    else
+        # Apply hostnamectl
+        if command -v hostnamectl &> /dev/null; then
+            hostnamectl set-hostname "$new_hn"
+        else
+            hostname "$new_hn"
+        fi
+        
+        # Write to /etc/hostname
+        echo "$new_hn" > /etc/hostname
+        
+        # Update /etc/hosts
+        sed -i "s/\b${current_hn}\b/${new_hn}/g" /etc/hosts
+        
+        echo -e "${GREEN}[HOSTNAME] Hostname changed to '${new_hn}' successfully.${NC}"
+    fi
+    pause_prompt
+}
+
+# Option 20: Browser Installer
+install_browser() {
+    while true; do
+        clear
+        echo -e "${GOLD}============================================================================${NC}"
+        echo -e "${CYAN}${BOLD}                          BROWSER INSTALLATION MANAGER                      ${NC}"
+        echo -e "${GOLD}============================================================================${NC}"
+        echo -e "  ${GOLD}1)${NC} Firefox ESR (APT)"
+        echo -e "  ${GOLD}2)${NC} Brave Browser (Flatpak)"
+        echo -e "  ${GOLD}3)${NC} Tor Browser Launcher (Flatpak)"
+        echo -e "  ${GOLD}4)${NC} Mullvad Browser (Flatpak)"
+        echo -e "  ${GOLD}5)${NC} FireDragon (Flatpak)"
+        echo -e "  ${GOLD}6)${NC} Zen Browser (Flatpak)"
+        echo -e "  ${GOLD}7)${NC} Floorp (Flatpak)"
+        echo -e "  ${GOLD}8)${NC} Waterfox (Flatpak)"
+        echo -e "  ${GOLD}9)${NC} Opera GX (Flatpak)"
+        echo -e "  ${GOLD}10)${NC} Vivaldi (Flatpak)"
+        echo -e "  ${GOLD}B)${NC} Back to Main Menu"
+        echo -e "${GOLD}============================================================================${NC}"
+        read -p "Select browser to install [1-10, B]: " br_choice
+
+        case "$br_choice" in
+            1)
+                echo -e "${CYAN}[BROWSER] Installing Firefox ESR via APT...${NC}"
+                apt-get update && apt-get install -y firefox-esr
+                echo -e "${GREEN}[BROWSER] Firefox ESR installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            2)
+                echo -e "${CYAN}[BROWSER] Installing Brave Browser via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub com.brave.Browser
+                echo -e "${GREEN}[BROWSER] Brave Browser installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            3)
+                echo -e "${CYAN}[BROWSER] Installing Tor Browser via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub org.torproject.torbrowser-launcher
+                echo -e "${GREEN}[BROWSER] Tor Browser installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            4)
+                echo -e "${CYAN}[BROWSER] Installing Mullvad Browser via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub net.mullvad.MullvadBrowser
+                echo -e "${GREEN}[BROWSER] Mullvad Browser installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            5)
+                echo -e "${CYAN}[BROWSER] Installing FireDragon via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub org.garudalinux.firedragon
+                echo -e "${GREEN}[BROWSER] FireDragon installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            6)
+                echo -e "${CYAN}[BROWSER] Installing Zen Browser via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub app.zen_browser.zen
+                echo -e "${GREEN}[BROWSER] Zen Browser installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            7)
+                echo -e "${CYAN}[BROWSER] Installing Floorp via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub one.ablaze.floorp
+                echo -e "${GREEN}[BROWSER] Floorp installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            8)
+                echo -e "${CYAN}[BROWSER] Installing Waterfox via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub net.waterfox.waterfox
+                echo -e "${GREEN}[BROWSER] Waterfox installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            9)
+                echo -e "${CYAN}[BROWSER] Installing Opera GX via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub com.opera.opera-gx
+                echo -e "${GREEN}[BROWSER] Opera GX installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            10)
+                echo -e "${CYAN}[BROWSER] Installing Vivaldi via Flatpak...${NC}"
+                prepare_flatpak
+                flatpak install -y flathub com.vivaldi.Vivaldi
+                echo -e "${GREEN}[BROWSER] Vivaldi installed successfully.${NC}"
+                sleep 2
+                break
+                ;;
+            [bB])
+                break
+                ;;
+            *)
+                echo -e "${RED}[WARNING] Invalid choice! Select 1-10 or B.${NC}"
+                sleep 2
+                ;;
+        esac
+    done
+}
+
+# ==============================================================================
+# EDITION INSTALLER WRAPPERS (callable by id, used by both menu and CLI dispatcher)
+# ==============================================================================
+
+install_edition_by_id() {
+    case "$1" in
+        1)
+            local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+            local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand"
+            install_packages_and_tuning "Development Edition" "$apts" "$flats" "none"
+            ;;
+        2)
+            local apts="python3-torch python3-torchvision python3-torchaudio python3-xgboost python3-sklearn python3-pandas python3-numpy"
+            local flats="ai.lmstudio.lm-studio com.jeffser.Alpaca ai.jan.Jan com.cherry_ai.CherryStudio io.github.qwersyk.Newelle io.github.Bavarder.Bavarder io.github.koromelodev.mindmate com.iche2.gai page.codeberg.Imaginer.Imaginer br.com.wiselabs.simplexity"
+            install_packages_and_tuning "AI Edition" "$apts" "$flats" "ai"
+            ;;
+        3)
+            local apts="fonts-noto-color-emoji fonts-noto-cjk libreoffice libreoffice-gtk3 geogebra kalgebra kmplot stellarium marble cantor python3-full python3-pip idle geany tuxtype tuxmath ktouch kwordquiz klettres kanagram kturtle parley goldendict kgeography tuxpaint kolourpaint evince eog gnome-calculator file-roller baobab"
+            install_packages_and_tuning "Education Edition" "$apts" "" "none"
+            ;;
+        4)
+            local apts="freecad blender librecad openscad kicad fritzing octave scilab geogebra evince eog gnome-calculator file-roller baobab simple-scan pdfarranger"
+            install_packages_and_tuning "Engineer Edition" "$apts" "" "none"
+            ;;
+        5)
+            local apts="wine wine64 wine32:i386 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 libvulkan1:i386 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv"
+            local flats="com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+            install_packages_and_tuning "Gaming Edition" "$apts" "$flats" "gaming"
+            ;;
+        6)
+            local apts="nftables keepassxc kleopatra"
+            local flats="org.cryptomator.Cryptomator app.drey.Warp"
+            install_packages_and_tuning "Hardened Edition" "$apts" "$flats" "hardened"
+            ;;
+        7)
+            local flats="com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            install_packages_and_tuning "Cryptocurrency Edition" "" "$flats" "none"
+            ;;
+        8)
+            local flats="com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            install_packages_and_tuning "Cryptocurrency Edition Hardened" "" "$flats" "hardened-nofw"
+            ;;
+        9)
+            local apts="libreoffice libreoffice-gtk3 texlive-base texlive-latex-extra texlive-science texlive-fonts-recommended pandoc octave octave-signal octave-image octave-statistics gnuplot gnuplot-qt maxima wxmaxima geogebra kalgebra kmplot cantor scilab step avogadro units kalzium gperiodic stellarium marble ugene clustalw emboss r-base r-base-dev python3-full python3-pip python3-numpy python3-scipy python3-matplotlib python3-pandas python3-sympy python3-sklearn jupyter-notebook geany build-essential cmake gfortran paraview gnome-calculator evince eog gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks"
+            install_packages_and_tuning "Scientific Edition" "$apts" "" "none"
+            ;;
+        10)
+            local apts="libreoffice libreoffice-gtk3 thunderbird evolution planner gnucash homebank evince eog gnome-calculator gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks simple-scan pdfarranger"
+            install_packages_and_tuning "Office Edition" "$apts" "" "none"
+            ;;
+        11)
+            local apts="kdenlive obs-studio shotcut pitivi handbrake ffmpeg audacity ardour lmms hydrogen qjackctl calf-plugins gimp inkscape krita darktable rawtherapee scribus mypaint vlc mpv gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly evince eog file-roller baobab"
+            install_packages_and_tuning "Multimedia Edition" "$apts" "" "multimedia"
+            ;;
+        12)
+            local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby wine wine64 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv"
+            local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+            install_packages_and_tuning "Development Gaming Mix Edition" "$apts" "$flats" "gaming"
+            ;;
+        13)
+            local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby wine wine64 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1  mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv kdenlive obs-studio shotcut pitivi handbrake ffmpeg audacity ardour lmms hydrogen qjackctl calf-plugins gimp inkscape krita darktable rawtherapee scribus mypaint vlc mpv gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly evince eog file-roller baobab"
+            local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+            install_packages_and_tuning "Development Gaming Multimedia Mix Edition" "$apts" "$flats" "gaming"
+            ;;
+        14)
+            local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby python3-torch python3-torchvision python3-torchaudio python3-xgboost python3-sklearn python3-pandas python3-numpy"
+            local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand ai.lmstudio.lm-studio com.jeffser.Alpaca ai.jan.Jan com.cherry_ai.CherryStudio io.github.qwersyk.Newelle io.github.Bavarder.Bavarder io.github.koromelodev.mindmate com.iche2.gai page.codeberg.Imaginer.Imaginer br.com.wiselabs.simplexity"
+            install_packages_and_tuning "Development AI Mix Edition" "$apts" "$flats" "ai"
+            ;;
+        15)
+            local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+            local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            install_packages_and_tuning "Development Cryptocurrency Mix Edition" "$apts" "$flats" "none"
+            ;;
+        16)
+            local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+            local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+            install_packages_and_tuning "Development Cryptocurrency Hardened Mix Edition" "$apts" "$flats" "hardened-nofw"
+            ;;
+        17)
+            local flats="com.valvesoftware.Steam com.heroicgameslauncher.hgl com.discordapp.Discord"
+            install_packages_and_tuning "Gaming Lite Edition" "lutris" "$flats" "gaming"
+            ;;
+        18)
+            local flats="com.visualstudio.code io.github.shiftey.Desktop"
+            install_packages_and_tuning "Development Lite Edition" "" "$flats" "none"
+            ;;
+        19)
+            local flats="com.visualstudio.code io.github.shiftey.Desktop com.valvesoftware.Steam com.heroicgameslauncher.hgl com.discordapp.Discord"
+            install_packages_and_tuning "Development Gaming Lite Mix Edition" "lutris" "$flats" "gaming"
+            ;;
+        20)
+            local flats="com.github.Anuken.Mindustry org.openttd.OpenTTD com.endlessnetwork.aqueducts com.simutrans.Simutrans com.play0ad.zeroad"
+            install_packages_and_tuning "Gamebox Edition" "" "$flats" "gaming"
+            ;;
+        *)
+            echo -e "${RED}[ERROR] Unknown edition id: $1${NC}"
+            return 1
+            ;;
+    esac
+}
+
+apply_dns() {
+    local primary="$1"
+    local secondary="$2"
+    # Prevent NetworkManager from overwriting resolv.conf
+    mkdir -p /etc/NetworkManager/conf.d
+    printf '[main]\ndns=none\nsystemd-resolved=false\n' > /etc/NetworkManager/conf.d/90-dns-manual.conf
+    # Write resolv.conf
+    printf "nameserver %s\n" "$primary" > /etc/resolv.conf
+    [ -n "$secondary" ] && printf "nameserver %s\n" "$secondary" >> /etc/resolv.conf
+    # Reload NetworkManager so it respects the new conf
+    systemctl restart NetworkManager 2>/dev/null || true
+}
+
+set_dns_preset() {
+    case "$1" in
+        cloudflare) apply_dns "1.1.1.1" "1.0.0.1" ;;
+        google)     apply_dns "8.8.8.8" "8.8.4.4" ;;
+        quad9)      apply_dns "9.9.9.9" "149.112.112.112" ;;
+        custom)
+            local primary="$2"
+            local secondary="$3"
+            if [ -z "$primary" ]; then
+                echo -e "${RED}[ERROR] Primary DNS required.${NC}"
+                return 1
+            fi
+            apply_dns "$primary" "$secondary"
+            ;;
+        *)
+            echo -e "${RED}[ERROR] Unknown DNS preset: $1${NC}"
+            return 1
+            ;;
+    esac
+    echo -e "${GREEN}[DNS] Configuration applied successfully.${NC}"
+}
+
+set_hostname_value() {
+    local new_hn="$1"
+    local current_hn=$(cat /etc/hostname)
+    if [ -z "$new_hn" ]; then
+        echo -e "${RED}[ERROR] Hostname required.${NC}"
+        return 1
+    fi
+    if command -v hostnamectl &> /dev/null; then
+        hostnamectl set-hostname "$new_hn"
+    else
+        hostname "$new_hn"
+    fi
+    echo "$new_hn" > /etc/hostname
+    sed -i "s/\b${current_hn}\b/${new_hn}/g" /etc/hosts
+    echo -e "${GREEN}[HOSTNAME] Hostname changed to '${new_hn}'.${NC}"
+}
+
+install_browser_by_id() {
+    case "$1" in
+        1) apt-get update && apt-get install -y firefox-esr ;;
+        2) prepare_flatpak && flatpak install -y flathub com.brave.Browser ;;
+        3) prepare_flatpak && flatpak install -y flathub org.torproject.torbrowser-launcher ;;
+        4) prepare_flatpak && flatpak install -y flathub net.mullvad.MullvadBrowser ;;
+        5) prepare_flatpak && flatpak install -y flathub org.garudalinux.firedragon ;;
+        6) prepare_flatpak && flatpak install -y flathub app.zen_browser.zen ;;
+        7) prepare_flatpak && flatpak install -y flathub one.ablaze.floorp ;;
+        8) prepare_flatpak && flatpak install -y flathub net.waterfox.waterfox ;;
+        9) prepare_flatpak && flatpak install -y flathub com.opera.opera-gx ;;
+        10) prepare_flatpak && flatpak install -y flathub com.vivaldi.Vivaldi ;;
+        11) apt-get update && apt-get install -y chromium ;;
+        12) apt-get update && apt-get install -y falkon ;;
+        *) echo -e "${RED}[ERROR] Unknown browser id: $1${NC}"; return 1 ;;
+    esac
+}
+
+remove_browser_by_id() {
+    case "$1" in
+        1) apt-get purge -y firefox-esr && apt-get autoremove -y ;;
+        2) flatpak uninstall -y com.brave.Browser 2>/dev/null || true ;;
+        3) flatpak uninstall -y org.torproject.torbrowser-launcher 2>/dev/null || true ;;
+        4) flatpak uninstall -y net.mullvad.MullvadBrowser 2>/dev/null || true ;;
+        5) flatpak uninstall -y org.garudalinux.firedragon 2>/dev/null || true ;;
+        6) flatpak uninstall -y app.zen_browser.zen 2>/dev/null || true ;;
+        7) flatpak uninstall -y one.ablaze.floorp 2>/dev/null || true ;;
+        8) flatpak uninstall -y net.waterfox.waterfox 2>/dev/null || true ;;
+        9) flatpak uninstall -y com.opera.opera-gx 2>/dev/null || true ;;
+        10) flatpak uninstall -y com.vivaldi.Vivaldi 2>/dev/null || true ;;
+        11) apt-get purge -y chromium && apt-get autoremove -y ;;
+        12) apt-get purge -y falkon && apt-get autoremove -y ;;
+        *) echo -e "${RED}[ERROR] Unknown browser id: $1${NC}"; return 1 ;;
+    esac
+    echo -e "${GREEN}[BROWSER] Removal finished.${NC}"
+}
+
+# ==============================================================================
+# DEB / FLATPAK / NVIDIA / ZRAM / LOG HELPERS (used by the GUI front-end)
+# ==============================================================================
+
+install_deb_file() {
+    local path="$1"
+    if [ -z "$path" ]; then
+        echo -e "${RED}[ERROR] No .deb path provided.${NC}"; return 1
+    fi
+    if [ ! -f "$path" ]; then
+        echo -e "${RED}[ERROR] File not found: $path${NC}"; return 1
+    fi
+    echo -e "${CYAN}[DEB] Installing $path...${NC}"
+    dpkg -i "$path"
+    apt-get install -f -y
+    echo -e "${GREEN}[DEB] Installation finished.${NC}"
+}
+
+install_flatpak_app() {
+    local appid="$1"
+    if [ -z "$appid" ]; then
+        echo -e "${RED}[ERROR] No Flatpak application id provided.${NC}"; return 1
+    fi
+    prepare_flatpak
+    echo -e "${CYAN}[FLATPAK] Installing ${appid} from flathub...${NC}"
+    flatpak install -y flathub "$appid"
+}
+
+remove_flatpak_app() {
+    local appid="$1"
+    if [ -z "$appid" ]; then
+        echo -e "${RED}[ERROR] No Flatpak application id provided.${NC}"; return 1
+    fi
+    echo -e "${CYAN}[FLATPAK] Removing ${appid}...${NC}"
+    flatpak uninstall -y "$appid"
+    flatpak uninstall --unused -y || true
+}
+
+list_flatpak_apps() {
+    if ! command -v flatpak &> /dev/null; then
+        echo "(flatpak not installed)"
+        return 0
+    fi
+    flatpak list --app --columns=name,application,version 2>/dev/null || true
+}
+
+install_nvidia_drivers() {
+    echo -e "${CYAN}[NVIDIA] Scanning for NVIDIA GPU...${NC}"
+    if lspci 2>/dev/null | grep -i nvidia >/dev/null; then
+        echo -e "${GREEN}[NVIDIA] NVIDIA GPU detected.${NC}"
+    else
+        echo -e "${YELLOW}[NVIDIA] No NVIDIA GPU detected. Proceeding anyway...${NC}"
+    fi
+    local kernel
+    kernel=$(uname -r)
+    apt-get update
+    apt-get install -y nvidia-driver nvidia-smi "linux-headers-${kernel}"
+    echo -e "${GREEN}[NVIDIA] Drivers installed. A reboot is required to load them.${NC}"
+}
+
+zram_manage() {
+    local action="$1"
+    case "$action" in
+        install)
+            apt-get update
+            apt-get install -y zram-tools
+            ;;
+        enable)
+            systemctl enable zramswap
+            systemctl start zramswap
+            ;;
+        disable)
+            systemctl stop zramswap || true
+            systemctl disable zramswap || true
+            ;;
+        status)
+            if systemctl is-active --quiet zramswap; then
+                echo "STATUS: ACTIVE"
+            else
+                echo "STATUS: INACTIVE"
+            fi
+            echo
+            if command -v zramctl &> /dev/null; then
+                zramctl 2>/dev/null || true
+            fi
+            swapon --show 2>/dev/null || true
+            ;;
+        *)
+            echo -e "${RED}[ERROR] Unknown zram action: $action${NC}"
+            echo "Usage: zram {install|enable|disable|status}"
+            return 1
+            ;;
+    esac
+}
+
+view_system_log() {
+    local kind="$1"
+    local lines="${2:-300}"
+    case "$kind" in
+        system)
+            journalctl -n "$lines" --no-pager
+            ;;
+        boot)
+            journalctl -b -n "$lines" --no-pager
+            ;;
+        kernel)
+            dmesg --color=never | tail -n "$lines"
+            ;;
+        xorg)
+            if [ -f /var/log/Xorg.0.log ]; then
+                tail -n "$lines" /var/log/Xorg.0.log
+            else
+                echo "(Xorg log not found — likely a Wayland session)"
+            fi
+            ;;
+        apt)
+            if [ -f /var/log/apt/history.log ]; then
+                tail -n "$lines" /var/log/apt/history.log
+            else
+                echo "(APT log not found)"
+            fi
+            ;;
+        dpkg)
+            tail -n "$lines" /var/log/dpkg.log 2>/dev/null || echo "(dpkg log not found)"
+            ;;
+        *)
+            echo -e "${RED}[ERROR] Unknown log type: $kind${NC}"
+            echo "Available: system, boot, kernel, xorg, apt, dpkg"
+            return 1
+            ;;
+    esac
+}
+
+# ==============================================================================
+# INTERACTIVE TERMINAL MENU
+# ==============================================================================
+
+main_menu() {
+    while true; do
+        show_banner
+        show_status
+        echo -e "${CYAN}${BOLD}Available Editions & Package Groups:${NC}"
+        echo -e "  ${GOLD} 1)${NC} Development Edition                ${GOLD}11)${NC} Multimedia Edition"
+        echo -e "  ${GOLD} 2)${NC} AI Edition                         ${GOLD}12)${NC} Dev + Gaming Mix"
+        echo -e "  ${GOLD} 3)${NC} Education Edition                  ${GOLD}13)${NC} Dev + Gaming + Multimedia Mix"
+        echo -e "  ${GOLD} 4)${NC} Engineer Edition                   ${GOLD}14)${NC} Dev + AI Mix"
+        echo -e "  ${GOLD} 5)${NC} Gaming Edition                     ${GOLD}15)${NC} Dev + Cryptocurrency Mix"
+        echo -e "  ${GOLD} 6)${NC} Hardened Edition                   ${GOLD}16)${NC} Dev + Cryptocurrency Hardened Mix"
+        echo -e "  ${GOLD} 7)${NC} Cryptocurrency Edition             ${GOLD}17)${NC} Gaming Lite Edition"
+        echo -e "  ${GOLD} 8)${NC} Cryptocurrency Edition Hardened    ${GOLD}18)${NC} Development Lite Edition"
+        echo -e "  ${GOLD} 9)${NC} Scientific Edition                 ${GOLD}19)${NC} Dev + Gaming Lite Mix"
+        echo -e "  ${GOLD}10)${NC} Office Edition                     ${GOLD}20)${NC} Gamebox Edition"
+        echo -e "${GOLD}----------------------------------------------------------------------------${NC}"
+        echo -e "${CYAN}${BOLD}System Management & Tools:${NC}"
+        echo -e "  ${GOLD}21)${NC} Update System                      ${GOLD}25)${NC} Change DNS"
+        echo -e "  ${GOLD}22)${NC} Install Package                    ${GOLD}26)${NC} Change Hostname"
+        echo -e "  ${GOLD}23)${NC} Remove Package                     ${GOLD}27)${NC} Browser Installer"
+        echo -e "  ${GOLD}24)${NC} Clean System"
+        echo -e "${GOLD}============================================================================${NC}"
+        echo -e "  ${RED}U)${NC} ${BOLD}Uninstall Current Edition${NC}"
+        echo -e "  ${RED}E)${NC} Exit Setup Utility"
+        echo -e "${GOLD}============================================================================${NC}"
+        read -p "Select choice [1-27, U, E]: " choice
+
+        case "$choice" in
+            1)
+                local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+                local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand"
+                install_packages_and_tuning "Development Edition" "$apts" "$flats" "none"
+                ;;
+            2)
+                local apts="kde-plasma-desktop kde-standard sddm plasma-nm plasma-discover xdg-desktop-portal-kde fonts-noto-color-emoji firefox-esr network-manager vim nano curl wget git lsof net-tools ca-certificates apt-transport-https smartmontools lsb-release lshw unzip ark kate vlc dbus-x11 fonts-noto-cjk"
+                local flats="ai.lmstudio.lm-studio com.jeffser.Alpaca ai.jan.Jan com.cherry_ai.CherryStudio io.github.qwersyk.Newelle io.github.Bavarder.Bavarder io.github.koromelodev.mindmate com.iche2.gai page.codeberg.Imaginer.Imaginer br.com.wiselabs.simplexity"
+                install_packages_and_tuning "AI Edition" "$apts" "$flats" "none"
+                ;;
+            3)
+                local apts="fonts-noto-color-emoji fonts-noto-cjk libreoffice libreoffice-gtk3 geogebra kalgebra kmplot stellarium marble cantor python3-full python3-pip idle geany tuxtype tuxmath ktouch kwordquiz klettres kanagram kturtle parley goldendict kgeography tuxpaint kolourpaint evince eog gnome-calculator gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks"
+                install_packages_and_tuning "Education Edition" "$apts" "" "none"
+                ;;
+            4)
+                local apts="freecad blender librecad openscad kicad fritzing octave scilab geogebra evince eog gnome-calculator gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks simple-scan pdfarranger"
+                install_packages_and_tuning "Engineer Edition" "$apts" "" "none"
+                ;;
+            5)
+                local apts="wine wine64 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv"
+                local flats="com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+                install_packages_and_tuning "Gaming Edition" "$apts" "$flats" "gaming"
+                ;;
+            6)
+                local apts="nftables keepassxc kleopatra"
+                local flats="org.cryptomator.Cryptomator app.drey.Warp"
+                install_packages_and_tuning "Hardened Edition" "$apts" "$flats" "hardened"
+                ;;
+            7)
+                local flats="com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+                install_packages_and_tuning "Cryptocurrency Edition" "" "$flats" "none"
+                ;;
+            8)
+                local flats="com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+                install_packages_and_tuning "Cryptocurrency Edition Hardened" "" "$flats" "hardened-nofw"
+                ;;
+            9)
+                local apts="libreoffice libreoffice-gtk3 texlive-base texlive-latex-extra texlive-science texlive-fonts-recommended pandoc octave octave-signal octave-image octave-statistics gnuplot gnuplot-qt maxima wxmaxima geogebra kalgebra kmplot cantor scilab step avogadro units kalzium gperiodic stellarium marble ugene clustalw emboss r-base r-base-dev python3-full python3-pip python3-numpy python3-scipy python3-matplotlib python3-pandas python3-sympy python3-sklearn jupyter-notebook geany build-essential cmake gfortran paraview gnome-calculator evince eog gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks"
+                install_packages_and_tuning "Scientific Edition" "$apts" "" "none"
+                ;;
+            10)
+                local apts="libreoffice libreoffice-gtk3 thunderbird evolution planner gnucash homebank evince eog gnome-calculator gnome-system-monitor gnome-disk-utility file-roller baobab gnome-clocks simple-scan pdfarranger"
+                install_packages_and_tuning "Office Edition" "$apts" "" "none"
+                ;;
+            11)
+                local apts="kdenlive obs-studio shotcut pitivi handbrake ffmpeg audacity ardour lmms hydrogen qjackctl calf-plugins gimp inkscape krita darktable rawtherapee scribus mypaint vlc mpv gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly evince eog file-roller baobab"
+                install_packages_and_tuning "Multimedia Edition" "$apts" "" "multimedia"
+                ;;
+            12)
+                local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby wine wine64 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv"
+                local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+                install_packages_and_tuning "Development Gaming Mix Edition" "$apts" "$flats" "gaming"
+                ;;
+            13)
+                local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby wine wine64 winetricks gamemode libgamemode0 libgamemodeauto0 lutris mangohud retroarch mesa-vulkan-drivers vulkan-tools libvulkan1 mesa-utils htop iotop lm-sensors psensor pciutils usbutils dmidecode inxi pipewire pipewire-pulse wireplumber joystick jstest-gtk xboxdrv kdenlive obs-studio shotcut pitivi handbrake ffmpeg audacity ardour lmms hydrogen qjackctl calf-plugins gimp inkscape krita darktable rawtherapee scribus mypaint vlc mpv gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly evince eog file-roller baobab"
+                local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.discordapp.Discord org.vinegarhq.Sober com.valvesoftware.Steam com.heroicgameslauncher.hgl com.usebottles.bottles com.vysp3r.ProtonPlus org.vinegarhq.Vinegar net.windower.Lumoria xyz.hyperplay.HyperPlay com.valvesoftware.SteamLink"
+                install_packages_and_tuning "Development Gaming Multimedia Mix Edition" "$apts" "$flats" "gaming"
+                ;;
+            14)
+                local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby python3-torch python3-torchvision python3-torchaudio python3-xgboost python3-sklearn python3-pandas python3-numpy"
+                local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand ai.lmstudio.lm-studio com.jeffser.Alpaca ai.jan.Jan com.cherry_ai.CherryStudio io.github.qwersyk.Newelle io.github.Bavarder.Bavarder io.github.koromelodev.mindmate com.iche2.gai page.codeberg.Imaginer.Imaginer br.com.wiselabs.simplexity"
+                install_packages_and_tuning "Development AI Mix Edition" "$apts" "$flats" "ai"
+                ;;
+            15)
+                local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+                local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+                install_packages_and_tuning "Development Cryptocurrency Mix Edition" "$apts" "$flats" "none"
+                ;;
+            16)
+                local apts="docker.io docker-compose docker-buildx cargo rustc golang-go python3-full python3-pip nodejs npm arduino build-essential cmake git gh php ruby"
+                local flats="com.jetbrains.IntelliJ-IDEA-Community dev.zed.Zed io.gdevelop.ide com.google.AndroidStudio com.visualstudio.code org.kde.kommit com.vscodium.codium org.godotengine.Godot io.github.shiftey.Desktop dev.skynomads.Seabird com.jetbrains.RustRover com.jetbrains.Rider com.jetbrains.PhpStorm com.jetbrains.PyCharm-Professional com.jetbrains.GoLand com.ownrwallet.wallet org.electrum.electrum io.exodus.Exodus io.greenfire.Greenery net.peercoin.peercoin-qt org.getmonero.Monero org.firo.firo-qt io.trezor.suite so.onekey.Wallet io.frama.tractor.carburetor org.bitcoincore.bitcoin-qt com.blockstream.Green org.cryptomator.Cryptomator io.github.picocrypt_ng.Picocrypt-NG"
+                install_packages_and_tuning "Development Cryptocurrency Hardened Mix Edition" "$apts" "$flats" "hardened-nofw"
+                ;;
+            17)
+                local flats="com.valvesoftware.Steam com.heroicgameslauncher.hgl com.discordapp.Discord"
+                install_packages_and_tuning "Gaming Lite Edition" "lutris" "$flats" "gaming"
+                ;;
+            18)
+                local flats="com.visualstudio.code io.github.shiftey.Desktop"
+                install_packages_and_tuning "Development Lite Edition" "" "$flats" "none"
+                ;;
+            19)
+                local flats="com.visualstudio.code io.github.shiftey.Desktop com.valvesoftware.Steam com.heroicgameslauncher.hgl com.discordapp.Discord"
+                install_packages_and_tuning "Development Gaming Lite Mix Edition" "lutris" "$flats" "gaming"
+                ;;
+            20)
+                local flats="com.github.Anuken.Mindustry org.openttd.OpenTTD com.endlessnetwork.aqueducts com.simutrans.Simutrans com.play0ad.zeroad"
+                install_packages_and_tuning "Gamebox Edition" "" "$flats" "gaming"
+                ;;
+            21)
+                sys_update
+                ;;
+            22)
+                pkg_install
+                ;;
+            23)
+                pkg_remove
+                ;;
+            24)
+                sys_clean
+                ;;
+            25)
+                change_dns
+                ;;
+            26)
+                change_hostname
+                ;;
+            27)
+                install_browser
+                ;;
+            [uU])
+                uninstall_edition
+                ;;
+            [eEqQxX])
+                echo -e "${GREEN}Exiting setup utility. Goodbye!${NC}"
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}[WARNING] Invalid choice! Please select 1-27, U, or E.${NC}"
+                sleep 2
+                ;;
+        esac
+    done
+}
+
+# ==============================================================================
+# NON-INTERACTIVE DISPATCHER (used by the PyQt6 GUI front-end)
+# ==============================================================================
+
+run_subcommand() {
+    local cmd="$1"; shift
+    case "$cmd" in
+        status)
+            get_installed_edition
+            echo "EDITION=${CURRENT_EDITION}"
+            echo "DATE=${CURRENT_DATE}"
+            echo "TUNING=${CURRENT_TUNING}"
+            ;;
+        install-edition)
+            install_edition_by_id "$1"
+            ;;
+        uninstall-edition)
+            uninstall_edition
+            ;;
+        sys-update)
+            sys_update
+            ;;
+        sys-clean)
+            sys_clean
+            ;;
+        pkg-install)
+            if [ "$#" -eq 0 ]; then
+                echo -e "${RED}[ERROR] No packages provided.${NC}"; return 1
+            fi
+            apt-get update && apt-get install -y "$@"
+            ;;
+        pkg-remove)
+            if [ "$#" -eq 0 ]; then
+                echo -e "${RED}[ERROR] No packages provided.${NC}"; return 1
+            fi
+            apt-get purge -y "$@" && apt-get autoremove -y
+            ;;
+        set-dns)
+            set_dns_preset "$@"
+            ;;
+        set-hostname)
+            set_hostname_value "$1"
+            ;;
+        install-browser)
+            install_browser_by_id "$1"
+            ;;
+        remove-browser)
+            remove_browser_by_id "$1"
+            ;;
+        install-deb)
+            install_deb_file "$1"
+            ;;
+        install-flatpak)
+            install_flatpak_app "$1"
+            ;;
+        remove-flatpak)
+            remove_flatpak_app "$1"
+            ;;
+        list-flatpak)
+            list_flatpak_apps
+            ;;
+        install-nvidia)
+            install_nvidia_drivers
+            ;;
+        zram)
+            zram_manage "$1"
+            ;;
+        view-log)
+            view_system_log "$1" "${2:-300}"
+            ;;
+        *)
+            echo -e "${RED}[ERROR] Unknown subcommand: $cmd${NC}"
+            echo "Available: status install-edition <id> uninstall-edition sys-update sys-clean pkg-install <pkgs...> pkg-remove <pkgs...> set-dns <preset> [primary] [secondary] set-hostname <name> install-browser <id> install-deb <path> install-flatpak <id> remove-flatpak <id> list-flatpak install-nvidia zram {install|enable|disable|status} view-log {system|boot|kernel|xorg|apt|dpkg} [lines]"
+            return 1
+            ;;
+    esac
+}
+
+# Run Script
+check_root
+if [ "$#" -gt 0 ]; then
+    export NONINTERACTIVE=1
+    run_subcommand "$@"
+    exit $?
+fi
+main_menu

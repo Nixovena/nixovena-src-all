@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Tshark
+Comment=LengToolkit - tshark
+Exec=mate-terminal -- bash -c "sudo tshark; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

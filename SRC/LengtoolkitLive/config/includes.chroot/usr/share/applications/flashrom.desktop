@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Flashrom
+Comment=LengToolkit - flashrom
+Exec=mate-terminal -- bash -c "sudo flashrom; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

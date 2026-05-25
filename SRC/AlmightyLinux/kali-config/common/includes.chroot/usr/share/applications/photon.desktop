@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Photon
+Comment=Photon is a fast web crawler that finds URLs, parameters, files, emails and hidden endpoints on a target site
+Comment[tr]=Photon, hedef bir sitede URL'leri, parametreleri, dosyaları, e‑posta adreslerini ve gizli endpoint'leri bulan hızlı bir web tarayıcısıdır
+Comment[es]=Photon es un rastreador web rápido que encuentra URLs, parámetros, archivos, correos y endpoints ocultos en un sitio objetivo
+Comment[fr]=Photon est un crawler web rapide qui trouve les URLs, paramètres, fichiers, e-mails et endpoints cachés d'un site cible
+Comment[de]=Photon ist ein schneller Web-Crawler, der URLs, Parameter, Dateien, E‑Mails und versteckte Endpunkte auf einer Zielseite findet
+Comment[ar]=Photon هي زاحف ويب سريع يجد عناوين URL والمعاملات والملفات والبريد الإلكتروني والنقاط النهائية المخفية على الموقع المستهدف
+Comment[ru]=Photon — быстрый веб-краулер, находящий URL, параметры, файлы, e‑mail и скрытые эндпоинты на целевом сайте
+Comment[zh]=Photon 是一个快速的网络爬虫，可在目标站点上发现 URL、参数、文件、电子邮件和隐藏端点
+Comment[ja]=Photonは、対象サイトのURL、パラメータ、ファイル、メール、隠しエンドポイントを検出する高速なウェブクローラです
+Comment[ko]=Photon은 대상 사이트에서 URL, 매개변수, 파일, 이메일 및 숨겨진 엔드포인트를 찾는 빠른 웹 크롤러입니다
+Comment[pt]=Photon é um rastreador web rápido que encontra URLs, parâmetros, arquivos, e-mails e endpoints ocultos em um site alvo
+Comment[it]=Photon è un web crawler veloce che trova URL, parametri, file, email ed endpoint nascosti su un sito target
+Comment[nl]=Photon is een snelle webcrawler die URL’s, parameters, bestanden, e‑mails en verborgen endpoints op een doelsite vindt
+Comment[sv]=Photon är en snabb webbkräpare som hittar URL:er, parametrar, filer, e‑post och dolda endpoints på en målsida
+Comment[pl]=Photon to szybki crawler, który znajduje URL-e, parametry, pliki, e‑maile i ukryte endpointy na docelowej stronie
+Exec=mate-terminal -- bash -c "photon; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/photon.png
+Categories=Domain;
+StartupNotify=false

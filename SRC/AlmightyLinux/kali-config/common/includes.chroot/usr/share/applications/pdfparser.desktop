@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=PDF-Parser
+Comment=Parse and analyze PDF file structures and objects
+Comment[tr]=PDF dosya yapılarını ve nesnelerini ayrıştırır ve analiz eder
+Comment[es]=Analiza y parsea la estructura y objetos de PDFs
+Comment[fr]=Analyse et parse la structure et objets des PDF
+Comment[de]=Parst und analysiert PDF-Strukturen und Objekte
+Comment[ar]=يحلل ويستخرج بنى وكيانات ملفات PDF
+Comment[ru]=Парсит и анализирует структуру и объекты PDF
+Comment[zh]=解析并分析 PDF 文件结构与对象
+Comment[ja]=PDF ファイルの構造とオブジェクトを解析します
+Comment[ko]=PDF 파일 구조 및 객체를 파싱하고 분석합니다
+Comment[pt]=Faz parse e analisa estruturas e objetos de PDF
+Comment[it]=Analizza e parse la struttura e gli oggetti dei PDF
+Comment[nl]=Parseert en analyseert PDF-structuren en objecten
+Comment[sv]=Parserar och analyserar PDF-strukturer och objekt
+Comment[pl]=Parsuje i analizuje struktury i obiekty plików PDF
+Exec=mate-terminal -- bash -c "pdf-parser -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/pdfparser.png
+Categories=Analysis;
+StartupNotify=false

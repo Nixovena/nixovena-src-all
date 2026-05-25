@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Near2H4ck
+Comment=Web Security and OSINT Framework
+Comment[tr]=Web Güvenliği ve OSINT Çerçevesi
+Comment[es]=Marco de seguridad web y OSINT
+Comment[fr]=Cadre de sécurité Web et OSINT
+Comment[de]=Web-Sicherheits- und OSINT-Framework
+Comment[ar]=إطار عمل أمن الويب و OSINT
+Comment[ru]=Фреймворк веб-безопасности и OSINT
+Comment[zh]=Web 安全与 OSINT 框架
+Comment[ja]=WebセキュリティとOSINTフレームワーク
+Comment[ko]=웹 보안 및 OSINT 프레임워크
+Comment[pt]=Estrutura de segurança web e OSINT
+Comment[it]=Framework di sicurezza web e OSINT
+Comment[nl]=Webbeveiliging en OSINT-framework
+Comment[sv]=Webbsäkerhet och OSINT-ramverk
+Comment[pl]=Struktura bezpieczeństwa internetowego i OSINT
+Exec=mate-terminal -- bash -c "near2h4ck; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/near2h4ck.png
+Categories=Frameworks;
+StartupNotify=false

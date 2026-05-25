@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Metadeye
+Comment=Metadata extraction and EXIF analysis tool for digital forensics
+Comment[tr]=Dijital adli bilişim için meta veri çıkarma ve EXIF analiz aracı
+Comment[es]=Herramienta de extracción de metadatos y análisis EXIF para informática forense
+Comment[fr]=Outil d'extraction de métadonnées et d'analyse EXIF pour la criminalistique numérique
+Comment[de]=Metadatenextraktions- und EXIF-Analysetool für digitale Forensik
+Comment[ar]=أداة استخراج البيانات الوصفية وتحليل EXIF للطب الشرعي الرقمي
+Comment[ru]=Инструмент извлечения метаданных и анализа EXIF для цифровой криминалистики
+Comment[zh]=用于数字取证的元数据提取和EXIF分析工具
+Comment[ja]=デジタルフォレンジックのためのメタデータ抽出およびEXIF分析ツール
+Comment[ko]=디지털 포렌식을 위한 메타데이터 추출 및 EXIF 분석 도구
+Comment[pt]=Ferramenta de extração de metadados e análise EXIF para forense digital
+Comment[it]=Strumento di estrazione dei metadati e analisi EXIF per la forense digitale
+Comment[nl]=Metagegevensextractie en EXIF-analysehulpmiddel voor digitale forensiek
+Comment[sv]=Metadataextraherings- och EXIF-analysverktyg för digitalt kriminalteknik
+Comment[pl]=Narzędzie do ekstrakcji metadanych i analizy EXIF do cyfrowej kryminalistyki
+Exec=mate-terminal -- bash -c "metadeye -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Analysis;
+StartupNotify=false

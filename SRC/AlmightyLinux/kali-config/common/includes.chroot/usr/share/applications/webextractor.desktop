@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=WebExtractor
+Comment=Email, Phone Number, and Link Scraper Tool
+Comment[tr]=E-posta, Telefon Numarası ve Bağlantı Kazıma Aracı
+Comment[es]=Herramienta de extracción de correos electrónicos, números de teléfono y enlaces
+Comment[fr]=Outil d'extraction d'e-mails, de numéros de téléphone et de liens
+Comment[de]=Tool zum Extrahieren von E-Mails, Telefonnummern und Links
+Comment[ar]=أداة استخراج البريد الإلكتروني ورقم الهاتف والروابط
+Comment[ru]=Инструмент для извлечения адресов электронной почты, номеров телефонов и ссылок
+Comment[zh]=电子邮件、电话号码和链接抓取工具
+Comment[ja]=メール、電話番号、リンクのスクレイピングツール
+Comment[ko]=이메일, 전화번호 및 링크 스크래핑 도구
+Comment[pt]=Ferramenta de extração de e-mails, números de telefone e links
+Comment[it]=Strumento di estrazione di e-mail, numeri di telefono e collegamenti
+Comment[nl]=Tool voor het scrapen van e-mails, telefoonnummers en links
+Comment[sv]=Skrapverktyg för e-post, telefonnummer och länkar
+Comment[pl]=Narzędzie do zgarniania e-maili, numerów telefonów i linków
+Exec=mate-terminal -- bash -c "webextractor; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

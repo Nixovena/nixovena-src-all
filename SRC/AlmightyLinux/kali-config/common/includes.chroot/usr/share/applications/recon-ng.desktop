@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=recon-ng
+Comment=Full-featured open source Web Reconnaissance framework
+Comment[tr]=Tam özellikli açık kaynaklı Web Keşif çerçevesi
+Comment[es]=Marco de reconocimiento web de código abierto con todas las funciones
+Comment[fr]=Framework de reconnaissance Web open source complet
+Comment[de]=Voll ausgestattetes Open-Source-Web-Reconnaissance-Framework
+Comment[ar]=إطار عمل استطلاع ويب مفتوح المصدر متكامل
+Comment[ru]=Полнофункциональный фреймворк для веб-разведки с открытым исходным кодом
+Comment[zh]=功能齐全的开源Web侦察框架
+Comment[ja]=フル機能のオープンソースWeb偵察フレームワーク
+Comment[ko]=모든 기능을 갖춘 오픈 소스 웹 정찰 프레임워크
+Comment[pt]=Estrutura de Reconhecimento da Web de código aberto com todos os recursos
+Comment[it]=Framework di Web Reconnaissance open source completo
+Comment[nl]=Volledig uitgeruste open-source Webverkenning framework
+Comment[sv]=Fullt utrustat öppen källkod Ramverk för Web-rekognosering
+Comment[pl]=W pełni funkcjonalne, otwarte frameworki Reconnaissance Web
+Exec=mate-terminal -- bash -c "recon-ng -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/recon-ng.png
+Categories=Frameworks;
+StartupNotify=false

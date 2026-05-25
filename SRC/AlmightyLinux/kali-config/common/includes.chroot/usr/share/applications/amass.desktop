@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=amass
+Comment=In-depth Attack Surface Mapping and Asset Discovery
+Comment[tr]=Derinlemesine Saldırı Yüzeyi Haritalama ve Varlık Keşfi
+Comment[es]=Mapeo de superficie de ataque en profundidad y descubrimiento de activos
+Comment[fr]=Cartographie approfondie de la surface d'attaque et découverte des actifs
+Comment[de]=Detaillierte Attack Surface Mapping und Asset Discovery
+Comment[ar]=رسم خرائط سطح الهجوم المتعمق واكتشاف الأصول
+Comment[ru]=Глубокое отображение поверхности атаки и обнаружение активов
+Comment[zh]=深入的攻击面映射和资产发现
+Comment[ja]=詳細なアタックサーフェスマッピングとアセット検出
+Comment[ko]=심층 공격 표면 매핑 및 자산 검색
+Comment[pt]=Mapeamento de Superfície de Ataque em Profundidade e Descoberta de Ativos
+Comment[it]=Mappatura approfondita della superficie di attacco e rilevamento degli asset
+Comment[nl]=Diepgaande Network Attack Surface Mapping en Asset Discovery
+Comment[sv]=Fördjupad Attack Surface Mapping och Asset Discovery
+Comment[pl]=Dogłębne mapowanie powierzchni ataku i odkrywanie zasobów
+Exec=mate-terminal -- bash -c "amass -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/amass.png
+Categories=Domain;
+StartupNotify=false

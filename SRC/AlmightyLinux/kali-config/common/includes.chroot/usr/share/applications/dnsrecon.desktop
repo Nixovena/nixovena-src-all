@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Dnsrecon
+Comment=DNS Enumeration and Reconnaissance Tool
+Comment[tr]=DNS Numaralandırma ve Keşif Aracı
+Comment[es]=Herramienta de reconocimiento y enumeración de DNS
+Comment[fr]=Outil d'énumération et de reconnaissance DNS
+Comment[de]=DNS-Aufzählungs- und Aufklärungstool
+Comment[ar]=أداة سرد واستطلاع DNS
+Comment[ru]=Инструмент перечисления и разведки DNS
+Comment[zh]=DNS枚举和侦察工具
+Comment[ja]=DNS列挙および偵察ツール
+Comment[ko]=DNS 열거 및 정찰 도구
+Comment[pt]=Ferramenta de enumeração e reconhecimento de DNS
+Comment[it]=Strumento di enumerazione e ricognizione DNS
+Comment[nl]=DNS-opsomming en verkenningstool
+Comment[sv]=DNS-uppräkning och rekognoseringsverktyg
+Comment[pl]=Narzędzie do rozpoznania i wyliczania DNS
+Exec=mate-terminal -- bash -c "dnsrecon -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

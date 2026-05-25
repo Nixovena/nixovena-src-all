@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Testdisk
+Comment=LengToolkit - testdisk
+Exec=mate-terminal -- bash -c "sudo testdisk; exec bash"
+Icon=/usr/share/icons/lengtoolkit/testdisk.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

@@ -1,0 +1,35 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${CYAN}========================================================${NC}"
+echo -e "           RESCUEXY LOG ANALYZER"
+echo -e "${CYAN}========================================================${NC}"
+
+if [ -z "$1" ]; then
+    echo -e "${YELLOW}Usage:${NC} sudo rescuexy-log /dev/sdXY"
+    echo "Mounts partition and shows recent boot/error logs."
+    exit 1
+fi
+
+TARGET=$1
+MOUNT_DIR="/mnt/rescue"
+
+mkdir -p $MOUNT_DIR
+mount $TARGET $MOUNT_DIR || { echo -e "${RED}Mount failed!${NC}"; exit 1; }
+
+echo -e "\n${YELLOW}[ RECENT KERNEL ERRORS ]${NC}"
+journalctl -D $MOUNT_DIR/var/log/journal -p err -n 20 2>/dev/null || \
+cat $MOUNT_DIR/var/log/syslog 2>/dev/null | grep -i error | tail -20 || \
+echo "No journal/syslog found"
+
+echo -e "\n${YELLOW}[ LAST BOOT LOG ]${NC}"
+cat $MOUNT_DIR/var/log/boot.log 2>/dev/null | tail -15 || echo "No boot.log"
+
+echo -e "\n${YELLOW}[ AUTH LOG (Last 10) ]${NC}"
+cat $MOUNT_DIR/var/log/auth.log 2>/dev/null | tail -10 || echo "No auth.log"
+
+umount $MOUNT_DIR

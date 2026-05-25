@@ -1,0 +1,10 @@
+PRETTY_NAME="Overkill Linux"
+NAME="Overkill Linux"
+VERSION_CODENAME="Katana"
+ID=debian
+ID_LIKE=debian
+RELEASE_TYPE=stable
+VERSION="2.0"
+VERSION_ID="2.0"
+
+

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=osintripper
+Comment=AI-enhanced username scanner for social media platforms
+Comment[tr]=Sosyal medya platformları için AI ile güçlendirilmiş kullanıcı adı tarayıcısı
+Comment[es]=Escáner de nombres de usuario con IA para plataformas de redes sociales
+Comment[fr]=Scanner de noms d'utilisateur avec IA pour les plateformes de réseaux sociaux
+Comment[de]=KI-unterstützter Benutzernamen-Scanner für Social-Media-Plattformen
+Comment[ar]=ماسح أسماء المستخدمين بدعم من الذكاء الاصطناعي لمنصات وسائل التواصل الاجتماعي
+Comment[ru]=Сканер имен пользователей с ИИ для платформ социальных сетей
+Comment[zh]=用于社交媒体平台的AI增强型用户名扫描器
+Comment[ja]=ソーシャルメディアプラットフォーム用のAI強化ユーザー名スキャナー
+Comment[ko]=소셜 미디어 플랫폼용 AI 강화 사용자 이름 스캐너
+Comment[pt]=Scanner de nomes de usuário com IA para plataformas de mídia social
+Comment[it]=Scanner di nomi utente con intelligenza artificiale per piattaforme di social media
+Comment[nl]=AI-versterkte gebruikersnaamscanner voor socialemediaplatforms
+Comment[sv]=AI-förstärkt användarnamnsskanner för socialmediaplattformar
+Comment[pl]=Skaner nazw użytkowników z AI dla platform mediów społecznościowych
+Exec=mate-terminal -- bash -c "osintripper; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/osintripper.png
+Categories=Social;
+StartupNotify=false

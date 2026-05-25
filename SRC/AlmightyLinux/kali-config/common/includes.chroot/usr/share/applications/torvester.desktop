@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=torvester
+Comment=Email and credential harvester
+Comment[tr]=E-posta ve kimlik bilgisi toplayıcı
+Comment[es]=Recolector de correos electrónicos y credenciales
+Comment[fr]=Collecteur d'e-mails et d'identifiants
+Comment[de]=E-Mail- und Anmeldedaten-Harvester
+Comment[ar]=حاصد البريد الإلكتروني وبيانات الاعتماد
+Comment[ru]=Сборщик электронной почты и учетных данных
+Comment[zh]=电子邮件和凭据收集器
+Comment[ja]=電子メールおよび資格情報ハーベスター
+Comment[ko]=이메일 및 자격 증명 수집기
+Comment[pt]=Coletor de e-mail e credenciais
+Comment[it]=Raccoglitore di e-mail e credenziali
+Comment[nl]=E-mail en inloggegevens harvester
+Comment[sv]=E-post- och inloggningsuppgiftssamlare
+Comment[pl]=Moduł zbierający wiadomości e-mail i poświadczenia
+Exec=mate-terminal -- bash -c "torvester; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Darknet;
+StartupNotify=false

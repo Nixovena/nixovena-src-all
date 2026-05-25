@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=dorkseye
+Comment=Google Dorks scanner and reconnaissance tool
+Comment[tr]=Google Dorks tarayıcı ve keşif aracı
+Comment[es]=Herramienta de reconocimiento y escáner de Google Dorks
+Comment[fr]=Scanner Google Dorks et outil de reconnaissance
+Comment[de]=Google Dorks Scanner- und Aufklärungstool
+Comment[ar]=أداة فحص واستطلاع Google Dorks
+Comment[ru]=Сканер Google Dorks и инструмент разведки
+Comment[zh]=Google Dorks扫描仪和侦察工具
+Comment[ja]=Google Dorksスキャナーおよび偵察ツール
+Comment[ko]=Google Dorks 스캐너 및 정찰 도구
+Comment[pt]=Verificador do Google Dorks e ferramenta de reconhecimento
+Comment[it]=Scanner Google Dorks e strumento di ricognizione
+Comment[nl]=Google Dorks-scanner en verkenningshulpmiddel
+Comment[sv]=Google Dorks skanner och rekognoseringsverktyg
+Comment[pl]=Skaner Google Dorks i narzędzie rozpoznawcze
+Exec=mate-terminal -- bash -c "dorkseye; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

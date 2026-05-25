@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Spiderfoot
+Comment=SpiderFoot OSINT automation tool
+Comment[tr]=SpiderFoot OSINT otomasyon aracı
+Comment[es]=Herramienta de automatización OSINT SpiderFoot
+Comment[fr]=Outil d'automatisation OSINT SpiderFoot
+Comment[de]=SpiderFoot OSINT-Automatisierungstool
+Comment[ar]=أداة أتمتة SpiderFoot OSINT
+Comment[ru]=Инструмент автоматизации OSINT SpiderFoot
+Comment[zh]=SpiderFoot OSINT自动化工具
+Comment[ja]=SpiderFoot OSINT自動化ツール
+Comment[ko]=SpiderFoot OSINT 자동화 도구
+Comment[pt]=Ferramenta de automação OSINT SpiderFoot
+Comment[it]=Strumento di automazione OSINT SpiderFoot
+Comment[nl]=SpiderFoot OSINT-automatiseringstool
+Comment[sv]=SpiderFoot OSINT-automatiseringsverktyg
+Comment[pl]=Narzędzie automatyzacji OSINT SpiderFoot
+Exec=mate-terminal -- bash -c "spiderfoot -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/sf.png
+Categories=Frameworks;
+StartupNotify=false

@@ -1,0 +1,11 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - openssh-client Helper"
+echo "--------------------------------------------------------"
+echo "Available commands:"
+echo ""
+echo "  ssh user@host           : Secure Shell login"
+echo "  scp file user@host:/dir : Secure copy"
+echo "  sftp user@host          : Secure FTP"
+echo "  ssh-keygen              : Generate SSH keys"
+echo "--------------------------------------------------------"

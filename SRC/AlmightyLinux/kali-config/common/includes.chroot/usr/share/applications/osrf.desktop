@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Osrframework
+Comment=OSINT framework components and utilities
+Comment[tr]=OSINT çerçevesi bileşenleri ve araçları
+Comment[es]=Utilidades y componentes del marco OSINT
+Comment[fr]=Utilitaires et composants de framework OSINT
+Comment[de]=OSINT-Framework-Komponenten und Dienstprogramme
+Comment[ar]=مكونات وأدوات إطار عمل OSINT
+Comment[ru]=Компоненты и утилиты фреймворка OSINT
+Comment[zh]=OSINT框架组件和实用程序
+Comment[ja]=OSINTフレームワークのコンポーネントとユーティリティ
+Comment[ko]=OSINT 프레임워크 구성요소 및 유틸리티
+Comment[pt]=Componentes e utilitários da estrutura OSINT
+Comment[it]=Componenti e utilità del framework OSINT
+Comment[nl]=OSINT framework componenten en hulpprogramma's
+Comment[sv]=OSINT ramverkskomponenter och verktyg
+Comment[pl]=Komponenty i narzędzia ramy OSINT
+Exec=mate-terminal -- bash -c "osrf -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Frameworks;
+StartupNotify=false

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Osgint
+Comment=GitHub profile reconnaissance and open source intelligence collector
+Comment[tr]=GitHub profil keşif ve açık kaynak istihbarat toplayıcı
+Comment[es]=Reconocimiento de perfiles de GitHub y recopilador de inteligencia de código abierto
+Comment[fr]=Reconnaissance de profils GitHub et collecteur d'intelligence open source
+Comment[de]=GitHub-Profil-Reconnaissance und Open-Source-Intelligence-Sammler
+Comment[ar]=كشف ملفات تعريف GitHub وجامع الاستخبارات مفتوحة المصدر
+Comment[ru]=Разведка профилей GitHub и сборщик разведывательной информации с открытым исходным кодом
+Comment[zh]=GitHub配置文件侦察和开源情报收集器
+Comment[ja]=GitHubプロファイル偵察およびオープンソースインテリジェンス収集器
+Comment[ko]=GitHub 프로필 정찰 및 오픈 소스 인텔리전스 수집기
+Comment[pt]=Reconhecimento de perfis do GitHub e coletor de inteligência de código aberto
+Comment[it]=Ricognizione dei profili GitHub e raccoglitore di intelligence open source
+Comment[nl]=GitHub-profielverkennings- en open source-intelligentieverzamelaar
+Comment[sv]=GitHub-profilrekognosering och öppen källkodsintelligensinsamlare
+Comment[pl]=Rozpoznanie profili GitHub i zbieracz wywiadu open source
+Exec=mate-terminal -- bash -c "osgint -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false

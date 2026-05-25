@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Fastcrypt
+Comment=Fast file encryption utility
+Comment[tr]=Hızlı dosya şifreleme aracı
+Comment[es]=Utilidad rápida de cifrado de archivos
+Comment[fr]=Utilitaire de chiffrement de fichiers rapide
+Comment[de]=Schnelles Dateiverschlüsselungs-Dienstprogramm
+Comment[ar]=أداة التشفير السريع للملفات
+Comment[ru]=Быстрая утилита шифрования файлов
+Comment[zh]=快速文件加密工具
+Comment[ja]=高速ファイル暗号化ユーティリティ
+Comment[ko]=빠른 파일 암호화 유틸리티
+Comment[pt]=Utilitário rápido de encriptação de ficheiros
+Comment[it]=Utilità di crittografia dei file veloce
+Comment[nl]=Snel hulpprogramma voor bestandsversleuteling
+Comment[sv]=Snabbt filkrypteringsverktyg
+Comment[pl]=Szybkie narzędzie do szyfrowania plików
+Exec=fastcrypt
+Terminal=false
+Type=Application
+Icon=/usr/share/icons/almighty/fastcrypt.png
+Categories=Privacy;
+StartupNotify=false

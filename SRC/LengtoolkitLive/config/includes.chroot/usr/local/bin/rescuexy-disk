@@ -1,0 +1,20 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+echo -e "${CYAN}========================================================${NC}"
+echo -e "           RESCUEXY DISK MONITOR"
+echo -e "${CYAN}========================================================${NC}"
+
+DISKS=$(lsblk -dn -o NAME,TYPE | grep disk | awk '{print $1}')
+
+for disk in $DISKS; do
+    echo -e "\n${GREEN}[ /dev/$disk ]${NC}"
+    echo "Model: $(lsblk -do MODEL /dev/$disk | tail -n1)"
+    rota=$(cat /sys/block/$disk/queue/rotational)
+    [ "$rota" -eq "0" ] && echo "Type: SSD/NVMe" || echo "Type: HDD"
+    health=$(smartctl -H /dev/$disk 2>/dev/null | grep "self-assessment" | cut -d: -f2)
+    [ -z "$health" ] && echo -e "SMART: N/A" || echo -e "SMART: $health"
+done

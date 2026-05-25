@@ -1,0 +1,110 @@
+## Live image with Xfce and default tool selection
+##
+## $ ./build.sh --variant xfce-light
+
+## Live images always want these
+# kali-linux-core
+#kali-desktop-live
+
+## Graphical desktop
+##   For the complete list see: https://www.kali.org/docs/general-use/metapackages/
+#kali-desktop-xfce
+
+## Metapackages
+##   You can customize the set of Kali metapackages (groups of tools) to install
+##   For the complete list see: https://www.kali.org/tools/kali-meta/
+#kali-linux-default
+
+## Extra Kali packages/tools/applications
+##   For the complete list see: https://www.kali.org/tools/
+##                              https://pkg.kali.org/
+#<package>
+
+vim
+nano
+curl
+wget
+git
+locate
+rsync
+lsof
+net-tools
+gpg
+python3
+python3-pip
+gnupg
+ca-certificates
+apt-transport-https
+smartmontools
+lsb-release
+lshw
+dconf-cli
+python3-pyqt5.qtsvg
+haveged
+util-linux
+network-manager
+network-manager-gnome
+mate-desktop-environment
+lightdm
+papirus-icon-theme
+arc-theme
+firejail
+bubblewrap
+conky-all
+tor
+nmap
+python3-censys
+python3-shodan
+python3-requests
+python3-colorama
+python3-pycountry
+python3-phonenumbers
+python3-scapy
+python3-folium
+python3-pytz
+python3-lxml
+python3-psutil
+python3-piexif
+python3-selenium
+python3-telethon
+python3-pyqt6
+python3-pyqt6.qtwebengine
+whois
+dnscrypt-proxy
+obfs4proxy
+macchanger
+python3-socks
+python3-qrcode 
+theharvester
+emailharvester
+pdfid
+pdf-parser
+dmitry
+dnsrecon
+enum4linux
+maltego
+hping3
+fping
+unicornscan
+netmask
+metagoofil
+recon-ng
+sherlock
+instaloader
+spiderfoot
+reconspider
+osrframework
+email2phonenumber
+inspy
+p0f
+whatweb
+dnsenum
+sublist3r
+amass
+maryam
+h8mail
+sn0int
+cloud-enum
+dnsmap
+photon
+firefox-esr

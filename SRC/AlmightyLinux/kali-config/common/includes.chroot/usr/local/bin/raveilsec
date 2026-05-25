@@ -1,0 +1,1782 @@
+#!/usr/bin/env python3
+
+import re
+import json
+import sys
+import os
+import math
+import time
+import socket
+import ssl
+import smtplib
+import hashlib
+import struct
+import base64
+import sqlite3
+import argparse
+import ipaddress
+import concurrent.futures
+from datetime import datetime, timezone
+from urllib.parse import quote, urlencode
+from email.utils import parseaddr
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
+try:
+    import dns.resolver
+    import dns.rdatatype
+    import dns.name
+    import dns.exception
+    HAS_DNS = True
+except ImportError:
+    HAS_DNS = False
+
+
+DISPOSABLE_DOMAINS = frozenset([
+    "10minutemail.com", "guerrillamail.com", "guerrillamail.info", "guerrillamail.net",
+    "guerrillamail.org", "guerrillamail.de", "grr.la", "guerrillamailblock.com",
+    "tempmail.com", "temp-mail.org", "temp-mail.io", "throwaway.email",
+    "mailinator.com", "sharklasers.com", "guerrillamailblock.com", "maildrop.cc",
+    "dispostable.com", "yopmail.com", "yopmail.fr", "trashmail.com", "trashmail.me",
+    "trashmail.net", "mailnesia.com", "tempail.com", "tempr.email", "discard.email",
+    "discardmail.com", "discardmail.de", "emailondeck.com", "33mail.com",
+    "getnada.com", "mohmal.com", "burnermail.io", "inboxbear.com",
+    "mailcatch.com", "trash-mail.com", "mintemail.com", "mytemp.email",
+    "fakeinbox.com", "harakirimail.com", "jetable.org", "mailexpire.com",
+    "mailforspam.com", "safetymail.info", "spamgourmet.com", "tempomail.fr",
+    "tmpmail.net", "tmpmail.org", "wegwerfmail.de", "wegwerfmail.net",
+    "mailhazard.com", "mailhazard.us", "mailnull.com", "e4ward.com",
+    "incognitomail.org", "mailscrap.com", "mailzilla.com", "tempinbox.com",
+    "thankyou2010.com", "spamavert.com", "spamfree24.org", "brefmail.com",
+    "deadaddress.com", "despammed.com", "devnullmail.com", "dfgh.net",
+    "dodgeit.com", "dodgit.com", "emailgo.de", "emailias.com",
+    "emailsensei.com", "emailtemporario.com.br", "ephemail.net", "etranquil.com",
+    "gishpuppy.com", "kasmail.com", "mailblocks.com", "mailmoat.com",
+    "mytrashmail.com", "nobulk.com", "nospamfor.us", "owlpic.com",
+    "pookmail.com", "shortmail.net", "sneakemail.com", "sogetthis.com",
+    "spambox.us", "spamcero.com", "spamday.com", "spamex.com",
+    "spamherelots.com", "spaml.de", "spammotel.com", "spamspot.com",
+    "temporaryemail.net", "temporaryforwarding.com", "temporaryinbox.com",
+    "thanksnospam.info", "trashymail.com", "trashymail.net", "wh4f.org",
+    "willhackforfood.biz", "willselfdestruct.com", "emailfake.com",
+    "crazymailing.com", "tmail.ws", "luxusmail.org", "objectmail.com",
+    "proxymail.eu", "rcpt.at", "armyspy.com", "cuvox.de", "dayrep.com",
+    "einrot.com", "fleckens.hu", "gustr.com", "jourrapide.com",
+    "rhyta.com", "superrito.com", "teleworm.us"
+])
+
+FREE_EMAIL_PROVIDERS = frozenset([
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "yahoo.co.in",
+    "yahoo.co.jp", "yahoo.fr", "yahoo.de", "yahoo.it", "yahoo.es",
+    "hotmail.com", "hotmail.co.uk", "hotmail.fr", "hotmail.de", "hotmail.it",
+    "outlook.com", "outlook.fr", "outlook.de", "outlook.es", "outlook.it",
+    "live.com", "live.co.uk", "live.fr", "live.de", "live.it",
+    "msn.com", "aol.com", "aol.co.uk", "mail.com", "email.com",
+    "zoho.com", "zohomail.com", "protonmail.com", "protonmail.ch", "pm.me",
+    "proton.me", "tutanota.com", "tutanota.de", "tuta.io",
+    "icloud.com", "me.com", "mac.com", "gmx.com", "gmx.de", "gmx.net",
+    "gmx.at", "gmx.ch", "web.de", "t-online.de", "freenet.de",
+    "yandex.com", "yandex.ru", "yandex.ua", "mail.ru", "list.ru",
+    "bk.ru", "inbox.ru", "rambler.ru", "qq.com", "163.com",
+    "126.com", "sina.com", "sohu.com", "foxmail.com", "naver.com",
+    "hanmail.net", "daum.net", "nate.com", "rediffmail.com",
+    "fastmail.com", "fastmail.fm", "hushmail.com", "runbox.com",
+    "mailfence.com", "disroot.org", "riseup.net", "autistici.org",
+    "cock.li", "danwin1210.me", "startmail.com", "posteo.de", "posteo.net",
+    "mailbox.org", "kolabnow.com"
+])
+
+ROLE_PREFIXES = frozenset([
+    "admin", "administrator", "webmaster", "postmaster", "hostmaster",
+    "abuse", "security", "info", "information", "contact", "support",
+    "help", "helpdesk", "sales", "marketing", "billing", "accounting",
+    "legal", "hr", "jobs", "careers", "press", "media", "pr",
+    "noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon",
+    "bounce", "devnull", "null", "root", "sysadmin", "daemon",
+    "ftp", "www", "mail", "email", "newsletter", "subscribe",
+    "unsubscribe", "feedback", "complaints", "office", "reception",
+    "registrar", "whois", "dns", "spam", "phishing", "cert",
+    "operations", "ops", "network", "noc", "tech", "engineering",
+    "dev", "development", "test", "testing", "staging", "demo"
+])
+
+SUSPICIOUS_TLDS = frozenset([
+    ".tk", ".ml", ".ga", ".cf", ".gq", ".xyz", ".top", ".club",
+    ".work", ".date", ".racing", ".win", ".bid", ".stream",
+    ".download", ".loan", ".trade", ".webcam", ".science",
+    ".review", ".party", ".click", ".link", ".gdn", ".men",
+    ".faith", ".cricket", ".accountant"
+])
+
+COMMON_SUBDOMAINS = [
+    "www", "mail", "email", "smtp", "pop", "pop3", "imap",
+    "webmail", "mx", "mx1", "mx2", "exchange", "owa",
+    "autodiscover", "autoconfig", "cpanel", "whm", "ns1", "ns2",
+    "ftp", "sftp", "vpn", "remote", "portal", "login",
+    "sso", "auth", "api", "dev", "staging", "test",
+    "blog", "shop", "store", "cdn", "static", "media",
+    "assets", "img", "images", "docs", "wiki", "forum",
+    "community", "status", "monitor", "grafana", "admin",
+    "panel", "dashboard", "app", "cloud", "git", "gitlab",
+    "jenkins", "ci", "jira", "confluence"
+]
+
+PGP_KEYSERVERS = [
+    "https://keys.openpgp.org/vks/v1/by-email/{}",
+    "https://keyserver.ubuntu.com/pks/lookup?op=index&search={}&options=mr",
+]
+
+GAVATAR_BASE = "https://www.gravatar.com"
+
+
+def _sha256(data):
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def _sha1(data):
+    return hashlib.sha1(data.encode("utf-8")).hexdigest()
+
+
+def _md5(data):
+    return hashlib.md5(data.encode("utf-8")).hexdigest()
+
+
+def _shannon_entropy(text):
+    if not text:
+        return 0.0
+    freq = {}
+    for c in text:
+        freq[c] = freq.get(c, 0) + 1
+    length = len(text)
+    ent = 0.0
+    for count in freq.values():
+        p = count / length
+        ent -= p * math.log2(p)
+    return round(ent, 4)
+
+
+def _safe_request(url, method="GET", timeout=10, headers=None, params=None, allow_redirects=True):
+    if not HAS_REQUESTS:
+        return None
+    default_headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/html, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    if headers:
+        default_headers.update(headers)
+    try:
+        resp = requests.request(
+            method, url, timeout=timeout, headers=default_headers,
+            params=params, allow_redirects=allow_redirects, verify=True
+        )
+        return resp
+    except Exception:
+        return None
+
+
+def _dns_query(domain, rdtype):
+    if not HAS_DNS:
+        return []
+    try:
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 5
+        resolver.lifetime = 10
+        answers = resolver.resolve(domain, rdtype)
+        return list(answers)
+    except Exception:
+        return []
+
+
+def _dns_query_txt(domain):
+    records = _dns_query(domain, "TXT")
+    results = []
+    for r in records:
+        txt = r.to_text().strip('"')
+        results.append(txt)
+    return results
+
+
+def _resolve_a(domain):
+    records = _dns_query(domain, "A")
+    return [str(r) for r in records]
+
+
+def _resolve_aaaa(domain):
+    records = _dns_query(domain, "AAAA")
+    return [str(r) for r in records]
+
+
+def _resolve_mx(domain):
+    records = _dns_query(domain, "MX")
+    results = []
+    for r in records:
+        results.append({"priority": r.preference, "exchange": str(r.exchange).rstrip(".")})
+    return sorted(results, key=lambda x: x["priority"])
+
+
+def _resolve_ns(domain):
+    records = _dns_query(domain, "NS")
+    return [str(r).rstrip(".") for r in records]
+
+
+def _resolve_cname(domain):
+    records = _dns_query(domain, "CNAME")
+    return [str(r).rstrip(".") for r in records]
+
+
+def _resolve_soa(domain):
+    records = _dns_query(domain, "SOA")
+    if records:
+        soa = records[0]
+        return {
+            "mname": str(soa.mname).rstrip("."),
+            "rname": str(soa.rname).rstrip("."),
+            "serial": soa.serial,
+            "refresh": soa.refresh,
+            "retry": soa.retry,
+            "expire": soa.expire,
+            "minimum": soa.minimum,
+        }
+    return None
+
+
+def _check_spf(domain):
+    txt_records = _dns_query_txt(domain)
+    spf_records = [r for r in txt_records if r.startswith("v=spf1")]
+    if not spf_records:
+        return {"exists": False, "record": None, "mechanisms": [], "policy": None}
+    spf = spf_records[0]
+    parts = spf.split()
+    mechanisms = parts[1:]
+    policy = None
+    for m in mechanisms:
+        if m.startswith(("-all", "~all", "+all", "?all")):
+            policy = m
+    return {"exists": True, "record": spf, "mechanisms": mechanisms, "policy": policy}
+
+
+def _check_dmarc(domain):
+    dmarc_domain = f"_dmarc.{domain}"
+    txt_records = _dns_query_txt(dmarc_domain)
+    dmarc_records = [r for r in txt_records if r.startswith("v=DMARC1")]
+    if not dmarc_records:
+        return {"exists": False, "record": None, "policy": None, "pct": None, "rua": None, "ruf": None}
+    rec = dmarc_records[0]
+    tags = {}
+    for part in rec.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            tags[k.strip()] = v.strip()
+    return {
+        "exists": True,
+        "record": rec,
+        "policy": tags.get("p"),
+        "subdomain_policy": tags.get("sp"),
+        "pct": tags.get("pct"),
+        "rua": tags.get("rua"),
+        "ruf": tags.get("ruf"),
+        "adkim": tags.get("adkim"),
+        "aspf": tags.get("aspf"),
+    }
+
+
+def _check_dkim(domain, selectors=None):
+    if selectors is None:
+        selectors = [
+            "default", "google", "selector1", "selector2", "k1", "k2", "k3",
+            "dkim", "mail", "email", "smtp", "s1", "s2", "s3",
+            "mandrill", "amazonses", "ses", "sendgrid", "sg", "sg1", "sg2",
+            "mailgun", "mg", "postmark", "pm", "cm", "zendesk", "zendesk1",
+            "zendesk2", "everlytickey1", "everlytickey2", "mxvault",
+            "protonmail", "protonmail2", "protonmail3",
+            "google2048", "20161025", "20230601",
+        ]
+    found = []
+    for sel in selectors:
+        dkim_domain = f"{sel}._domainkey.{domain}"
+        txt_records = _dns_query_txt(dkim_domain)
+        cname_records = _resolve_cname(dkim_domain)
+        if txt_records:
+            for r in txt_records:
+                if "v=DKIM1" in r or "k=rsa" in r or "p=" in r:
+                    found.append({"selector": sel, "record": r, "type": "TXT"})
+                    break
+        elif cname_records:
+            found.append({"selector": sel, "cname": cname_records[0], "type": "CNAME"})
+    return found
+
+
+def _check_bimi(domain):
+    bimi_domain = f"default._bimi.{domain}"
+    txt_records = _dns_query_txt(bimi_domain)
+    bimi_records = [r for r in txt_records if "v=BIMI1" in r]
+    if not bimi_records:
+        return {"exists": False}
+    rec = bimi_records[0]
+    tags = {}
+    for part in rec.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            tags[k.strip()] = v.strip()
+    return {"exists": True, "record": rec, "logo": tags.get("l"), "authority": tags.get("a")}
+
+
+def _check_mta_sts(domain):
+    sts_domain = f"_mta-sts.{domain}"
+    txt_records = _dns_query_txt(sts_domain)
+    sts_records = [r for r in txt_records if r.startswith("v=STSv1")]
+    if not sts_records:
+        return {"exists": False}
+    policy = None
+    if HAS_REQUESTS:
+        resp = _safe_request(f"https://mta-sts.{domain}/.well-known/mta-sts.txt", timeout=5)
+        if resp and resp.status_code == 200:
+            policy = resp.text
+    return {"exists": True, "record": sts_records[0], "policy_file": policy}
+
+
+def _check_dane_tlsa(domain, port=25):
+    tlsa_domain = f"_{port}._tcp.{domain}"
+    records = _dns_query(tlsa_domain, "TLSA")
+    if not records:
+        return {"exists": False}
+    results = []
+    for r in records:
+        results.append(str(r))
+    return {"exists": True, "records": results}
+
+
+def _check_caa(domain):
+    records = _dns_query(domain, "CAA")
+    if not records:
+        return {"exists": False, "records": []}
+    results = []
+    for r in records:
+        results.append(str(r))
+    return {"exists": True, "records": results}
+
+
+def _smtp_probe(domain, email=None, timeout=8):
+    result = {
+        "connectable": False,
+        "banner": None,
+        "starttls": False,
+        "vrfy_supported": None,
+        "rcpt_accepted": None,
+        "open_relay": False,
+        "server_software": None,
+    }
+    mx_records = _resolve_mx(domain)
+    if not mx_records:
+        a_records = _resolve_a(domain)
+        if a_records:
+            mx_records = [{"priority": 0, "exchange": domain}]
+        else:
+            return result
+
+    targets = []
+    for mx in mx_records[:3]:
+        exchange = mx["exchange"]
+        ips = _resolve_a(exchange)
+        if ips:
+            targets.append((exchange, ips[0]))
+        else:
+            targets.append((exchange, exchange))
+
+    for hostname, addr in targets:
+        try:
+            sock = socket.create_connection((addr, 25), timeout=timeout)
+            sock.settimeout(timeout)
+            banner = sock.recv(1024).decode("utf-8", errors="replace").strip()
+            result["connectable"] = True
+            result["banner"] = banner
+
+            sw_patterns = {
+                "postfix": "Postfix",
+                "exim": "Exim",
+                "sendmail": "Sendmail",
+                "microsoft": "Microsoft Exchange",
+                "exchange": "Microsoft Exchange",
+                "esmtp": "Generic ESMTP",
+                "google": "Google SMTP",
+                "mx.google": "Google SMTP",
+                "outlook": "Microsoft 365",
+                "protection.outlook": "Microsoft 365 EOP",
+                "pphosted": "Proofpoint",
+                "mimecast": "Mimecast",
+                "barracuda": "Barracuda",
+                "zimbra": "Zimbra",
+                "dovecot": "Dovecot",
+                "courier": "Courier",
+                "qmail": "Qmail",
+                "hmailserver": "hMailServer",
+                "haraka": "Haraka",
+                "opensmtpd": "OpenSMTPD",
+            }
+            banner_lower = banner.lower()
+            for pattern, name in sw_patterns.items():
+                if pattern in banner_lower:
+                    result["server_software"] = name
+                    break
+
+            sock.sendall(b"EHLO probe.local\r\n")
+            ehlo_resp = sock.recv(4096).decode("utf-8", errors="replace")
+
+            if "STARTTLS" in ehlo_resp:
+                result["starttls"] = True
+
+            sock.sendall(b"VRFY test@test.com\r\n")
+            vrfy_resp = sock.recv(1024).decode("utf-8", errors="replace").strip()
+            vrfy_code = vrfy_resp[:3] if len(vrfy_resp) >= 3 else ""
+            if vrfy_code in ("250", "251", "252"):
+                result["vrfy_supported"] = True
+            elif vrfy_code in ("502", "252", "550"):
+                result["vrfy_supported"] = False
+
+            if email:
+                sock.sendall(f"MAIL FROM:<probe@probe.local>\r\n".encode())
+                sock.recv(1024)
+                sock.sendall(f"RCPT TO:<{email}>\r\n".encode())
+                rcpt_resp = sock.recv(1024).decode("utf-8", errors="replace").strip()
+                rcpt_code = rcpt_resp[:3] if len(rcpt_resp) >= 3 else ""
+                if rcpt_code == "250":
+                    result["rcpt_accepted"] = True
+                elif rcpt_code in ("550", "551", "552", "553", "554"):
+                    result["rcpt_accepted"] = False
+                else:
+                    result["rcpt_accepted"] = None
+
+                sock.sendall(b"RSET\r\n")
+                sock.recv(1024)
+
+                sock.sendall(f"MAIL FROM:<probe@probe.local>\r\n".encode())
+                sock.recv(1024)
+                fake_addr = f"nonexistent_{int(time.time())}@unrelated-domain.invalid"
+                sock.sendall(f"RCPT TO:<{fake_addr}>\r\n".encode())
+                relay_resp = sock.recv(1024).decode("utf-8", errors="replace").strip()
+                if relay_resp[:3] == "250":
+                    result["open_relay"] = True
+
+            sock.sendall(b"QUIT\r\n")
+            sock.close()
+            break
+        except Exception:
+            continue
+
+    return result
+
+
+def _get_ssl_cert(domain, port=443, timeout=5):
+    try:
+        ctx = ssl.create_default_context()
+        conn = socket.create_connection((domain, port), timeout=timeout)
+        ssock = ctx.wrap_socket(conn, server_hostname=domain)
+        cert = ssock.getpeercert()
+        cert_bin = ssock.getpeercert(binary_form=True)
+        ssock.close()
+        conn.close()
+
+        subject = {}
+        for field in cert.get("subject", ()):
+            for k, v in field:
+                subject[k] = v
+
+        issuer = {}
+        for field in cert.get("issuer", ()):
+            for k, v in field:
+                issuer[k] = v
+
+        san = []
+        for ext_type, ext_val in cert.get("subjectAltName", ()):
+            san.append({"type": ext_type, "value": ext_val})
+
+        return {
+            "valid": True,
+            "subject": subject,
+            "issuer": issuer,
+            "serial": cert.get("serialNumber"),
+            "version": cert.get("version"),
+            "not_before": cert.get("notBefore"),
+            "not_after": cert.get("notAfter"),
+            "san": san,
+            "fingerprint_sha256": hashlib.sha256(cert_bin).hexdigest(),
+        }
+    except ssl.SSLCertVerificationError as e:
+        return {"valid": False, "error": str(e)}
+    except Exception:
+        return None
+
+
+def _crtsh_lookup(domain, timeout=15):
+    if not HAS_REQUESTS:
+        return []
+    url = f"https://crt.sh/?q=%.{domain}&output=json"
+    resp = _safe_request(url, timeout=timeout)
+    if not resp or resp.status_code != 200:
+        return []
+    try:
+        data = resp.json()
+        seen = set()
+        results = []
+        for entry in data:
+            cn = entry.get("common_name", "")
+            name_value = entry.get("name_value", "")
+            issuer = entry.get("issuer_name", "")
+            not_before = entry.get("not_before", "")
+            not_after = entry.get("not_after", "")
+            entry_id = entry.get("id")
+            names = set()
+            if cn:
+                names.add(cn.lower())
+            for n in name_value.split("\n"):
+                n = n.strip().lower()
+                if n:
+                    names.add(n)
+            for name in names:
+                if name not in seen:
+                    seen.add(name)
+                    results.append({
+                        "name": name,
+                        "issuer": issuer,
+                        "not_before": not_before,
+                        "not_after": not_after,
+                        "crt_id": entry_id,
+                    })
+        return results[:200]
+    except Exception:
+        return []
+
+
+def _gravatar_lookup(email):
+    email_hash = _md5(email.strip().lower())
+    profile_url = f"{GAVATAR_BASE}/{email_hash}.json"
+    avatar_url = f"{GAVATAR_BASE}/avatar/{email_hash}?d=404&s=200"
+
+    result = {"exists": False, "hash": email_hash, "avatar_url": None, "profile": None}
+
+    if HAS_REQUESTS:
+        resp = _safe_request(avatar_url, timeout=5, allow_redirects=False)
+        if resp and resp.status_code == 200:
+            result["exists"] = True
+            result["avatar_url"] = f"{GAVATAR_BASE}/avatar/{email_hash}?s=400"
+
+        prof_resp = _safe_request(profile_url, timeout=5)
+        if prof_resp and prof_resp.status_code == 200:
+            try:
+                prof_data = prof_resp.json()
+                if "entry" in prof_data and prof_data["entry"]:
+                    entry = prof_data["entry"][0]
+                    result["profile"] = {
+                        "display_name": entry.get("displayName"),
+                        "preferred_username": entry.get("preferredUsername"),
+                        "about": entry.get("aboutMe"),
+                        "location": entry.get("currentLocation"),
+                        "urls": [u.get("value") for u in entry.get("urls", [])],
+                        "accounts": [
+                            {"domain": a.get("domain"), "username": a.get("username"), "url": a.get("url")}
+                            for a in entry.get("accounts", [])
+                        ],
+                        "photos": [p.get("value") for p in entry.get("photos", [])],
+                    }
+            except Exception:
+                pass
+
+    return result
+
+
+def _github_search(email, timeout=10):
+    if not HAS_REQUESTS:
+        return []
+    url = f"https://api.github.com/search/users?q={quote(email)}+in:email"
+    resp = _safe_request(url, timeout=timeout, headers={"Accept": "application/vnd.github.v3+json"})
+    if not resp or resp.status_code != 200:
+        return []
+    try:
+        data = resp.json()
+        users = []
+        for item in data.get("items", [])[:10]:
+            user_resp = _safe_request(item["url"], timeout=timeout, headers={"Accept": "application/vnd.github.v3+json"})
+            user_data = {}
+            if user_resp and user_resp.status_code == 200:
+                ud = user_resp.json()
+                user_data = {
+                    "login": ud.get("login"),
+                    "name": ud.get("name"),
+                    "company": ud.get("company"),
+                    "blog": ud.get("blog"),
+                    "location": ud.get("location"),
+                    "bio": ud.get("bio"),
+                    "public_repos": ud.get("public_repos"),
+                    "public_gists": ud.get("public_gists"),
+                    "followers": ud.get("followers"),
+                    "following": ud.get("following"),
+                    "created_at": ud.get("created_at"),
+                    "avatar_url": ud.get("avatar_url"),
+                    "html_url": ud.get("html_url"),
+                }
+            else:
+                user_data = {
+                    "login": item.get("login"),
+                    "avatar_url": item.get("avatar_url"),
+                    "html_url": item.get("html_url"),
+                }
+            users.append(user_data)
+        return users
+    except Exception:
+        return []
+
+
+def _gitlab_search(email, timeout=10):
+    if not HAS_REQUESTS:
+        return []
+    url = f"https://gitlab.com/api/v4/users?search={quote(email)}"
+    resp = _safe_request(url, timeout=timeout)
+    if not resp or resp.status_code != 200:
+        return []
+    try:
+        data = resp.json()
+        users = []
+        for item in data[:10]:
+            users.append({
+                "username": item.get("username"),
+                "name": item.get("name"),
+                "state": item.get("state"),
+                "avatar_url": item.get("avatar_url"),
+                "web_url": item.get("web_url"),
+            })
+        return users
+    except Exception:
+        return []
+
+
+def _pgp_key_lookup(email, timeout=10):
+    if not HAS_REQUESTS:
+        return []
+    results = []
+
+    url = PGP_KEYSERVERS[0].format(quote(email))
+    resp = _safe_request(url, timeout=timeout)
+    if resp and resp.status_code == 200:
+        results.append({"keyserver": "keys.openpgp.org", "found": True, "data_length": len(resp.content)})
+    else:
+        results.append({"keyserver": "keys.openpgp.org", "found": False})
+
+    url = PGP_KEYSERVERS[1].format(quote(email))
+    resp = _safe_request(url, timeout=timeout)
+    if resp and resp.status_code == 200 and "pub:" in resp.text:
+        lines = resp.text.strip().split("\n")
+        keys = []
+        for line in lines:
+            if line.startswith("pub:"):
+                parts = line.split(":")
+                if len(parts) >= 5:
+                    keys.append({
+                        "key_id": parts[1],
+                        "algo": parts[2] if len(parts) > 2 else None,
+                        "key_len": parts[3] if len(parts) > 3 else None,
+                        "creation": parts[4] if len(parts) > 4 else None,
+                    })
+        results.append({"keyserver": "keyserver.ubuntu.com", "found": bool(keys), "keys": keys})
+    else:
+        results.append({"keyserver": "keyserver.ubuntu.com", "found": False})
+
+    return results
+
+
+def _hibp_password_check(email, timeout=10):
+    if not HAS_REQUESTS:
+        return None
+    pw_hash = _sha1(email).upper()
+    prefix = pw_hash[:5]
+    suffix = pw_hash[5:]
+    url = f"https://api.pwnedpasswords.com/range/{prefix}"
+    resp = _safe_request(url, timeout=timeout, headers={"Add-Padding": "true"})
+    if not resp or resp.status_code != 200:
+        return None
+    for line in resp.text.strip().split("\n"):
+        line = line.strip()
+        if ":" in line:
+            h, count = line.split(":", 1)
+            if h.upper() == suffix:
+                return {"found": True, "count": int(count.strip())}
+    return {"found": False, "count": 0}
+
+
+def _whois_lookup(domain):
+    try:
+        import whois as python_whois
+        w = python_whois.whois(domain)
+        creation = w.creation_date
+        if isinstance(creation, list):
+            creation = creation[0]
+        expiration = w.expiration_date
+        if isinstance(expiration, list):
+            expiration = expiration[0]
+        updated = w.updated_date
+        if isinstance(updated, list):
+            updated = updated[0]
+        nameservers = w.name_servers
+        if isinstance(nameservers, set):
+            nameservers = list(nameservers)
+        return {
+            "registrar": w.registrar,
+            "creation_date": str(creation) if creation else None,
+            "expiration_date": str(expiration) if expiration else None,
+            "updated_date": str(updated) if updated else None,
+            "name_servers": [ns.lower() for ns in nameservers] if nameservers else [],
+            "status": w.status if hasattr(w, "status") else None,
+            "country": w.country,
+            "state": w.state if hasattr(w, "state") else None,
+            "org": w.org,
+            "registrant": w.registrant if hasattr(w, "registrant") else None,
+            "dnssec": w.dnssec if hasattr(w, "dnssec") else None,
+        }
+    except ImportError:
+        return _whois_socket_fallback(domain)
+    except Exception:
+        return _whois_socket_fallback(domain)
+
+
+def _whois_socket_fallback(domain):
+    tld = domain.split(".")[-1].lower()
+    whois_servers = {
+        "com": "whois.verisign-grs.com",
+        "net": "whois.verisign-grs.com",
+        "org": "whois.pir.org",
+        "info": "whois.afilias.net",
+        "io": "whois.nic.io",
+        "co": "whois.nic.co",
+        "me": "whois.nic.me",
+        "dev": "whois.nic.google",
+        "app": "whois.nic.google",
+        "xyz": "whois.nic.xyz",
+        "de": "whois.denic.de",
+        "uk": "whois.nic.uk",
+        "fr": "whois.nic.fr",
+        "nl": "whois.domain-registry.nl",
+        "eu": "whois.eu",
+        "ru": "whois.tcinet.ru",
+        "au": "whois.auda.org.au",
+        "ca": "whois.cira.ca",
+        "br": "whois.registro.br",
+        "jp": "whois.jprs.jp",
+        "kr": "whois.kr",
+        "cn": "whois.cnnic.cn",
+        "in": "whois.registry.in",
+        "tr": "whois.nic.tr",
+    }
+    server = whois_servers.get(tld, f"whois.nic.{tld}")
+    try:
+        sock = socket.create_connection((server, 43), timeout=10)
+        query = domain + "\r\n"
+        if tld == "de":
+            query = f"-T dn,ace {domain}\r\n"
+        sock.sendall(query.encode())
+        raw = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            raw += chunk
+        sock.close()
+        text = raw.decode("utf-8", errors="replace")
+
+        data = {"raw": text}
+        patterns = {
+            "registrar": r"(?:Registrar|registrar):\s*(.+)",
+            "creation_date": r"(?:Creation Date|created|Registration Date|Registered on):\s*(.+)",
+            "expiration_date": r"(?:Expir(?:ation|y) Date|paid-till|Registry Expiry Date):\s*(.+)",
+            "updated_date": r"(?:Updated Date|last-modified|Last Modified):\s*(.+)",
+            "status": r"(?:Domain Status|Status):\s*(.+)",
+            "nameservers": r"(?:Name Server|nserver|Nameservers):\s*(.+)",
+        }
+        for key, pat in patterns.items():
+            matches = re.findall(pat, text, re.IGNORECASE)
+            if matches:
+                if key == "nameservers":
+                    data[key] = [m.strip().lower() for m in matches]
+                else:
+                    data[key] = matches[0].strip()
+        return data
+    except Exception:
+        return {"error": "WHOIS lookup failed"}
+
+
+def _enumerate_subdomains(domain, timeout=3):
+    found = []
+
+    def check_sub(sub):
+        full = f"{sub}.{domain}"
+        ips = _resolve_a(full)
+        if ips:
+            return {"subdomain": full, "ips": ips}
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(check_sub, sub): sub for sub in COMMON_SUBDOMAINS}
+        for future in concurrent.futures.as_completed(futures, timeout=30):
+            try:
+                result = future.result()
+                if result:
+                    found.append(result)
+            except Exception:
+                pass
+
+    return sorted(found, key=lambda x: x["subdomain"])
+
+
+def _generate_email_variations(email):
+    local, domain = email.split("@")
+    variations = []
+
+    separators = [".", "_", "-"]
+    parts = None
+    used_sep = None
+    for sep in separators:
+        if sep in local:
+            parts = local.split(sep)
+            used_sep = sep
+            break
+
+    if parts and len(parts) == 2:
+        first, last = parts
+        for sep in separators:
+            if sep != used_sep:
+                variations.append(f"{first}{sep}{last}@{domain}")
+        variations.append(f"{last}{used_sep}{first}@{domain}" if used_sep else f"{last}.{first}@{domain}")
+        variations.append(f"{first[0]}{used_sep or '.'}{last}@{domain}")
+        variations.append(f"{first}{used_sep or '.'}{last[0]}@{domain}")
+        variations.append(f"{first[0]}{last}@{domain}")
+        variations.append(f"{first}{last[0]}@{domain}")
+        variations.append(f"{first}{last}@{domain}")
+        variations.append(f"{last}{first}@{domain}")
+        variations.append(f"{first}@{domain}")
+        variations.append(f"{last}@{domain}")
+        for yr in ["", "1", "2", "01", "99", "00", "123"]:
+            if yr:
+                variations.append(f"{first}{used_sep or '.'}{last}{yr}@{domain}")
+    elif not parts:
+        alpha = re.match(r'^([a-zA-Z]+?)(\d*)$', local)
+        if alpha:
+            base = alpha.group(1)
+            num = alpha.group(2)
+            if len(base) > 3:
+                mid = len(base) // 2
+                first_guess = base[:mid]
+                last_guess = base[mid:]
+                for sep in separators:
+                    variations.append(f"{first_guess}{sep}{last_guess}@{domain}")
+
+    seen = set()
+    unique = []
+    for v in variations:
+        vl = v.lower()
+        if vl != email.lower() and vl not in seen:
+            seen.add(vl)
+            unique.append(v)
+
+    return unique[:30]
+
+
+def _intelx_search(email, timeout=15):
+    if not HAS_REQUESTS:
+        return []
+    url = f"https://intelx.io/dork?q={quote(email)}"
+    resp = _safe_request(url, timeout=timeout)
+    if resp and resp.status_code == 200:
+        return [{"source": "intelx", "url": url, "accessible": True}]
+    return []
+
+
+def _check_social_presence(email, local_part, domain):
+    results = {}
+
+    if HAS_REQUESTS:
+        platforms = {
+            "twitter": f"https://api.twitter.com/i/users/email_available.json?email={quote(email)}",
+            "instagram": f"https://www.instagram.com/{quote(local_part)}/",
+            "linkedin": f"https://www.linkedin.com/in/{quote(local_part)}/",
+        }
+
+        for platform, url in platforms.items():
+            try:
+                resp = _safe_request(url, timeout=5, allow_redirects=False)
+                if resp:
+                    results[platform] = {
+                        "url_checked": url,
+                        "status_code": resp.status_code,
+                        "potentially_exists": resp.status_code in (200, 301, 302),
+                    }
+            except Exception:
+                results[platform] = {"url_checked": url, "error": True}
+
+    return results
+
+
+def _domain_reputation_analysis(domain):
+    rep = {
+        "suspicious_tld": any(domain.endswith(tld) for tld in SUSPICIOUS_TLDS),
+        "free_provider": domain.lower() in FREE_EMAIL_PROVIDERS,
+        "disposable": domain.lower() in DISPOSABLE_DOMAINS,
+        "homoglyph_risk": _check_homoglyph(domain),
+        "domain_length": len(domain),
+        "hyphen_count": domain.count("-"),
+        "digit_count": sum(1 for c in domain if c.isdigit()),
+        "subdomain_depth": domain.count(".") - 1,
+    }
+
+    score = 100
+    if rep["disposable"]:
+        score -= 50
+    if rep["suspicious_tld"]:
+        score -= 30
+    if rep["homoglyph_risk"]:
+        score -= 20
+    if rep["hyphen_count"] > 2:
+        score -= 10
+    if rep["digit_count"] > 3:
+        score -= 10
+    if rep["subdomain_depth"] > 2:
+        score -= 10
+    if rep["domain_length"] > 30:
+        score -= 5
+
+    rep["score"] = max(0, score)
+    return rep
+
+
+def _check_homoglyph(domain):
+    homoglyphs = {
+        "0": "o", "1": "l", "rn": "m", "vv": "w",
+        "cl": "d", "nn": "m",
+    }
+    domain_lower = domain.lower().split(".")[0]
+    for fake, real in homoglyphs.items():
+        if fake in domain_lower:
+            return True
+    cyrillic_range = range(0x0400, 0x04FF)
+    for ch in domain_lower:
+        if ord(ch) in cyrillic_range:
+            return True
+    return False
+
+
+def _compute_threat_score(analysis_data):
+    score = 0
+    factors = []
+
+    email_info = analysis_data.get("email_parsing", {})
+    domain_info = analysis_data.get("domain_intelligence", {})
+    dns_info = analysis_data.get("dns_security", {})
+    smtp_info = analysis_data.get("smtp_analysis", {})
+    breach_info = analysis_data.get("breach_intelligence", {})
+    reputation = analysis_data.get("domain_reputation", {})
+
+    if reputation.get("disposable"):
+        score += 35
+        factors.append("Disposable email provider")
+    if reputation.get("suspicious_tld"):
+        score += 20
+        factors.append("Suspicious TLD")
+    if reputation.get("homoglyph_risk"):
+        score += 25
+        factors.append("Homoglyph/IDN attack risk")
+    if reputation.get("free_provider"):
+        score += 5
+        factors.append("Free email provider")
+
+    spf = dns_info.get("spf", {})
+    if spf.get("exists") and spf.get("policy") == "+all":
+        score += 15
+        factors.append("SPF allows all senders")
+    elif not spf.get("exists"):
+        score += 10
+        factors.append("No SPF record")
+
+    dmarc = dns_info.get("dmarc", {})
+    if not dmarc.get("exists"):
+        score += 10
+        factors.append("No DMARC record")
+    elif dmarc.get("policy") == "none":
+        score += 5
+        factors.append("DMARC policy set to none")
+
+    dkim = dns_info.get("dkim", [])
+    if not dkim:
+        score += 5
+        factors.append("No DKIM selectors found")
+
+    if smtp_info.get("open_relay"):
+        score += 25
+        factors.append("Open relay detected")
+    if smtp_info.get("vrfy_supported"):
+        score += 5
+        factors.append("SMTP VRFY enabled")
+    if not smtp_info.get("starttls") and smtp_info.get("connectable"):
+        score += 10
+        factors.append("No STARTTLS support")
+
+    rcpt = smtp_info.get("rcpt_accepted")
+    if rcpt is False:
+        score += 10
+        factors.append("RCPT TO rejected (email may not exist)")
+
+    hibp = breach_info.get("hibp_password_range", {})
+    if hibp and hibp.get("found"):
+        count = hibp.get("count", 0)
+        if count > 1000:
+            score += 20
+            factors.append(f"Email hash found in {count} breached records")
+        elif count > 0:
+            score += 10
+            factors.append(f"Email hash found in {count} breached records")
+
+    whois = domain_info.get("whois", {})
+    if whois and whois.get("creation_date"):
+        try:
+            cd = whois["creation_date"]
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"]:
+                try:
+                    creation = datetime.strptime(cd.split("+")[0].split(".")[0], fmt)
+                    age_days = (datetime.now() - creation).days
+                    if age_days < 30:
+                        score += 25
+                        factors.append("Domain registered less than 30 days ago")
+                    elif age_days < 90:
+                        score += 15
+                        factors.append("Domain registered less than 90 days ago")
+                    elif age_days < 365:
+                        score += 5
+                        factors.append("Domain registered less than 1 year ago")
+                    break
+                except ValueError:
+                    continue
+        except Exception:
+            pass
+
+    local_part = email_info.get("local_part", "")
+    entropy = email_info.get("entropy", 0)
+    if entropy > 4.0:
+        score += 10
+        factors.append("High entropy local part (possibly auto-generated)")
+    if len(local_part) < 3:
+        score += 5
+        factors.append("Very short local part")
+    if email_info.get("is_role_account"):
+        score += 3
+        factors.append("Role-based email account")
+
+    if score >= 80:
+        level = "CRITICAL"
+    elif score >= 60:
+        level = "HIGH"
+    elif score >= 40:
+        level = "MEDIUM"
+    elif score >= 20:
+        level = "LOW"
+    else:
+        level = "MINIMAL"
+
+    return {
+        "score": min(100, score),
+        "level": level,
+        "factors": factors,
+        "factor_count": len(factors),
+    }
+
+
+class EmailIntelligenceEngine:
+    def __init__(self, db_path=None):
+        if db_path is None:
+            xdg_data = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
+            db_dir = os.path.join(xdg_data, "raveilsec")
+            os.makedirs(db_dir, exist_ok=True)
+            db_path = os.path.join(db_dir, "intelligence.db")
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute("""CREATE TABLE IF NOT EXISTS scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                scan_time TEXT NOT NULL,
+                threat_score INTEGER,
+                threat_level TEXT,
+                results_json TEXT
+            )""")
+            c.execute("""CREATE INDEX IF NOT EXISTS idx_scans_email ON scans(email)""")
+            c.execute("""CREATE INDEX IF NOT EXISTS idx_scans_domain ON scans(domain)""")
+            c.execute("""CREATE INDEX IF NOT EXISTS idx_scans_time ON scans(scan_time)""")
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def _save_scan(self, email, domain, threat_score, threat_level, results):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO scans (email, domain, scan_time, threat_score, threat_level, results_json) VALUES (?,?,?,?,?,?)",
+                (email, domain, datetime.now(timezone.utc).isoformat(), threat_score, threat_level, json.dumps(results, default=str))
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def _get_history(self, email=None, domain=None, limit=50):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            if email:
+                c.execute("SELECT email, domain, scan_time, threat_score, threat_level FROM scans WHERE email=? ORDER BY scan_time DESC LIMIT ?", (email, limit))
+            elif domain:
+                c.execute("SELECT email, domain, scan_time, threat_score, threat_level FROM scans WHERE domain=? ORDER BY scan_time DESC LIMIT ?", (domain, limit))
+            else:
+                c.execute("SELECT email, domain, scan_time, threat_score, threat_level FROM scans ORDER BY scan_time DESC LIMIT ?", (limit,))
+            rows = c.fetchall()
+            conn.close()
+            return [{"email": r[0], "domain": r[1], "scan_time": r[2], "threat_score": r[3], "threat_level": r[4]} for r in rows]
+        except Exception:
+            return []
+
+    def analyze(self, email, verbose=True):
+        email = email.strip().lower()
+        if not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', email):
+            print(f"[-] Invalid email format: {email}")
+            return None
+
+        local_part, domain = email.split("@")
+
+        if verbose:
+            print(f"\n\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;36m  RAVEILSEC - Email Intelligence Engine\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;37m  Target: {email}\033[0m")
+            print(f"\033[1;37m  Time:   {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m\n")
+
+        results = {
+            "meta": {
+                "target": email,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+                "engine": "raveilsec",
+            }
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Email parsing & classification...\033[0m")
+
+        name_parts = []
+        for sep in [".", "_", "-"]:
+            if sep in local_part:
+                name_parts = [p for p in local_part.split(sep) if p.isalpha() and len(p) > 1]
+                break
+        if not name_parts and local_part.isalpha() and len(local_part) > 1:
+            name_parts = [local_part]
+
+        pattern_type = "unknown"
+        if re.match(r'^[a-zA-Z]+\.[a-zA-Z]+$', local_part):
+            pattern_type = "firstname.lastname"
+        elif re.match(r'^[a-zA-Z]+_[a-zA-Z]+$', local_part):
+            pattern_type = "firstname_lastname"
+        elif re.match(r'^[a-zA-Z]+\-[a-zA-Z]+$', local_part):
+            pattern_type = "firstname-lastname"
+        elif re.match(r'^[a-zA-Z]\.[a-zA-Z]+$', local_part):
+            pattern_type = "initial.lastname"
+        elif re.match(r'^[a-zA-Z]+[0-9]+$', local_part):
+            pattern_type = "name_with_numbers"
+        elif re.match(r'^[a-zA-Z]+$', local_part):
+            pattern_type = "single_word"
+        elif local_part.lower() in ROLE_PREFIXES:
+            pattern_type = "role_account"
+
+        results["email_parsing"] = {
+            "email": email,
+            "local_part": local_part,
+            "domain": domain,
+            "tld": domain.split(".")[-1],
+            "local_length": len(local_part),
+            "entropy": _shannon_entropy(local_part),
+            "pattern_type": pattern_type,
+            "name_parts": name_parts,
+            "is_role_account": local_part.lower() in ROLE_PREFIXES,
+            "is_disposable": domain.lower() in DISPOSABLE_DOMAINS,
+            "is_free_provider": domain.lower() in FREE_EMAIL_PROVIDERS,
+            "hashes": {
+                "md5": _md5(email),
+                "sha1": _sha1(email),
+                "sha256": _sha256(email),
+            },
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Domain reputation analysis...\033[0m")
+        results["domain_reputation"] = _domain_reputation_analysis(domain)
+
+        if verbose:
+            print("\033[1;33m[*] DNS deep analysis...\033[0m")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            fut_mx = executor.submit(_resolve_mx, domain)
+            fut_a = executor.submit(_resolve_a, domain)
+            fut_aaaa = executor.submit(_resolve_aaaa, domain)
+            fut_ns = executor.submit(_resolve_ns, domain)
+            fut_soa = executor.submit(_resolve_soa, domain)
+            fut_spf = executor.submit(_check_spf, domain)
+            fut_dmarc = executor.submit(_check_dmarc, domain)
+            fut_dkim = executor.submit(_check_dkim, domain)
+            fut_bimi = executor.submit(_check_bimi, domain)
+            fut_mta_sts = executor.submit(_check_mta_sts, domain)
+            fut_caa = executor.submit(_check_caa, domain)
+
+        mx_records = fut_mx.result()
+
+        results["dns_records"] = {
+            "mx": mx_records,
+            "a": fut_a.result(),
+            "aaaa": fut_aaaa.result(),
+            "ns": fut_ns.result(),
+            "soa": fut_soa.result(),
+        }
+
+        results["dns_security"] = {
+            "spf": fut_spf.result(),
+            "dmarc": fut_dmarc.result(),
+            "dkim": fut_dkim.result(),
+            "bimi": fut_bimi.result(),
+            "mta_sts": fut_mta_sts.result(),
+            "caa": fut_caa.result(),
+        }
+
+        dane_target = mx_records[0]["exchange"] if mx_records else domain
+        results["dns_security"]["dane_tlsa"] = _check_dane_tlsa(dane_target)
+
+        if verbose:
+            print("\033[1;33m[*] SMTP probing...\033[0m")
+        results["smtp_analysis"] = _smtp_probe(domain, email)
+
+        if verbose:
+            print("\033[1;33m[*] Domain intelligence...\033[0m")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            fut_whois = executor.submit(_whois_lookup, domain)
+            fut_ssl = executor.submit(_get_ssl_cert, domain)
+            fut_subs = executor.submit(_enumerate_subdomains, domain)
+
+        results["domain_intelligence"] = {
+            "whois": fut_whois.result(),
+            "ssl_certificate": fut_ssl.result(),
+            "subdomains": fut_subs.result(),
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Certificate transparency search...\033[0m")
+        crtsh = _crtsh_lookup(domain)
+        results["certificate_transparency"] = {
+            "total_entries": len(crtsh),
+            "unique_names": list(set(e["name"] for e in crtsh)),
+            "entries": crtsh[:50],
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Breach intelligence...\033[0m")
+        results["breach_intelligence"] = {
+            "hibp_password_range": _hibp_password_check(email),
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Identity correlation...\033[0m")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            fut_gravatar = executor.submit(_gravatar_lookup, email)
+            fut_github = executor.submit(_github_search, email)
+            fut_gitlab = executor.submit(_gitlab_search, email)
+            fut_pgp = executor.submit(_pgp_key_lookup, email)
+            fut_social = executor.submit(_check_social_presence, email, local_part, domain)
+
+        results["identity_correlation"] = {
+            "gravatar": fut_gravatar.result(),
+            "github": fut_github.result(),
+            "gitlab": fut_gitlab.result(),
+            "pgp_keys": fut_pgp.result(),
+            "social_presence": fut_social.result(),
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Email variation generation...\033[0m")
+        results["email_variations"] = _generate_email_variations(email)
+
+        if verbose:
+            print("\033[1;33m[*] External intelligence sources...\033[0m")
+        results["external_sources"] = {
+            "intelx": _intelx_search(email),
+            "search_dorks": {
+                "google": f'"{email}"',
+                "google_filetype": f'"{email}" filetype:pdf OR filetype:doc OR filetype:xls',
+                "google_site": f'site:pastebin.com "{email}"',
+                "bing": f'"{email}"',
+            },
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Threat assessment...\033[0m")
+        results["threat_assessment"] = _compute_threat_score(results)
+
+        results["relationship_mapping"] = {
+            "org_emails": [f"{prefix}@{domain}" for prefix in ["admin", "support", "info", "contact", "security", "abuse", "postmaster", "webmaster"]],
+            "mx_providers": [mx["exchange"] for mx in mx_records] if mx_records else [],
+        }
+
+        self._save_scan(email, domain, results["threat_assessment"]["score"], results["threat_assessment"]["level"], results)
+
+        if verbose:
+            self._print_summary(results)
+
+        return results
+
+    def _print_summary(self, results):
+        ta = results["threat_assessment"]
+        ep = results["email_parsing"]
+        dns_sec = results["dns_security"]
+        smtp = results["smtp_analysis"]
+        domain_intel = results["domain_intelligence"]
+        identity = results["identity_correlation"]
+        ct = results["certificate_transparency"]
+
+        level_colors = {
+            "CRITICAL": "\033[1;31m",
+            "HIGH": "\033[1;91m",
+            "MEDIUM": "\033[1;33m",
+            "LOW": "\033[1;32m",
+            "MINIMAL": "\033[1;36m",
+        }
+        color = level_colors.get(ta["level"], "\033[0m")
+        reset = "\033[0m"
+        bold = "\033[1m"
+        dim = "\033[2m"
+        cyan = "\033[36m"
+        green = "\033[32m"
+        red = "\033[31m"
+        yellow = "\033[33m"
+        white = "\033[1;37m"
+
+        print(f"\n{bold}{'═'*60}{reset}")
+        print(f"{bold}  ANALYSIS RESULTS{reset}")
+        print(f"{bold}{'═'*60}{reset}")
+
+        print(f"\n{white}  ▸ Email:{reset}          {ep['email']}")
+        print(f"{white}  ▸ Pattern:{reset}        {ep['pattern_type']}")
+        print(f"{white}  ▸ Entropy:{reset}        {ep['entropy']}")
+        print(f"{white}  ▸ Role Account:{reset}   {'Yes' if ep['is_role_account'] else 'No'}")
+        print(f"{white}  ▸ Disposable:{reset}     {'Yes' if ep['is_disposable'] else 'No'}")
+        print(f"{white}  ▸ Free Provider:{reset}  {'Yes' if ep['is_free_provider'] else 'No'}")
+        if ep["name_parts"]:
+            print(f"{white}  ▸ Name Parts:{reset}     {', '.join(ep['name_parts'])}")
+
+        print(f"\n{bold}  DNS Security{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        spf = dns_sec.get("spf", {})
+        dmarc = dns_sec.get("dmarc", {})
+        dkim = dns_sec.get("dkim", [])
+        bimi = dns_sec.get("bimi", {})
+        mta_sts = dns_sec.get("mta_sts", {})
+        dane = dns_sec.get("dane_tlsa", {})
+        caa = dns_sec.get("caa", {})
+
+        spf_status = f"{green}✓{reset}" if spf.get("exists") else f"{red}✗{reset}"
+        dmarc_status = f"{green}✓{reset}" if dmarc.get("exists") else f"{red}✗{reset}"
+        dkim_status = f"{green}✓ ({len(dkim)} selectors){reset}" if dkim else f"{red}✗{reset}"
+        bimi_status = f"{green}✓{reset}" if bimi.get("exists") else f"{yellow}–{reset}"
+        sts_status = f"{green}✓{reset}" if mta_sts.get("exists") else f"{yellow}–{reset}"
+        dane_status = f"{green}✓{reset}" if dane.get("exists") else f"{yellow}–{reset}"
+        caa_status = f"{green}✓{reset}" if caa.get("exists") else f"{yellow}–{reset}"
+
+        print(f"  SPF:      {spf_status}  {dim}{spf.get('policy', '')}{reset}")
+        print(f"  DMARC:    {dmarc_status}  {dim}p={dmarc.get('policy', 'N/A')}{reset}")
+        print(f"  DKIM:     {dkim_status}")
+        print(f"  BIMI:     {bimi_status}")
+        print(f"  MTA-STS:  {sts_status}")
+        print(f"  DANE:     {dane_status}")
+        print(f"  CAA:      {caa_status}")
+
+        print(f"\n{bold}  SMTP Analysis{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        if smtp.get("connectable"):
+            print(f"  Connection:  {green}✓{reset}")
+            if smtp.get("banner"):
+                banner_short = smtp["banner"][:70]
+                print(f"  Banner:      {dim}{banner_short}{reset}")
+            if smtp.get("server_software"):
+                print(f"  Software:    {smtp['server_software']}")
+            print(f"  STARTTLS:    {'{}✓{}'.format(green, reset) if smtp.get('starttls') else '{}✗{}'.format(red, reset)}")
+            vrfy = smtp.get("vrfy_supported")
+            if vrfy is True:
+                print(f"  VRFY:        {yellow}Enabled{reset}")
+            elif vrfy is False:
+                print(f"  VRFY:        {green}Disabled{reset}")
+            rcpt = smtp.get("rcpt_accepted")
+            if rcpt is True:
+                print(f"  RCPT TO:     {green}Accepted{reset}")
+            elif rcpt is False:
+                print(f"  RCPT TO:     {red}Rejected{reset}")
+            if smtp.get("open_relay"):
+                print(f"  Open Relay:  {red}YES - CRITICAL{reset}")
+        else:
+            print(f"  Connection:  {red}✗ Unreachable{reset}")
+
+        print(f"\n{bold}  Domain Intelligence{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        whois = domain_intel.get("whois", {})
+        if whois and not whois.get("error"):
+            if whois.get("registrar"):
+                print(f"  Registrar:   {whois['registrar']}")
+            if whois.get("creation_date"):
+                print(f"  Created:     {whois['creation_date']}")
+            if whois.get("expiration_date"):
+                print(f"  Expires:     {whois['expiration_date']}")
+            if whois.get("org"):
+                print(f"  Org:         {whois['org']}")
+            if whois.get("country"):
+                print(f"  Country:     {whois['country']}")
+
+        ssl_cert = domain_intel.get("ssl_certificate")
+        if ssl_cert and ssl_cert.get("valid"):
+            issuer = ssl_cert.get("issuer", {})
+            print(f"  SSL Issuer:  {issuer.get('organizationName', issuer.get('commonName', 'Unknown'))}")
+            print(f"  SSL Valid:   {ssl_cert.get('not_before')} → {ssl_cert.get('not_after')}")
+
+        subs = domain_intel.get("subdomains", [])
+        if subs:
+            print(f"  Subdomains:  {len(subs)} found")
+
+        if ct.get("total_entries"):
+            print(f"  CT Entries:  {ct['total_entries']} certificates")
+            unique = ct.get("unique_names", [])
+            if unique:
+                print(f"  CT Names:    {len(unique)} unique names")
+
+        print(f"\n{bold}  Identity Correlation{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        grav = identity.get("gravatar", {})
+        if grav.get("exists"):
+            print(f"  Gravatar:    {green}Found{reset}")
+            prof = grav.get("profile")
+            if prof:
+                if prof.get("display_name"):
+                    print(f"    Name:      {prof['display_name']}")
+                if prof.get("location"):
+                    print(f"    Location:  {prof['location']}")
+        else:
+            print(f"  Gravatar:    {dim}Not found{reset}")
+
+        gh = identity.get("github", [])
+        if gh:
+            print(f"  GitHub:      {green}{len(gh)} account(s) found{reset}")
+            for u in gh[:3]:
+                login = u.get("login", "?")
+                name = u.get("name", "")
+                repos = u.get("public_repos", "?")
+                print(f"    @{login} ({name}) - {repos} repos")
+
+        gl = identity.get("gitlab", [])
+        if gl:
+            print(f"  GitLab:      {green}{len(gl)} account(s) found{reset}")
+            for u in gl[:3]:
+                print(f"    @{u.get('username', '?')} ({u.get('name', '')})")
+
+        pgp = identity.get("pgp_keys", [])
+        pgp_found = any(k.get("found") for k in pgp)
+        if pgp_found:
+            print(f"  PGP Keys:    {green}Found{reset}")
+        else:
+            print(f"  PGP Keys:    {dim}Not found{reset}")
+
+        hibp = results["breach_intelligence"].get("hibp_password_range", {})
+        if hibp and hibp.get("found"):
+            print(f"\n{bold}  Breach Intelligence{reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            print(f"  HIBP Range:  {red}Found in {hibp['count']} records{reset}")
+
+        print(f"\n{bold}{'═'*60}{reset}")
+        print(f"{bold}  THREAT ASSESSMENT{reset}")
+        print(f"{bold}{'═'*60}{reset}")
+        print(f"\n  Score:  {color}{ta['score']}/100{reset}")
+        print(f"  Level:  {color}{ta['level']}{reset}")
+        if ta["factors"]:
+            print(f"\n  Risk Factors ({ta['factor_count']}):")
+            for f in ta["factors"]:
+                print(f"    {yellow}▸{reset} {f}")
+
+        variations = results.get("email_variations", [])
+        if variations:
+            print(f"\n{bold}  Email Variations ({len(variations)}){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for v in variations[:10]:
+                print(f"    {dim}{v}{reset}")
+            if len(variations) > 10:
+                print(f"    {dim}... and {len(variations) - 10} more{reset}")
+
+        print(f"\n{bold}{'═'*60}{reset}\n")
+
+    def batch_analyze(self, emails, verbose=True):
+        results = {}
+        for i, email in enumerate(emails):
+            if verbose:
+                print(f"\n\033[1;35m[{i+1}/{len(emails)}] Processing: {email}\033[0m")
+            r = self.analyze(email, verbose=verbose)
+            if r:
+                results[email] = r
+        return results
+
+    def domain_report(self, domain, verbose=True):
+        fake_email = f"probe@{domain}"
+        if verbose:
+            print(f"\n\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;36m  RAVEILSEC - Domain Report\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;37m  Target: {domain}\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m\n")
+
+        report = {
+            "meta": {
+                "target": domain,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+                "type": "domain_report",
+            }
+        }
+
+        if verbose:
+            print("\033[1;33m[*] DNS records...\033[0m")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            fut_mx = executor.submit(_resolve_mx, domain)
+            fut_a = executor.submit(_resolve_a, domain)
+            fut_aaaa = executor.submit(_resolve_aaaa, domain)
+            fut_ns = executor.submit(_resolve_ns, domain)
+            fut_soa = executor.submit(_resolve_soa, domain)
+            fut_spf = executor.submit(_check_spf, domain)
+            fut_dmarc = executor.submit(_check_dmarc, domain)
+            fut_dkim = executor.submit(_check_dkim, domain)
+            fut_bimi = executor.submit(_check_bimi, domain)
+            fut_mta_sts = executor.submit(_check_mta_sts, domain)
+            fut_caa = executor.submit(_check_caa, domain)
+            fut_whois = executor.submit(_whois_lookup, domain)
+            fut_ssl = executor.submit(_get_ssl_cert, domain)
+            fut_subs = executor.submit(_enumerate_subdomains, domain)
+            fut_rep = executor.submit(_domain_reputation_analysis, domain)
+
+        report["dns_records"] = {
+            "mx": fut_mx.result(),
+            "a": fut_a.result(),
+            "aaaa": fut_aaaa.result(),
+            "ns": fut_ns.result(),
+            "soa": fut_soa.result(),
+        }
+        report["dns_security"] = {
+            "spf": fut_spf.result(),
+            "dmarc": fut_dmarc.result(),
+            "dkim": fut_dkim.result(),
+            "bimi": fut_bimi.result(),
+            "mta_sts": fut_mta_sts.result(),
+            "caa": fut_caa.result(),
+        }
+        report["whois"] = fut_whois.result()
+        report["ssl_certificate"] = fut_ssl.result()
+        report["subdomains"] = fut_subs.result()
+        report["reputation"] = fut_rep.result()
+
+        if verbose:
+            print("\033[1;33m[*] SMTP probing...\033[0m")
+        report["smtp"] = _smtp_probe(domain)
+
+        if verbose:
+            print("\033[1;33m[*] Certificate transparency...\033[0m")
+        crtsh = _crtsh_lookup(domain)
+        report["certificate_transparency"] = {
+            "total_entries": len(crtsh),
+            "unique_names": list(set(e["name"] for e in crtsh)),
+            "entries": crtsh[:100],
+        }
+
+        mx_records = report["dns_records"]["mx"]
+        if mx_records:
+            dane_target = mx_records[0]["exchange"]
+            report["dns_security"]["dane_tlsa"] = _check_dane_tlsa(dane_target)
+        else:
+            report["dns_security"]["dane_tlsa"] = _check_dane_tlsa(domain)
+
+        if verbose:
+            self._print_domain_summary(report)
+
+        return report
+
+    def _print_domain_summary(self, report):
+        reset = "\033[0m"
+        bold = "\033[1m"
+        green = "\033[32m"
+        red = "\033[31m"
+        yellow = "\033[33m"
+        dim = "\033[2m"
+
+        print(f"\n{bold}{'═'*60}{reset}")
+        print(f"{bold}  DOMAIN REPORT{reset}")
+        print(f"{bold}{'═'*60}{reset}")
+
+        dns_r = report.get("dns_records", {})
+        mx = dns_r.get("mx", [])
+        a = dns_r.get("a", [])
+        ns = dns_r.get("ns", [])
+
+        print(f"\n{bold}  DNS Records{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        if a:
+            print(f"  A:     {', '.join(a)}")
+        if mx:
+            for m in mx:
+                print(f"  MX:    [{m['priority']}] {m['exchange']}")
+        if ns:
+            print(f"  NS:    {', '.join(ns)}")
+
+        dns_sec = report.get("dns_security", {})
+        print(f"\n{bold}  Security{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        for key in ["spf", "dmarc", "dkim", "bimi", "mta_sts", "dane_tlsa", "caa"]:
+            val = dns_sec.get(key, {})
+            if isinstance(val, list):
+                exists = bool(val)
+            else:
+                exists = val.get("exists", False) if isinstance(val, dict) else False
+            status = f"{green}✓{reset}" if exists else f"{red}✗{reset}"
+            print(f"  {key.upper():10s} {status}")
+
+        whois = report.get("whois", {})
+        if whois and not whois.get("error"):
+            print(f"\n{bold}  WHOIS{reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for k in ["registrar", "creation_date", "expiration_date", "org", "country"]:
+                if whois.get(k):
+                    print(f"  {k.replace('_',' ').title():15s} {whois[k]}")
+
+        subs = report.get("subdomains", [])
+        if subs:
+            print(f"\n{bold}  Subdomains ({len(subs)}){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for s in subs[:20]:
+                print(f"  {s['subdomain']:30s} {', '.join(s['ips'])}")
+
+        rep = report.get("reputation", {})
+        if rep:
+            print(f"\n{bold}  Reputation Score: {rep.get('score', 'N/A')}/100{reset}")
+
+        print(f"\n{bold}{'═'*60}{reset}\n")
+
+    def export_json(self, data, output_path=None):
+        if output_path is None:
+            target = data.get("meta", {}).get("target", "unknown").replace("@", "_at_")
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = f"raveilsec_{target}_{ts}.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return output_path
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="raveilsec",
+        description="Email Intelligence Engine",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Examples:\n"
+               "  raveilsec user@example.com\n"
+               "  raveilsec user@example.com -o report.json\n"
+               "  raveilsec -d example.com\n"
+               "  raveilsec -b emails.txt -o batch_report.json\n"
+               "  raveilsec --history\n"
+               "  raveilsec --history-email user@example.com\n"
+    )
+
+    parser.add_argument("email", nargs="?", help="Target email address")
+    parser.add_argument("-d", "--domain", help="Domain-only analysis mode")
+    parser.add_argument("-o", "--output", help="Output JSON file path")
+    parser.add_argument("-b", "--batch", help="Batch mode: file with one email per line")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Quiet mode (JSON output only)")
+    parser.add_argument("--db", help="Custom database path")
+    parser.add_argument("--history", action="store_true", help="Show scan history")
+    parser.add_argument("--history-email", help="Show history for specific email")
+    parser.add_argument("--history-domain", help="Show history for specific domain")
+    parser.add_argument("--history-limit", type=int, default=50, help="History result limit")
+
+    args = parser.parse_args()
+
+    engine = EmailIntelligenceEngine(db_path=args.db)
+
+    if args.history or args.history_email or args.history_domain:
+        history = engine._get_history(
+            email=args.history_email,
+            domain=args.history_domain,
+            limit=args.history_limit,
+        )
+        if args.quiet:
+            print(json.dumps(history, indent=2, default=str))
+        else:
+            if not history:
+                print("No scan history found.")
+            else:
+                print(f"\n\033[1m{'Email':<35} {'Domain':<25} {'Score':<8} {'Level':<10} {'Time'}\033[0m")
+                print("─" * 100)
+                for h in history:
+                    print(f"{h['email']:<35} {h['domain']:<25} {h['threat_score']:<8} {h['threat_level']:<10} {h['scan_time']}")
+        return
+
+    if args.domain:
+        results = engine.domain_report(args.domain, verbose=not args.quiet)
+        if args.quiet:
+            print(json.dumps(results, indent=2, default=str))
+        if args.output and results:
+            path = engine.export_json(results, args.output)
+            if not args.quiet:
+                print(f"\033[1;32m[+] Report saved: {path}\033[0m")
+        return
+
+    if args.batch:
+        if not os.path.isfile(args.batch):
+            print(f"[-] File not found: {args.batch}")
+            sys.exit(1)
+        with open(args.batch, "r") as f:
+            emails = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+        results = engine.batch_analyze(emails, verbose=not args.quiet)
+        if args.quiet:
+            print(json.dumps(results, indent=2, default=str))
+        if args.output:
+            path = engine.export_json(results, args.output)
+            if not args.quiet:
+                print(f"\033[1;32m[+] Report saved: {path}\033[0m")
+        return
+
+    if not args.email:
+        parser.print_help()
+        sys.exit(1)
+
+    results = engine.analyze(args.email, verbose=not args.quiet)
+    if args.quiet and results:
+        print(json.dumps(results, indent=2, default=str))
+    if args.output and results:
+        path = engine.export_json(results, args.output)
+        if not args.quiet:
+            print(f"\033[1;32m[+] Report saved: {path}\033[0m")
+
+
+if __name__ == "__main__":
+    main()

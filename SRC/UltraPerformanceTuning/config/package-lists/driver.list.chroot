@@ -1,0 +1,102 @@
+# X11 Core & Video Drivers (Comprehensive for compatibility)
+xorg
+xinit
+xserver-xorg
+x11-xserver-utils
+xserver-xorg-video-all
+xserver-xorg-video-fbdev
+xserver-xorg-video-vesa
+xserver-xorg-video-intel
+xserver-xorg-video-nouveau
+xserver-xorg-video-amdgpu
+xserver-xorg-video-ati
+
+# Essential Input Drivers
+xserver-xorg-input-all
+xserver-xorg-input-kbd
+xserver-xorg-input-mouse
+xserver-xorg-input-synaptics
+xserver-xorg-input-libinput
+xserver-xorg-input-wacom
+
+# Hardware Acceleration & Vulkan
+va-driver-all
+vdpau-driver-all
+libegl-mesa0
+vulkan-tools
+mesa-vulkan-drivers
+libglx-mesa0
+libgl1-mesa-dri
+dxvk
+
+# CPU Microcode & Thermal (CRITICAL)
+amd64-microcode
+intel-microcode
+thermald
+
+# Essential Filesystem & Disk Tools
+btrfs-progs
+dosfstools
+e2fsprogs
+exfat-fuse
+exfatprogs
+f2fs-tools
+mtools
+ntfs-3g
+xfsprogs
+mdadm
+lvm2
+
+# Comprehensive Network & Hardware Firmware
+firmware-linux
+firmware-linux-free
+firmware-linux-nonfree
+firmware-misc-nonfree
+firmware-realtek
+firmware-atheros
+firmware-brcm80211
+firmware-iwlwifi
+firmware-ipw2x00
+firmware-zd1211
+firmware-libertas
+firmware-ralink
+firmware-ti-connectivity
+firmware-bnx2
+firmware-bnx2x
+firmware-netxen
+firmware-qlogic
+
+# Sound & Bluetooth Firmware
+bluez-firmware
+firmware-sof-signed
+firmware-intel-sound
+alsa-firmware-loaders
+
+# Hardware Info & Diagnostics
+lshw-gtk
+memtest86+
+pciutils
+usbutils
+hwdata
+
+#  Driver Update 
+firmware-amd-graphics
+firmware-intel-graphics
+firmware-nvidia-graphics
+firmware-nvidia-gsp
+firmware-mediatek
+
+# Missing Network Drivers
+# r8125-dkms
+# r8168-dkms
+
+# Useful Kernel Modules
+v4l2loopback-dkms
+acpi-call-dkms
+
+# Broadcom Wi-Fi Fixes
+# broadcom-sta-dkms
+# firmware-b43-installer
+# digimend-dkms
+# evdi-dkms
+# dkms

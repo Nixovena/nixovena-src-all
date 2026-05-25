@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Censys
+Comment=Search internet-wide hosts and certificates (Censys)
+Comment[tr]=İnternet çapındaki hostları ve sertifikaları arar (Censys)
+Comment[es]=Busca hosts y certificados a nivel de Internet (Censys)
+Comment[fr]=Recherche les hôtes et certificats à l'échelle d'Internet (Censys)
+Comment[de]=Durchsucht Hosts und Zertifikate im gesamten Internet (Censys)
+Comment[ar]=يبحث عن المضيفين والشهادات عبر الإنترنت (Censys)
+Comment[ru]=Ищет хосты и сертификаты в масштабе интернета (Censys)
+Comment[zh]=搜索全网主机和证书（Censys）
+Comment[ja]=インターネット全体のホストと証明書を検索します（Censys）
+Comment[ko]=인터넷 전체의 호스트 및 인증서를 검색합니다 (Censys)
+Comment[pt]=Pesquisa hosts e certificados em toda a Internet (Censys)
+Comment[it]=Cerca host e certificati a livello Internet (Censys)
+Comment[nl]=Zoekt internetbrede hosts en certificaten (Censys)
+Comment[sv]=Söker internetomspännande värdar och certifikat (Censys)
+Comment[pl]=Wyszukuje hosty i certyfikaty w całym internecie (Censys)
+Exec=mate-terminal -- bash -c "censys -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/censys.png
+Categories=Domain;
+StartupNotify=false

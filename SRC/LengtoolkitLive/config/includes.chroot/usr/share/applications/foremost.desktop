@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Foremost
+Comment=LengToolkit - foremost
+Exec=mate-terminal -- bash -c "foremost -h; exec bash"
+Icon=/usr/share/icons/lengtoolkit/foremost.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=anonroute
+Comment=Route traffic through Tor network for anonymity
+Comment[tr]=Anonimlik için trafiği Tor ağı üzerinden yönlendir
+Comment[es]=Enruta el tráfico a través de la red Tor para anonimato
+Comment[fr]=Achemine le trafic via le réseau Tor pour l'anonymat
+Comment[de]=Leitet Datenverkehr über das Tor-Netzwerk für Anonymität weiter
+Comment[ar]=توجيه حركة المرور من خلال شبكة تور للبقاء مجهول الهوية
+Comment[ru]=Маршрутизация трафика через сеть Tor для обеспечения анонимности
+Comment[zh]=通过Tor网络路由流量以实现匿名性
+Comment[ja]=匿名性のためにTorネットワーク経由でトラフィックをルーティング
+Comment[ko]=익명성을 위해 Tor 네트워크를 통한 트래픽 라우팅
+Comment[pt]=Roteia tráfego através da rede Tor para anonimato
+Comment[it]=Indirizza il traffico attraverso la rete Tor per l'anonimato
+Comment[nl]=Routeert verkeer via het Tor-netwerk voor anonimiteit
+Comment[sv]=Dirigerar trafik genom Tor-nätverket för anonymitet
+Comment[pl]=Kieruje ruchem przez sieć Tor dla anonimowości
+Exec=mate-terminal -- bash -c "anonroute; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/anonroute.png
+Categories=Privacy;
+StartupNotify=false

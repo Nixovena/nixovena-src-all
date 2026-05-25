@@ -1,0 +1,20 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Zen
+Comment=Zen package and system manager
+Comment[tr]=Zen paket ve sistem yöneticisi
+Comment[de]=Zen-Paket- und Systemmanager
+Comment[fr]=Gestionnaire de paquets et de systèmes Zen
+Comment[es]=Gestor de paquetes y sistemas Zen
+Comment[pt]=Gerenciador de pacotes e sistemas Zen
+Comment[ru]=Менеджер пакетов и систем Zen
+Comment[zh]=Zen 软件包和系统管理器
+Comment[ja]=Zen パッケージおよびシステムマネージャー
+Comment[ko]=Zen 패키지 및 시스템 관리자
+Comment[ar]=مدير حزم وأنظمة Zen
+Exec=mate-terminal -- bash -c "zen; exec bash"
+Icon=/usr/share/icons/zpm.png
+Terminal=true
+Categories=System;
+StartupNotify=false

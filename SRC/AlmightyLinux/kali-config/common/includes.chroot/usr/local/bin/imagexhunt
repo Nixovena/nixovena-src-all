@@ -1,0 +1,1098 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import re
+import json
+import struct
+import hashlib
+import argparse
+import urllib.request
+import urllib.error
+import tempfile
+import io
+from datetime import datetime, timezone
+from pathlib import Path
+from collections import Counter
+from typing import Optional, Dict, List, Any
+from urllib.parse import quote_plus
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] ImageXHunt requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+try:
+    from PIL import Image, ExifTags, TiffImagePlugin
+    from PIL.ExifTags import TAGS, GPSTAGS
+except ImportError:
+    sys.exit("[!] Missing dependency: Pillow\n    Install: pip install Pillow")
+
+sys.dont_write_bytecode = True
+
+VERSION = "1.0.0"
+REPORT_DIR = os.path.expanduser("~/.imagexhunt/reports")
+IMAGE_EXTENSIONS = frozenset({
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif",
+    ".webp", ".ico", ".svg", ".heic", ".heif", ".avif",
+})
+
+
+class C:
+    RST = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RED = "\033[38;2;255;85;85m"
+    GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"
+    BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"
+    PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"
+    CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"
+    GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color, text):
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = f"""
+   {C.GRAY}v{VERSION} imagexhunt - Image Forensics & Visual Intelligence{C.RST}
+   {C.GRAY}Developed by emka'thas{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+MAGIC_SIGNATURES = {
+    b'\xff\xd8\xff':         ("JPEG", False),
+    b'\x89PNG\r\n\x1a\n':   ("PNG", False),
+    b'GIF87a':               ("GIF87a", False),
+    b'GIF89a':               ("GIF89a", False),
+    b'BM':                   ("BMP", False),
+    b'II*\x00':              ("TIFF (little-endian)", False),
+    b'MM\x00*':              ("TIFF (big-endian)", False),
+    b'RIFF':                 ("RIFF (WebP/AVI)", False),
+    b'\x00\x00\x01\x00':    ("ICO", False),
+    b'\x00\x00\x02\x00':    ("CUR", False),
+    b'%PDF':                 ("PDF - Polyglot suspected!", True),
+    b'PK\x03\x04':          ("ZIP - Polyglot suspected!", True),
+    b'\x7fELF':              ("ELF Binary - Polyglot suspected!", True),
+    b'MZ':                   ("PE/EXE - Polyglot suspected!", True),
+    b'\x1f\x8b':             ("GZIP - Polyglot suspected!", True),
+    b'\xca\xfe\xba\xbe':    ("Java Class - Polyglot suspected!", True),
+    b'Rar!\x1a\x07':        ("RAR - Polyglot suspected!", True),
+}
+
+CAMERA_DB = {
+    "apple": "Apple",
+    "canon": "Canon",
+    "nikon": "Nikon",
+    "sony": "Sony",
+    "samsung": "Samsung",
+    "huawei": "Huawei",
+    "xiaomi": "Xiaomi",
+    "google": "Google",
+    "oneplus": "OnePlus",
+    "motorola": "Motorola",
+    "lg": "LG",
+    "oppo": "OPPO",
+    "vivo": "Vivo",
+    "fujifilm": "Fujifilm",
+    "panasonic": "Panasonic",
+    "olympus": "Olympus",
+    "leica": "Leica",
+    "hasselblad": "Hasselblad",
+    "dji": "DJI",
+    "gopro": "GoPro",
+}
+
+SOFTWARE_DB = {
+    "photoshop": "Adobe Photoshop",
+    "lightroom": "Adobe Lightroom",
+    "gimp": "GIMP",
+    "snapseed": "Google Snapseed",
+    "instagram": "Instagram",
+    "vsco": "VSCO",
+    "afterlight": "Afterlight",
+    "picsart": "PicsArt",
+    "facetune": "Facetune",
+    "adobe": "Adobe Suite",
+    "picasa": "Google Picasa",
+    "paint.net": "Paint.NET",
+    "krita": "Krita",
+    "darktable": "darktable",
+    "rawtherapee": "RawTherapee",
+    "capture one": "Capture One",
+}
+
+
+class Log:
+
+    @staticmethod
+    def info(msg):
+        print(f"  {C.BLUE}[*]{C.RST} {msg}")
+
+    @staticmethod
+    def success(msg):
+        print(f"  {C.GREEN}[+]{C.RST} {msg}")
+
+    @staticmethod
+    def warn(msg):
+        print(f"  {C.YELLOW}[!]{C.RST} {msg}")
+
+    @staticmethod
+    def error(msg):
+        print(f"  {C.RED}[-]{C.RST} {msg}")
+
+    @staticmethod
+    def alert(msg):
+        print(f"  {C.RED}[!!]{C.RST} {C.RED}{msg}{C.RST}")
+
+    @staticmethod
+    def header(title):
+        w = 55
+        print()
+        print(f"  {C.PINK}{'=' * w}{C.RST}")
+        print(f"  {C.PINK}|{C.RST}  {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f"  {C.PINK}{'=' * w}{C.RST}")
+
+    @staticmethod
+    def subheader(title):
+        print(f"\n  {C.PURPLE}-- {title} --{C.RST}")
+
+    @staticmethod
+    def detail(key, value, indent=2):
+        pad = "  " * indent
+        print(f"{pad}{C.GRAY}|-- {C.CYAN}{key}{C.RST}: {value}")
+
+    @staticmethod
+    def detail_last(key, value, indent=2):
+        pad = "  " * indent
+        print(f"{pad}{C.GRAY}\\-- {C.CYAN}{key}{C.RST}: {value}")
+
+    @staticmethod
+    def kv(key, value):
+        print(f"  {C.GREEN}[+]{C.RST} {C.BOLD}{key:<28}{C.RST} {C.WHITE}{value}{C.RST}")
+
+
+class FileAnalyzer:
+
+    @staticmethod
+    def get_hashes(path):
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
+        sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                md5.update(chunk)
+                sha1.update(chunk)
+                sha256.update(chunk)
+        return {
+            "md5": md5.hexdigest(),
+            "sha1": sha1.hexdigest(),
+            "sha256": sha256.hexdigest(),
+        }
+
+    @staticmethod
+    def check_magic(path):
+        with open(path, "rb") as f:
+            header = f.read(16)
+        for sig, (fmt, suspicious) in MAGIC_SIGNATURES.items():
+            if header.startswith(sig):
+                return fmt, suspicious, header[:16].hex()
+        return "Unknown", False, header[:16].hex()
+
+    @staticmethod
+    def get_file_info(path):
+        stat = os.stat(path)
+        size = stat.st_size
+        if size < 1024:
+            size_human = f"{size} B"
+        elif size < 1048576:
+            size_human = f"{size / 1024:.2f} KB"
+        else:
+            size_human = f"{size / 1048576:.2f} MB"
+        return {
+            "path": str(path),
+            "filename": os.path.basename(path),
+            "size_bytes": size,
+            "size_human": size_human,
+            "extension": Path(path).suffix.lower(),
+            "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        }
+
+
+class EXIFExtractor:
+
+    PRIORITY_TAGS = [
+        "Make", "Model", "Software", "DateTime", "DateTimeOriginal",
+        "DateTimeDigitized", "Artist", "Copyright", "ImageDescription",
+        "LensModel", "LensMake", "ExposureTime", "FNumber",
+        "ISOSpeedRatings", "FocalLength", "FocalLengthIn35mmFilm",
+        "Flash", "WhiteBalance", "MeteringMode", "ExposureMode",
+        "ExposureProgram", "SceneCaptureType", "Orientation",
+        "XResolution", "YResolution", "ResolutionUnit",
+        "ColorSpace", "ExifVersion", "BodySerialNumber",
+        "LensSerialNumber", "CameraOwnerName", "XPAuthor",
+        "XPComment", "XPKeywords", "XPTitle", "XPSubject",
+        "HostComputer", "ImageUniqueID", "DigitalZoomRatio",
+    ]
+
+    @staticmethod
+    def extract(path):
+        try:
+            img = Image.open(path)
+            raw = img._getexif()
+            if not raw:
+                return {}, {}
+            exif = {}
+            gps_raw = {}
+            for tag_id, value in raw.items():
+                tag = TAGS.get(tag_id, str(tag_id))
+                if tag == "GPSInfo":
+                    for gps_tag_id, gps_val in value.items():
+                        gps_raw[gps_tag_id] = gps_val
+                elif isinstance(value, bytes):
+                    try:
+                        exif[tag] = value.decode("utf-8", errors="replace").strip()
+                    except Exception:
+                        exif[tag] = value.hex()
+                elif isinstance(value, TiffImagePlugin.IFDRational):
+                    exif[tag] = float(value)
+                elif isinstance(value, tuple):
+                    exif[tag] = str(value)
+                else:
+                    exif[tag] = str(value)
+            return exif, gps_raw
+        except Exception:
+            return {}, {}
+
+    @staticmethod
+    def identify_device(exif):
+        make = str(exif.get("Make", "")).strip()
+        model = str(exif.get("Model", "")).strip()
+        software = str(exif.get("Software", "")).strip()
+
+        brand = None
+        if make:
+            make_lower = make.lower()
+            for key, name in CAMERA_DB.items():
+                if key in make_lower:
+                    brand = name
+                    break
+            if not brand:
+                brand = make
+
+        sw_detected = None
+        sw_lower = software.lower() if software else ""
+        for key, name in SOFTWARE_DB.items():
+            if key in sw_lower:
+                sw_detected = name
+                break
+
+        return {
+            "brand": brand,
+            "model": model,
+            "software": software,
+            "editing_software": sw_detected,
+            "is_edited": sw_detected is not None,
+        }
+
+
+class GPSExtractor:
+
+    @staticmethod
+    def dms_to_decimal(dms, ref):
+        try:
+            d = float(dms[0])
+            m = float(dms[1])
+            s = float(dms[2])
+            decimal = d + m / 60.0 + s / 3600.0
+            if ref in ("S", "W"):
+                decimal = -decimal
+            return round(decimal, 7)
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def extract(gps_raw):
+        if not gps_raw:
+            return {}
+        result = {}
+        try:
+            lat_dms = gps_raw.get(2)
+            lat_ref = gps_raw.get(1, "N")
+            lon_dms = gps_raw.get(4)
+            lon_ref = gps_raw.get(3, "E")
+            alt = gps_raw.get(6)
+            ts = gps_raw.get(7)
+            date = gps_raw.get(29)
+            speed = gps_raw.get(13)
+            bearing = gps_raw.get(17)
+            dest_bearing = gps_raw.get(25)
+
+            if lat_dms and lon_dms:
+                lat = GPSExtractor.dms_to_decimal(lat_dms, lat_ref)
+                lon = GPSExtractor.dms_to_decimal(lon_dms, lon_ref)
+                result["latitude"] = lat
+                result["longitude"] = lon
+                result["coordinates"] = f"{lat}, {lon}"
+                result["map_links"] = {
+                    "google_maps": f"https://maps.google.com/?q={lat},{lon}",
+                    "openstreetmap": f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}&zoom=16",
+                    "bing_maps": f"https://www.bing.com/maps?cp={lat}~{lon}&lvl=16",
+                    "yandex_maps": f"https://yandex.com/maps/?ll={lon},{lat}&z=16",
+                    "geohack": f"https://geohack.toolforge.org/geohack.php?params={lat}_N_{abs(lon)}_{'E' if lon >= 0 else 'W'}",
+                }
+
+            if alt is not None:
+                result["altitude_m"] = round(float(alt), 2)
+            if ts:
+                h, m, s = [float(x) for x in ts]
+                result["gps_time_utc"] = f"{int(h):02d}:{int(m):02d}:{int(s):02d}"
+            if date:
+                result["gps_date"] = str(date)
+            if speed is not None:
+                result["speed_kmh"] = round(float(speed), 2)
+            if bearing is not None:
+                result["bearing"] = round(float(bearing), 2)
+            if lat_ref and lon_ref:
+                result["hemisphere"] = f"{lat_ref}/{lon_ref}"
+        except Exception as e:
+            result["gps_error"] = str(e)
+        return result
+
+
+class ImageProperties:
+
+    @staticmethod
+    def extract(path):
+        try:
+            img = Image.open(path)
+            props = {
+                "width": img.width,
+                "height": img.height,
+                "megapixels": round((img.width * img.height) / 1_000_000, 2),
+                "aspect_ratio": f"{img.width / img.height:.2f}" if img.height > 0 else "N/A",
+                "color_mode": img.mode,
+                "format": img.format or "N/A",
+                "is_animated": getattr(img, "is_animated", False),
+                "n_frames": getattr(img, "n_frames", 1),
+            }
+            dpi = img.info.get("dpi")
+            if dpi:
+                props["dpi"] = f"{int(dpi[0])} x {int(dpi[1])}"
+
+            if hasattr(img, "text") and img.text:
+                props["text_chunks"] = dict(img.text)
+
+            icc = img.info.get("icc_profile")
+            if icc and len(icc) > 16:
+                props["has_icc_profile"] = True
+                props["icc_size_bytes"] = len(icc)
+            else:
+                props["has_icc_profile"] = False
+
+            return props
+        except Exception as e:
+            return {"error": str(e)}
+
+
+class PerceptualHash:
+
+    @staticmethod
+    def average_hash(path, size=8):
+        try:
+            img = Image.open(path).convert("L").resize((size, size), Image.LANCZOS)
+            pixels = list(img.getdata())
+            avg = sum(pixels) / len(pixels)
+            bits = "".join("1" if p > avg else "0" for p in pixels)
+            return hex(int(bits, 2))[2:].zfill(size * size // 4)
+        except Exception:
+            return None
+
+    @staticmethod
+    def difference_hash(path, size=8):
+        try:
+            img = Image.open(path).convert("L").resize((size + 1, size), Image.LANCZOS)
+            pixels = list(img.getdata())
+            bits = ""
+            for row in range(size):
+                for col in range(size):
+                    pos = row * (size + 1) + col
+                    bits += "1" if pixels[pos] < pixels[pos + 1] else "0"
+            return hex(int(bits, 2))[2:].zfill(size * size // 4)
+        except Exception:
+            return None
+
+    @staticmethod
+    def compute(path):
+        return {
+            "ahash": PerceptualHash.average_hash(path),
+            "dhash": PerceptualHash.difference_hash(path),
+        }
+
+
+class ColorAnalyzer:
+
+    @staticmethod
+    def dominant_colors(path, n=6):
+        try:
+            img = Image.open(path).convert("RGB")
+            img.thumbnail((150, 150))
+            pixels = list(img.getdata())
+            quantized = [(r // 32 * 32, g // 32 * 32, b // 32 * 32) for r, g, b in pixels]
+            counter = Counter(quantized)
+            top = counter.most_common(n)
+            result = []
+            for (r, g, b), count in top:
+                pct = round(count / len(pixels) * 100, 1)
+                result.append({
+                    "rgb": f"rgb({r},{g},{b})",
+                    "hex": f"#{r:02x}{g:02x}{b:02x}",
+                    "pct": pct,
+                })
+            return result
+        except Exception:
+            return []
+
+
+class SteganographyDetector:
+
+    @staticmethod
+    def scan(path):
+        hints = []
+        try:
+            stat_info = os.stat(path)
+            actual_size = stat_info.st_size
+            img = Image.open(path)
+            w, h = img.size
+            mode = img.mode
+            channels = len(mode)
+            expected_raw = w * h * channels
+
+            ext = Path(path).suffix.lower()
+
+            if ext in (".jpg", ".jpeg"):
+                if actual_size > expected_raw * 0.5:
+                    hints.append("File size unusually large for compressed JPEG")
+            elif ext == ".png":
+                ratio = actual_size / expected_raw if expected_raw > 0 else 0
+                if ratio > 0.9:
+                    hints.append("PNG nearly uncompressed - possible LSB steganography")
+        except Exception:
+            pass
+
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+
+            ext = Path(path).suffix.lower()
+            if ext in (".jpg", ".jpeg"):
+                eoi = data.rfind(b'\xff\xd9')
+                if eoi != -1 and eoi < len(data) - 2:
+                    trailing = len(data) - eoi - 2
+                    hints.append(f"JPEG: {trailing} bytes of hidden data after EOF (FFD9)")
+            elif ext == ".png":
+                iend = data.rfind(b'IEND\xaeB`\x82')
+                if iend != -1 and iend < len(data) - 8:
+                    trailing = len(data) - iend - 8
+                    hints.append(f"PNG: {trailing} bytes of hidden data after IEND chunk")
+
+            embedded = []
+            if b'PK\x03\x04' in data[16:]:
+                embedded.append("ZIP archive")
+            if b'%PDF' in data[16:]:
+                embedded.append("PDF document")
+            if b'\x7fELF' in data[16:]:
+                embedded.append("ELF binary")
+            if b'MZ' in data[16:256]:
+                embedded.append("PE/EXE binary")
+            if b'Rar!\x1a\x07' in data[16:]:
+                embedded.append("RAR archive")
+            if b'7z\xbc\xaf\x27\x1c' in data[16:]:
+                embedded.append("7-Zip archive")
+            if b'#!/' in data[16:256]:
+                embedded.append("Shell script")
+
+            if embedded:
+                hints.append(f"Embedded signatures detected: {', '.join(embedded)}")
+
+        except Exception:
+            pass
+
+        return hints
+
+
+class StringExtractor:
+
+    @staticmethod
+    def extract(path, min_length=6, max_strings=50):
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            pattern = re.compile(rb'[\x20-\x7E]{' + str(min_length).encode() + rb',}')
+            matches = pattern.findall(data)
+            strings = []
+            seen = set()
+            skip_patterns = {b'JFIF', b'Exif', b'http', b'xmlns', b'adobe', b'photoshop'}
+            for match in matches[:200]:
+                decoded = match.decode("ascii", errors="replace").strip()
+                if decoded.lower() in seen:
+                    continue
+                seen.add(decoded.lower())
+                strings.append(decoded)
+                if len(strings) >= max_strings:
+                    break
+            return strings
+        except Exception:
+            return []
+
+
+class ThumbnailAnalyzer:
+
+    @staticmethod
+    def analyze(path):
+        try:
+            img = Image.open(path)
+            raw = img._getexif()
+            if not raw:
+                return None
+            thumb_data = None
+            for tag_id, value in raw.items():
+                tag = TAGS.get(tag_id, str(tag_id))
+                if tag == "JPEGThumbnail" and isinstance(value, bytes):
+                    thumb_data = value
+                    break
+
+            if not thumb_data:
+                return None
+
+            thumb_img = Image.open(io.BytesIO(thumb_data))
+            thumb_hash = hashlib.md5(thumb_data).hexdigest()
+            return {
+                "found": True,
+                "size_bytes": len(thumb_data),
+                "dimensions": f"{thumb_img.width}x{thumb_img.height}",
+                "md5": thumb_hash,
+            }
+        except Exception:
+            return None
+
+
+class ReverseSearchURLs:
+
+    @staticmethod
+    def generate_from_url(image_url):
+        encoded = quote_plus(image_url)
+        return {
+            "google_lens": f"https://lens.google.com/uploadbyurl?url={encoded}",
+            "google_images": f"https://www.google.com/searchbyimage?image_url={encoded}",
+            "yandex": f"https://yandex.com/images/search?rpt=imageview&url={encoded}",
+            "bing": f"https://www.bing.com/images/search?view=detailv2&iss=sbi&form=SBIIDP&sbisrc=UrlPaste&q=imgurl:{encoded}",
+            "tineye": f"https://tineye.com/search/?url={encoded}",
+        }
+
+    @staticmethod
+    def generate_manual():
+        return {
+            "google_lens": "https://lens.google.com/",
+            "google_images": "https://images.google.com/",
+            "yandex_images": "https://yandex.com/images/",
+            "tineye": "https://tineye.com/",
+            "bing_visual": "https://www.bing.com/visualsearch",
+            "pimeyes": "https://pimeyes.com/",
+            "facecheck": "https://facecheck.id/",
+            "search4faces": "https://search4faces.com/",
+            "shutterstock": "https://www.shutterstock.com/search/similar-images",
+        }
+
+
+class ReportExporter:
+
+    @staticmethod
+    def ensure_dir():
+        os.makedirs(REPORT_DIR, exist_ok=True)
+
+    @staticmethod
+    def export_json(data, target_name):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target_name)[:40]
+        path = os.path.join(REPORT_DIR, f"imagexhunt_{safe}_{ts}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return path
+
+    @staticmethod
+    def export_txt(data, target_name):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target_name)[:40]
+        path = os.path.join(REPORT_DIR, f"imagexhunt_{safe}_{ts}.txt")
+        lines = [
+            "=" * 60,
+            f"  ImageXHunt v{VERSION} - Image Forensics Report",
+            "=" * 60,
+            f"  File      : {data.get('file_info', {}).get('filename', target_name)}",
+            f"  Generated : {datetime.now().isoformat()}",
+            "=" * 60, "",
+        ]
+        fi = data.get("file_info", {})
+        lines.append(f"Size          : {fi.get('size_human', 'N/A')}")
+        lines.append(f"Extension     : {fi.get('extension', 'N/A')}")
+        lines.append(f"Magic         : {data.get('magic_signature', 'N/A')}")
+        lines.append("")
+        for algo, val in data.get("hashes", {}).items():
+            lines.append(f"{algo.upper():<14}: {val}")
+        lines.append("")
+        props = data.get("image_properties", {})
+        if props and "error" not in props:
+            lines.append(f"Dimensions    : {props.get('width')}x{props.get('height')}")
+            lines.append(f"Megapixels    : {props.get('megapixels')} MP")
+            lines.append(f"Color Mode    : {props.get('color_mode')}")
+            lines.append(f"Format        : {props.get('format')}")
+            lines.append("")
+        gps = data.get("gps", {})
+        if gps and "latitude" in gps:
+            lines.append(f"GPS Latitude  : {gps['latitude']}")
+            lines.append(f"GPS Longitude : {gps['longitude']}")
+            for name, url in gps.get("map_links", {}).items():
+                lines.append(f"  {name}: {url}")
+            lines.append("")
+        exif = data.get("exif", {})
+        if exif:
+            lines.append("EXIF Data:")
+            for k, v in exif.items():
+                lines.append(f"  {k}: {v}")
+            lines.append("")
+        steg = data.get("steganography", [])
+        if steg:
+            lines.append("Steganography Findings:")
+            for s in steg:
+                lines.append(f"  - {s}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return path
+
+    @staticmethod
+    def export_html(data, target_name):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target_name)[:40]
+        path = os.path.join(REPORT_DIR, f"imagexhunt_{safe}_{ts}.html")
+        fi = data.get("file_info", {})
+        props = data.get("image_properties", {})
+        gps = data.get("gps", {})
+        steg = data.get("steganography", [])
+        device = data.get("device_info", {})
+        hashes = data.get("hashes", {})
+
+        steg_html = "".join(f"<li>{s}</li>" for s in steg) if steg else "<li>No issues detected</li>"
+        map_html = ""
+        if gps and "map_links" in gps:
+            for name, url in gps["map_links"].items():
+                map_html += f'<a href="{url}" target="_blank" style="color:#8be9fd;margin-right:1rem">{name}</a> '
+
+        gps_section = ""
+        if gps and "latitude" in gps:
+            gps_section = f"""<div class="card"><h2>GPS Location</h2><table>
+            <tr><td>Latitude</td><td>{gps.get('latitude','N/A')}</td></tr>
+            <tr><td>Longitude</td><td>{gps.get('longitude','N/A')}</td></tr>
+            <tr><td>Altitude</td><td>{gps.get('altitude_m','N/A')} m</td></tr>
+            </table><div style="margin-top:.5rem">{map_html}</div></div>"""
+
+        colors_html = ""
+        for clr in data.get("dominant_colors", []):
+            colors_html += f'<span style="display:inline-block;width:40px;height:20px;background:{clr["hex"]};border-radius:3px;margin:2px" title="{clr["hex"]} {clr["pct"]}%"></span> '
+
+        html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ImageXHunt Report - {fi.get('filename','')}</title>
+<style>
+:root{{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#ff79c6;--green:#50fa7b}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:2rem;line-height:1.6}}
+.c{{max-width:900px;margin:0 auto}}
+.hdr{{background:linear-gradient(135deg,#1a1e2e,#2d1b3d);border:1px solid var(--border);border-radius:12px;padding:2rem;text-align:center;margin-bottom:2rem}}
+.hdr h1{{color:var(--accent);font-size:1.6rem}}.hdr .m{{color:var(--dim);font-size:.85rem}}
+.card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin-bottom:1rem}}
+.card h2{{color:var(--accent);margin-bottom:.8rem;font-size:1.05rem}}
+table{{width:100%;border-collapse:collapse}}td{{padding:.35rem .6rem;border-top:1px solid var(--border);font-size:.85rem}}
+td:first-child{{color:#8be9fd;width:150px}}
+ul{{list-style:none;padding:0}}li{{padding:.2rem 0;font-size:.85rem}}li:before{{content:"- ";color:var(--accent)}}
+code{{background:#21262d;padding:.1rem .4rem;border-radius:3px;font-size:.8rem}}
+.ft{{text-align:center;color:var(--dim);font-size:.75rem;margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)}}
+</style></head><body><div class="c">
+<div class="hdr"><h1>ImageXHunt Forensics Report</h1>
+<div class="m">{fi.get('filename','')} | {fi.get('size_human','')} | {datetime.now().strftime('%Y-%m-%d %H:%M')}</div></div>
+<div class="card"><h2>File Information</h2><table>
+<tr><td>Filename</td><td>{fi.get('filename','')}</td></tr>
+<tr><td>Size</td><td>{fi.get('size_human','')}</td></tr>
+<tr><td>Format</td><td>{data.get('magic_signature','N/A')}</td></tr>
+<tr><td>MD5</td><td><code>{hashes.get('md5','')}</code></td></tr>
+<tr><td>SHA256</td><td><code style="font-size:.7rem">{hashes.get('sha256','')}</code></td></tr>
+</table></div>
+<div class="card"><h2>Image Properties</h2><table>
+<tr><td>Dimensions</td><td>{props.get('width','?')} x {props.get('height','?')} px</td></tr>
+<tr><td>Megapixels</td><td>{props.get('megapixels','')} MP</td></tr>
+<tr><td>Color Mode</td><td>{props.get('color_mode','')}</td></tr>
+<tr><td>Format</td><td>{props.get('format','')}</td></tr>
+<tr><td>ICC Profile</td><td>{'Yes' if props.get('has_icc_profile') else 'No'}</td></tr>
+</table></div>
+<div class="card"><h2>Device Information</h2><table>
+<tr><td>Brand</td><td>{device.get('brand','N/A')}</td></tr>
+<tr><td>Model</td><td>{device.get('model','N/A')}</td></tr>
+<tr><td>Software</td><td>{device.get('software','N/A')}</td></tr>
+<tr><td>Edited</td><td>{'Yes - ' + str(device.get('editing_software','')) if device.get('is_edited') else 'No evidence'}</td></tr>
+</table></div>
+{gps_section}
+<div class="card"><h2>Dominant Colors</h2>{colors_html if colors_html else 'N/A'}</div>
+<div class="card"><h2>Steganography Analysis</h2><ul>{steg_html}</ul></div>
+<div class="ft">ImageXHunt v{VERSION} "{CODENAME}" - emka'thas</div>
+</div></body></html>"""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
+        return path
+
+
+def download_image(url):
+    suffix = Path(url.split("?")[0]).suffix or ".jpg"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            tmp.write(resp.read())
+        tmp.close()
+        return tmp.name
+    except Exception as e:
+        tmp.close()
+        os.unlink(tmp.name)
+        raise RuntimeError(f"Download failed: {e}")
+
+
+def analyze_image(path):
+    report = {"analysis_time": datetime.now(timezone.utc).isoformat()}
+
+    report["file_info"] = FileAnalyzer.get_file_info(path)
+
+    magic, suspicious, header_hex = FileAnalyzer.check_magic(path)
+    report["magic_signature"] = magic
+    report["magic_suspicious"] = suspicious
+    report["header_hex"] = header_hex
+
+    report["hashes"] = FileAnalyzer.get_hashes(path)
+
+    report["image_properties"] = ImageProperties.extract(path)
+
+    exif, gps_raw = EXIFExtractor.extract(path)
+    report["exif"] = exif
+    report["gps"] = GPSExtractor.extract(gps_raw)
+    report["device_info"] = EXIFExtractor.identify_device(exif)
+
+    report["perceptual_hashes"] = PerceptualHash.compute(path)
+    report["dominant_colors"] = ColorAnalyzer.dominant_colors(path)
+    report["steganography"] = SteganographyDetector.scan(path)
+    report["thumbnail"] = ThumbnailAnalyzer.analyze(path)
+    report["strings"] = StringExtractor.extract(path, min_length=8, max_strings=30)
+
+    return report
+
+
+def print_report(report):
+    Log.header("FILE INFORMATION")
+    fi = report.get("file_info", {})
+    Log.kv("Filename", fi.get("filename", "?"))
+    Log.kv("Size", fi.get("size_human", "?"))
+    Log.kv("Extension", fi.get("extension", "?"))
+    Log.kv("Created", fi.get("created", "?"))
+    Log.kv("Modified", fi.get("modified", "?"))
+
+    magic = report.get("magic_signature", "?")
+    if report.get("magic_suspicious"):
+        Log.alert(f"Magic Signature: {magic}")
+    else:
+        Log.kv("Magic Signature", magic)
+    Log.kv("Header (hex)", report.get("header_hex", "?"))
+
+    Log.header("CRYPTOGRAPHIC HASHES")
+    for algo, val in report.get("hashes", {}).items():
+        Log.kv(algo.upper(), val)
+
+    Log.header("IMAGE PROPERTIES")
+    ip = report.get("image_properties", {})
+    if "error" not in ip:
+        Log.kv("Dimensions", f"{ip.get('width')} x {ip.get('height')} px")
+        Log.kv("Megapixels", f"{ip.get('megapixels')} MP")
+        Log.kv("Aspect Ratio", ip.get("aspect_ratio", "?"))
+        Log.kv("Color Mode", ip.get("color_mode", "?"))
+        Log.kv("Format", ip.get("format", "?"))
+        Log.kv("Animated", "Yes" if ip.get("is_animated") else "No")
+        if ip.get("n_frames", 1) > 1:
+            Log.kv("Frames", ip.get("n_frames"))
+        if "dpi" in ip:
+            Log.kv("DPI", ip.get("dpi"))
+        Log.kv("ICC Profile", "Present" if ip.get("has_icc_profile") else "None")
+        if ip.get("text_chunks"):
+            Log.subheader("PNG Text Chunks")
+            for k, v in ip["text_chunks"].items():
+                Log.detail(k, str(v)[:80])
+    else:
+        Log.error(f"Could not read image: {ip['error']}")
+
+    Log.header("DEVICE IDENTIFICATION")
+    dev = report.get("device_info", {})
+    if dev.get("brand"):
+        Log.kv("Brand", _c(C.CYAN, dev["brand"]))
+    if dev.get("model"):
+        Log.kv("Model", dev["model"])
+    if dev.get("software"):
+        Log.kv("Software", dev["software"])
+    if dev.get("is_edited"):
+        Log.warn(f"Editing software detected: {_c(C.ORANGE, dev['editing_software'])}")
+    elif not dev.get("brand") and not dev.get("model"):
+        Log.warn("No device info found - EXIF may have been stripped")
+
+    Log.header("EXIF METADATA")
+    exif = report.get("exif", {})
+    if exif:
+        shown = set()
+        for key in EXIFExtractor.PRIORITY_TAGS:
+            if key in exif:
+                Log.kv(key, str(exif[key])[:80])
+                shown.add(key)
+        remaining = {k: v for k, v in exif.items() if k not in shown}
+        if remaining:
+            Log.subheader(f"Other Fields ({len(remaining)})")
+            for key, val in list(remaining.items())[:20]:
+                Log.detail(key, str(val)[:80])
+    else:
+        Log.warn("No EXIF data found or metadata has been stripped")
+
+    Log.header("GPS & GEOLOCATION")
+    gps = report.get("gps", {})
+    if gps and "latitude" in gps:
+        Log.kv("Latitude", str(gps["latitude"]))
+        Log.kv("Longitude", str(gps["longitude"]))
+        if "altitude_m" in gps:
+            Log.kv("Altitude", f"{gps['altitude_m']} m")
+        if "gps_time_utc" in gps:
+            Log.kv("GPS Time (UTC)", gps["gps_time_utc"])
+        if "gps_date" in gps:
+            Log.kv("GPS Date", gps["gps_date"])
+        if "speed_kmh" in gps:
+            Log.kv("Speed", f"{gps['speed_kmh']} km/h")
+        if "bearing" in gps:
+            Log.kv("Bearing", f"{gps['bearing']} degrees")
+        Log.subheader("Map Links")
+        for name, url in gps.get("map_links", {}).items():
+            Log.detail(name, url)
+    else:
+        Log.warn("No GPS coordinates found in image")
+
+    Log.header("PERCEPTUAL HASHES")
+    ph = report.get("perceptual_hashes", {})
+    if ph.get("ahash"):
+        Log.kv("Average Hash", ph["ahash"])
+    if ph.get("dhash"):
+        Log.kv("Difference Hash", ph["dhash"])
+    Log.subheader("Reverse Image Search")
+    urls = ReverseSearchURLs.generate_manual()
+    for name, url in urls.items():
+        Log.detail(name, url)
+
+    Log.header("DOMINANT COLORS")
+    colors = report.get("dominant_colors", [])
+    if colors:
+        for i, clr in enumerate(colors, 1):
+            block = f"\033[48;2;{int(clr['hex'][1:3],16)};{int(clr['hex'][3:5],16)};{int(clr['hex'][5:7],16)}m  {C.RST}"
+            print(f"    {block} {C.BOLD}#{i}{C.RST}  {clr['hex']}  {clr['rgb']:<22}  {clr['pct']}%")
+    else:
+        Log.warn("Could not extract colors")
+
+    Log.header("STEGANOGRAPHY ANALYSIS")
+    hints = report.get("steganography", [])
+    if hints:
+        for h in hints:
+            Log.alert(h)
+    else:
+        Log.success("No steganography indicators detected")
+
+    thumb = report.get("thumbnail")
+    if thumb and thumb.get("found"):
+        Log.header("EMBEDDED THUMBNAIL")
+        Log.kv("Size", f"{thumb['size_bytes']} bytes")
+        Log.kv("Dimensions", thumb["dimensions"])
+        Log.kv("MD5", thumb["md5"])
+        Log.warn("Thumbnail may contain original image data even if main image was edited")
+
+    strings = report.get("strings", [])
+    if strings:
+        Log.header("EXTRACTED STRINGS")
+        interesting = [s for s in strings if len(s) > 10 and not s.startswith("<?")]
+        for s in interesting[:15]:
+            Log.detail("String", s[:80])
+        if len(interesting) > 15:
+            Log.info(f"... and {len(interesting) - 15} more strings")
+
+    print(f"\n  {C.PINK}{'=' * 55}{C.RST}\n")
+
+
+def batch_analyze(folder, output_dir=None):
+    files = [f for f in Path(folder).rglob("*") if f.suffix.lower() in IMAGE_EXTENSIONS]
+    if not files:
+        Log.error(f"No images found in: {folder}")
+        return
+
+    Log.info(f"Found {len(files)} images")
+    results = []
+
+    for i, fpath in enumerate(files, 1):
+        print(f"\n  {C.YELLOW}[{i}/{len(files)}]{C.RST} {fpath.name}")
+        try:
+            report = analyze_image(str(fpath))
+            results.append(report)
+            gps = report.get("gps", {})
+            steg = report.get("steganography", [])
+            if gps and "latitude" in gps:
+                Log.success(f"GPS: {gps['latitude']}, {gps['longitude']}")
+            if steg:
+                for s in steg:
+                    Log.alert(s)
+        except Exception as e:
+            Log.error(f"Error: {e}")
+
+    out = output_dir or folder
+    report_path = os.path.join(out, f"imagexhunt_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=2, default=str)
+    Log.success(f"Batch report saved: {report_path}")
+
+    gps_count = sum(1 for r in results if r.get("gps", {}).get("latitude"))
+    steg_count = sum(1 for r in results if r.get("steganography"))
+    exif_count = sum(1 for r in results if r.get("exif"))
+
+    Log.header("BATCH SUMMARY")
+    Log.kv("Total Images", str(len(results)))
+    Log.kv("With GPS Data", str(gps_count))
+    Log.kv("With EXIF Data", str(exif_count))
+    Log.kv("Stego Indicators", str(steg_count))
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="imagexhunt",
+        description=f'ImageXHunt v{VERSION} - Image Forensics & Visual Intelligence',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Examples:
+  imagexhunt photo.jpg                   Analyze local image
+  imagexhunt https://example.com/img.jpg Analyze image from URL
+  imagexhunt photo.jpg --export all      Analyze and export all formats
+  imagexhunt --batch /path/to/images/    Batch scan directory
+  imagexhunt --validate suspicious.jpg   Check file signature
+
+Developed by emka'thas | For legal and ethical use only.
+        """,
+    )
+    p.add_argument("target", nargs="?", help="Image file, URL, or directory")
+    p.add_argument("-o", "--output", help="Save JSON report to specified path")
+    p.add_argument("--batch", action="store_true", help="Batch scan all images in directory")
+    p.add_argument("--validate", type=str, help="Validate file magic signature")
+    p.add_argument("--export", type=str, choices=["json", "txt", "html", "all"], help="Export report format")
+    p.add_argument("--version", action="version", version=f'ImageXHunt v{VERSION}')
+    return p
+
+
+def cli_main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return
+
+    print(BANNER)
+
+    if args.validate:
+        magic, suspicious, header_hex = FileAnalyzer.check_magic(args.validate)
+        Log.kv("File", args.validate)
+        Log.kv("Magic", magic)
+        Log.kv("Header", header_hex)
+        if suspicious:
+            Log.alert(f"SUSPICIOUS: {magic}")
+        else:
+            Log.success("Signature OK")
+        return
+
+    target = args.target
+    if not target:
+        parser.print_help()
+        return
+
+    if args.batch:
+        if not os.path.isdir(target):
+            Log.error("--batch requires a directory path")
+            sys.exit(1)
+        batch_analyze(target, os.path.dirname(args.output) if args.output else None)
+        return
+
+    tmp_file = None
+    if target.startswith("http://") or target.startswith("https://"):
+        Log.info(f"Downloading: {target}")
+        try:
+            tmp_file = download_image(target)
+            original_url = target
+            target = tmp_file
+        except RuntimeError as e:
+            Log.error(str(e))
+            sys.exit(1)
+
+    if not os.path.isfile(target):
+        Log.error(f"File not found: {target}")
+        sys.exit(1)
+
+    Log.info(f"Analyzing: {_c(C.WHITE, target)}")
+    try:
+        report = analyze_image(target)
+        if tmp_file:
+            report["source_url"] = original_url
+            report["reverse_search"] = ReverseSearchURLs.generate_from_url(original_url)
+    except Exception as e:
+        Log.error(f"Analysis error: {e}")
+        if tmp_file:
+            os.unlink(tmp_file)
+        sys.exit(1)
+
+    print_report(report)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+        Log.success(f"Report saved: {args.output}")
+
+    if args.export:
+        fname = report.get("file_info", {}).get("filename", "image")
+        if args.export in ("json", "all"):
+            Log.success(f"Saved: {ReportExporter.export_json(report, fname)}")
+        if args.export in ("txt", "all"):
+            Log.success(f"Saved: {ReportExporter.export_txt(report, fname)}")
+        if args.export in ("html", "all"):
+            Log.success(f"Saved: {ReportExporter.export_html(report, fname)}")
+
+    if tmp_file:
+        os.unlink(tmp_file)
+
+
+def main():
+    try:
+        cli_main()
+    except KeyboardInterrupt:
+        print(f"\n  {C.GRAY}Exiting...{C.RST}")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

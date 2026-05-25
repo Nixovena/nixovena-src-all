@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Unicornscan
+Comment=Information gathering and correlation engine
+Comment[tr]=Bilgi toplama ve ilişkilendirme motoru
+Comment[es]=Motor de correlación y recopilación de información
+Comment[fr]=Moteur de collecte d'informations et de corrélation
+Comment[de]=Informationsbeschaffungs- und Korrelations-Engine
+Comment[ar]=محرك جمع المعلومات والارتباط
+Comment[ru]=Механизм сбора информации и корреляции
+Comment[zh]=信息收集和相关联引擎
+Comment[ja]=情報収集および相関エンジン
+Comment[ko]=정보 수집 및 상관 관계 엔진
+Comment[pt]=Mecanismo de correlação e coleta de informações
+Comment[it]=Motore di raccolta delle informazioni e di correlazione
+Comment[nl]=Informatie-verzameling en correlatie engine
+Comment[sv]=Informationsinsamling och korrelationsmotor
+Comment[pl]=Silnik gromadzenia informacji i korelacji
+Exec=mate-terminal -- bash -c "unicornscan -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=NetworkOSINT;
+StartupNotify=false

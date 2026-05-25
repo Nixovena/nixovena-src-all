@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=emailharvester
+Comment=Harvest emails from websites and public sources
+Comment[tr]=Web sitelerinden ve genel kaynaklardan e-posta toplar
+Comment[es]=Recolecta correos electrónicos de sitios web y fuentes públicas
+Comment[fr]=Collecte des e-mails depuis des sites web et sources publiques
+Comment[de]=Sammelt E-Mails von Webseiten und öffentlichen Quellen
+Comment[ar]=يجمع رسائل البريد الإلكتروني من المواقع والمصادر العامة
+Comment[ru]=Собирает email с веб-сайтов и публичных источников
+Comment[zh]=从网站和公共来源收集电子邮件
+Comment[ja]=ウェブサイトや公開ソースからメールを収集します
+Comment[ko]=웹사이트 및 공개 소스에서 이메일을 수집합니다
+Comment[pt]=Coleta e-mails de sites e fontes públicas
+Comment[it]=Raccoglie email da siti e fonti pubbliche
+Comment[nl]=Verzamelt e-mails van websites en openbare bronnen
+Comment[sv]=Samlar e-post från webbplatser och offentliga källor
+Comment[pl]=Zbiera e-maile ze stron i źródeł publicznych
+Exec=mate-terminal -- bash -c "emailharvester -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Emails;
+StartupNotify=false

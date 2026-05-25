@@ -1,0 +1,163 @@
+#!/bin/bash
+
+# ================================================
+#       Almighty Mullvad Installer
+# ================================================
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+KEYRING_PATH="/usr/share/keyrings/mullvad-keyring.asc"
+REPO_PATH="/etc/apt/sources.list.d/mullvad.list"
+REPO_URL="https://repository.mullvad.net/deb/stable"
+KEY_URL="https://repository.mullvad.net/deb/mullvad-keyring.asc"
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}This script must be run as root.${NC}"
+    echo "Usage: sudo mullvad-installer"
+    exit 1
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+
+press_enter() {
+    echo ""
+    read -p "Press Enter to return to menu..."
+}
+
+enable_repo() {
+    echo -e "${CYAN}Downloading Mullvad signing key...${NC}"
+    curl -fsSLo "$KEYRING_PATH" "$KEY_URL"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Failed to download signing key.${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}Signing key installed.${NC}"
+
+    echo -e "${CYAN}Adding Mullvad repository...${NC}"
+    echo "deb [signed-by=${KEYRING_PATH} arch=$(dpkg --print-architecture)] ${REPO_URL} stable main" | tee "$REPO_PATH" > /dev/null
+    apt-get update
+    echo -e "${GREEN}Mullvad repository enabled.${NC}"
+}
+
+disable_repo() {
+    if [ -f "$REPO_PATH" ]; then
+        rm -f "$REPO_PATH"
+        rm -f "$KEYRING_PATH"
+        apt-get update
+        echo -e "${GREEN}Mullvad repository disabled and keyring removed.${NC}"
+    else
+        echo -e "${YELLOW}Mullvad repository is not configured.${NC}"
+    fi
+}
+
+check_repo() {
+    if [ ! -f "$REPO_PATH" ]; then
+        echo -e "${YELLOW}Mullvad repository is not enabled.${NC}"
+        echo -e "${CYAN}Enabling repository first...${NC}"
+        enable_repo
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+    fi
+    return 0
+}
+
+install_vpn() {
+    check_repo || return
+    echo -e "${CYAN}Installing Mullvad VPN...${NC}"
+    apt-get install -y mullvad-vpn
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}Mullvad VPN installed successfully.${NC}"
+    else
+        echo -e "${RED}Failed to install Mullvad VPN.${NC}"
+    fi
+}
+
+remove_vpn() {
+    echo -e "${CYAN}Removing Mullvad VPN...${NC}"
+    apt-get remove --purge -y mullvad-vpn
+    apt-get autoremove -y
+    echo -e "${GREEN}Mullvad VPN removed.${NC}"
+}
+
+install_browser() {
+    check_repo || return
+    echo -e "${CYAN}Installing Mullvad Browser...${NC}"
+    apt-get install -y mullvad-browser
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}Mullvad Browser installed successfully.${NC}"
+    else
+        echo -e "${RED}Failed to install Mullvad Browser.${NC}"
+    fi
+}
+
+remove_browser() {
+    echo -e "${CYAN}Removing Mullvad Browser...${NC}"
+    apt-get remove --purge -y mullvad-browser mullvad-browser-alpha 2>/dev/null
+    apt-get autoremove -y
+    echo -e "${GREEN}Mullvad Browser removed.${NC}"
+}
+
+show_menu() {
+    clear
+    echo -e "${BLUE}================================================${NC}"
+    echo -e "${YELLOW}       Almighty Mullvad Installer${NC}"
+    echo -e "${BLUE}================================================${NC}"
+
+    # Show current status
+    if [ -f "$REPO_PATH" ]; then
+        echo -e "  Repository : ${GREEN}Enabled${NC}"
+    else
+        echo -e "  Repository : ${RED}Disabled${NC}"
+    fi
+
+    if dpkg -l mullvad-vpn &>/dev/null 2>&1 && dpkg -l mullvad-vpn | grep -q '^ii'; then
+        vpn_ver=$(dpkg -l mullvad-vpn | awk '/^ii/{print $3}')
+        echo -e "  Mullvad VPN: ${GREEN}Installed${NC} (${vpn_ver})"
+    else
+        echo -e "  Mullvad VPN: ${RED}Not installed${NC}"
+    fi
+
+    if dpkg -l mullvad-browser &>/dev/null 2>&1 && dpkg -l mullvad-browser | grep -q '^ii'; then
+        br_ver=$(dpkg -l mullvad-browser | awk '/^ii/{print $3}')
+        echo -e "  Browser    : ${GREEN}Installed${NC} (${br_ver})"
+    else
+        echo -e "  Browser    : ${RED}Not installed${NC}"
+    fi
+
+    echo -e "${BLUE}================================================${NC}"
+    echo ""
+    echo -e " ${CYAN}Repository${NC}"
+    echo "  1. Enable Mullvad Repo"
+    echo "  2. Disable Mullvad Repo"
+    echo ""
+    echo -e " ${CYAN}VPN${NC}"
+    echo "  3. Install Mullvad VPN"
+    echo "  4. Remove Mullvad VPN"
+    echo ""
+    echo -e " ${CYAN}Browser${NC}"
+    echo "  5. Install Mullvad Browser"
+    echo "  6. Remove Mullvad Browser"
+    echo ""
+    echo -e " ${RED}0. Exit${NC}"
+    echo -e "${BLUE}================================================${NC}"
+    read -p "Select an option: " choice
+
+    case $choice in
+        1) enable_repo; press_enter; show_menu ;;
+        2) disable_repo; press_enter; show_menu ;;
+        3) install_vpn; press_enter; show_menu ;;
+        4) remove_vpn; press_enter; show_menu ;;
+        5) install_browser; press_enter; show_menu ;;
+        6) remove_browser; press_enter; show_menu ;;
+        0) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
+        *) echo -e "${RED}Invalid option!${NC}"; sleep 1; show_menu ;;
+    esac
+}
+
+show_menu

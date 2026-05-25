@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Zenclora Fetch - System Information Tool
+# A lightweight neofetch-style tool for Zenclora OS.
+
+# Colors
+C1=$(printf '\033[0;36m') # Cyan
+C2=$(printf '\033[1;36m') # Bright Cyan
+WHITE=$(printf '\033[1;37m')
+NC=$(printf '\033[0m')
+
+# System Data
+USER_HOST="${USER}@$(hostname)"
+# Get distro name, version and code name from os-release
+DISTRO=$(grep "^PRETTY_NAME=" /etc/os-release | cut -d'"' -f2)
+[ -z "$DISTRO" ] && DISTRO=$(lsb_release -ds 2>/dev/null || echo "Zenclora OS")
+
+OS_VERSION=$(grep "^VERSION_ID=" /etc/os-release | cut -d'"' -f2)
+[ -z "$OS_VERSION" ] && OS_VERSION=$(lsb_release -rs 2>/dev/null || echo "Unknown")
+
+OS_CODENAME=$(grep "^VERSION_CODENAME=" /etc/os-release | cut -d'"' -f2)
+[ -z "$OS_CODENAME" ] && OS_CODENAME=$(lsb_release -cs 2>/dev/null || echo "Unknown")
+UPTIME=$(uptime -p | sed 's/up //')
+KERNEL=$(uname -r)
+SHELL_NAME=$(basename "$SHELL")
+# Detect DE dynamically
+DE_NAME=$(echo "$XDG_CURRENT_DESKTOP" | cut -d ':' -f 2)
+[ -z "$DE_NAME" ] && DE_NAME="$XDG_CURRENT_DESKTOP"
+SESSION_TYPE=$(echo "$XDG_SESSION_TYPE" | sed 's/.*/\L&/; s/^./\U&/')
+DE="${DE_NAME:-GNOME} (${SESSION_TYPE:-Wayland})"
+
+PACKAGES=$(dpkg -l | wc -l)
+MEM_USED=$(free -m | awk '/Mem:/ { print $3 }')
+MEM_TOTAL=$(free -m | awk '/Mem:/ { print $2 }')
+CPU=$(grep "model name" /proc/cpuinfo | head -1 | cut -d ":" -f 2 | xargs)
+GPU=$(lspci | grep -i 'vga\|display' | cut -d ":" -f 3 | xargs | sed 's/\[.*\]//g' | cut -c 1-40)
+DISK=$(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')
+RES=$(xdpyinfo | grep dimensions | awk '{print $2}' 2>/dev/null || echo "Wayland Display")
+
+# ASCII Art & Info Table 
+echo -e "
+${C1}  ,ad8PPPP88b,     ,d88PPPP8ba,   ${C2}${USER_HOST}${NC}
+${C1} d8P\"      \"Y8b, ,d8P\"      \"Y8b  ${WHITE}-----------------------${NC}
+${C1}dP'           \"8a8\"           \`Yd  ${C2}OS: ${WHITE}${DISTRO}${NC}
+${C1}8(              \"              )8  ${C2}Version: ${WHITE}${OS_VERSION} (${OS_CODENAME})${NC}
+${C1}I8                             8I  ${C2}Kernel: ${WHITE}$KERNEL${NC}
+${C1} Yb,                         ,dP   ${C2}Uptime: ${WHITE}$UPTIME${NC}
+${C1}  \"8a,                     ,a8\"    ${C2}Packages: ${WHITE}$PACKAGES (dpkg)${NC}
+${C1}    \"8a,                 ,a8\"      ${C2}Shell: ${WHITE}$SHELL_NAME${NC}
+${C1}      \"Yba             adP\"        ${C2}Resolution: ${WHITE}$RES${NC}
+${C1}        \`Y8a         a8P'          ${C2}DE: ${WHITE}$DE${NC}
+${C1}          \`88,     ,88'            ${C2}CPU: ${WHITE}$CPU${NC}
+${C1}            \"8b   d8\"              ${C2}GPU: ${WHITE}$GPU${NC}
+${C1}             \"8b d8\"               ${C2}Memory: ${WHITE}${MEM_USED}MiB / ${MEM_TOTAL}MiB${NC}
+${C1}              \`888'                ${C2}Disk: ${WHITE}$DISK${NC}
+${C1}                \"
+"

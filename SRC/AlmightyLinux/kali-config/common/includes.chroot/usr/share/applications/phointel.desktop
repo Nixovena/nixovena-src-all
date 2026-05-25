@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Phointel
+Comment=Basic phone number osint
+Comment[tr]=Basit telefon numarası osinti
+Comment[es]=OSINT de número de teléfono simple
+Comment[fr]=OSINT de numéro de téléphone simple
+Comment[de]=Einfaches Telefonnummern-OSINT
+Comment[ar]=OSINT رقم الهاتف البسيط
+Comment[ru]=Простой OSINT телефонного номера
+Comment[zh]=简单电话号码OSINT
+Comment[ja]=簡単な電話番号OSINT
+Comment[ko]=간단한 전화번호 OSINT
+Comment[pt]=OSINT de número de telefone simples
+Comment[it]=OSINT di numero di telefono semplice
+Comment[nl]=Eenvoudige telefoonnummer OSINT
+Comment[sv]=Enkel telefonnummer OSINT
+Comment[pl]=Prosty OSINT numeru telefonu
+Exec=mate-terminal -- bash -c "phointel; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Phone;
+StartupNotify=false

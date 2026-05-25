@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - partclone Helper"
+echo "--------------------------------------------------------"
+echo "Available commands based on FS:"
+echo ""
+echo "  sudo partclone.ext4 -c -s /dev/sdXY -o backup.img"
+echo "  sudo partclone.ntfs -c -s /dev/sdXY -o backup.img"
+echo "  sudo partclone.vfat -c -s /dev/sdXY -o backup.img"
+echo "--------------------------------------------------------"

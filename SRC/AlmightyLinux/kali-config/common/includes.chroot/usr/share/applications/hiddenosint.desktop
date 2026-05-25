@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=HiddenOSINT
+Comment=Darkweb domain information gathering tool for digital forensics
+Comment[tr]=Dijital adli bilişim için karanlık web alan adı bilgi toplama aracı
+Comment[es]=Herramienta de recopilación de información de dominios de la web oscura para informática forense
+Comment[fr]=Outil de collecte d'informations sur les domaines du darkweb pour la criminalistique numérique
+Comment[de]=Darkweb-Domain-Informationsbeschaffungstool für digitale Forensik
+Comment[ar]=أداة جمع معلومات نطاقات الويب المظلم للطب الشرعي الرقمي
+Comment[ru]=Инструмент сбора информации о доменах в темной сети для цифровой криминалистики
+Comment[zh]=用于数字取证的暗网域名信息收集工具
+Comment[ja]=デジタルフォレンジックのためのダークウェブドメイン情報収集ツール
+Comment[ko]=디지털 포렌식을 위한 다크웹 도메인 정보 수집 도구
+Comment[pt]=Ferramenta de coleta de informações de domínios da web escura para forense digital
+Comment[it]=Strumento di raccolta informazioni sui domini del web oscuro per la forense digitale
+Comment[nl]=Darkwebdomeininformatieverzamelingshulpmiddel voor digitale forensiek
+Comment[sv]=Darkwebdomäninformationsinsamlingsverktyg för digitalt kriminalteknik
+Comment[pl]=Narzędzie do zbierania informacji o domenach w ciemnej sieci do cyfrowej kryminalistyki
+Exec=mate-terminal -- bash -c "hiddenosint -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/hiddenosint.png
+Categories=Darknet;
+StartupNotify=false

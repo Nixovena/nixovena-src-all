@@ -1,0 +1,15 @@
+[Unit]
+Description=Hardenwing: Mount /proc with hidepid=2
+DefaultDependencies=no
+Before=sysinit.target
+Requires=local-fs.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+# Remount /proc to hide process information from unprivileged users
+ExecStart=/bin/mount -o remount,nosuid,nodev,noexec,hidepid=2,gid=proc /proc
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

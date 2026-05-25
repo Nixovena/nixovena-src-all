@@ -1,0 +1,540 @@
+#!/usr/bin/env python3
+import random
+from typing import Dict, List
+
+class FakeNameGenerator:
+    def __init__(self):
+        # American first names
+        self.us_male_first_names = [
+            "James", "John", "Robert", "Michael", "William", "David", "Richard", "Joseph", "Thomas", "Charles",
+            "Christopher", "Daniel", "Matthew", "Anthony", "Mark", "Donald", "Steven", "Paul", "Andrew", "Joshua",
+            "Kenneth", "Kevin", "Brian", "George", "Timothy", "Ronald", "Jason", "Edward", "Jeffrey", "Ryan"
+        ]
+        
+        self.us_female_first_names = [
+            "Mary", "Patricia", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica", "Sarah", "Karen",
+            "Nancy", "Lisa", "Betty", "Helen", "Sandra", "Donna", "Carol", "Ruth", "Sharon", "Michelle",
+            "Laura", "Sarah", "Kimberly", "Deborah", "Jessica", "Shirley", "Cynthia", "Angela", "Melissa", "Brenda"
+        ]
+        
+        # British first names
+        self.uk_male_first_names = [
+            "Oliver", "George", "Arthur", "Noah", "Muhammad", "Leo", "Oscar", "Harry", "Archie", "Jack",
+            "Henry", "Jacob", "Thomas", "Charlie", "Finley", "Freddie", "Alfie", "Theo", "Alexander", "Rory"
+        ]
+        
+        self.uk_female_first_names = [
+            "Olivia", "Amelia", "Isla", "Ava", "Mia", "Isabella", "Sophia", "Grace", "Freya", "Charlotte",
+            "Poppy", "Daisy", "Evie", "Sophie", "Lily", "Rosie", "Ella", "Erin", "Emilia", "Lola"
+        ]
+        
+        # German first names
+        self.de_male_first_names = [
+            "Ben", "Luca", "Paul", "Jonas", "Finn", "Leon", "Luis", "Lukas", "Maximilian", "Felix",
+            "Noah", "Elias", "Julian", "Max", "Tim", "Moritz", "Henry", "Niklas", "Philipp", "Tom"
+        ]
+        
+        self.de_female_first_names = [
+            "Emma", "Mia", "Hannah", "Sofia", "Anna", "Lea", "Emilia", "Marie", "Lena", "Leonie",
+            "Emily", "Lina", "Amelie", "Sophie", "Lotta", "Luisa", "Johanna", "Clara", "Sarah", "Laura"
+        ]
+        
+        # French first names
+        self.fr_male_first_names = [
+            "Gabriel", "Louis", "Raphaël", "Arthur", "Adam", "Jules", "Lucas", "Hugo", "Sacha", "Gabin",
+            "Théo", "Léo", "Enzo", "Maël", "Nathan", "Mathis", "Éthan", "Noah", "Liam", "Lorenzo"
+        ]
+        
+        self.fr_female_first_names = [
+            "Alice", "Chloé", "Inès", "Manon", "Emma", "Lola", "Jeanne", "Louise", "Léa", "Camille",
+            "Ambre", "Lina", "Jade", "Louna", "Élisa", "Sarah", "Léna", "Clara", "Julia", "Margaux"
+        ]
+        
+        # Turkish first names
+        self.tr_male_first_names = [
+            "Mehmet", "Ahmet", "Mustafa", "Ali", "İsmail", "Hüseyin", "Hasan", "İbrahim", "Murat", "Can",
+            "Yusuf", "Kemal", "Osman", "Halil", "Adem", "Kenan", "Orhan", "Celal", "Cemal", "Nuri"
+        ]
+        
+        self.tr_female_first_names = [
+            "Fatma", "Ayşe", "Emine", "Hatice", "Zeynep", "Elif", "Meryem", "Esra", "Naime", "Nurten",
+            "Hacer", "Şerife", "Sultan", "Hanife", "Merve", "Aslı", "Burcu", "Gülizar", "Necla", "Songül"
+        ]
+        
+        # Italian first names
+        self.it_male_first_names = [
+            "Francesco", "Alessandro", "Mattia", "Lorenzo", "Leonardo", "Andrea", "Marco", "Luca", "Giuseppe", "Antonio",
+            "Federico", "Davide", "Stefano", "Simone", "Roberto", "Riccardo", "Michele", "Gabriele", "Tommaso", "Christian"
+        ]
+        
+        self.it_female_first_names = [
+            "Sofia", "Giulia", "Aurora", "Alice", "Emma", "Giorgia", "Ginevra", "Marta", "Beatrice", "Anna",
+            "Elena", "Chiara", "Camilla", "Nicole", "Alessia", "Francesca", "Elisa", "Rebecca", "Bianca", "Silvia"
+        ]
+        
+        # Spanish first names
+        self.es_male_first_names = [
+            "Alejandro", "Pablo", "Daniel", "Adrián", "Javier", "Sergio", "David", "Mario", "Carlos", "Manuel",
+            "Álvaro", "Diego", "Miguel", "Óscar", "Juan", "Marcos", "Iván", "Hugo", "Rubén", "Raúl"
+        ]
+        
+        self.es_female_first_names = [
+            "María", "Lucía", "Paula", "Sara", "Marta", "Claudia", "Carmen", "Laura", "Julia", "Irene",
+            "Ana", "Raquel", "Elena", "Cristina", "Mónica", "Patricia", "Natalia", "Andrea", "Sandra", "Verónica"
+        ]
+        
+        # Canadian first names
+        self.ca_male_first_names = [
+            "Liam", "Noah", "William", "James", "Oliver", "Benjamin", "Elijah", "Lucas", "Mason", "Logan",
+            "Alexander", "Ethan", "Jacob", "Michael", "Daniel", "Henry", "Jackson", "Sebastian", "Aiden", "Matthew"
+        ]
+        
+        self.ca_female_first_names = [
+            "Emma", "Olivia", "Ava", "Isabella", "Sophia", "Charlotte", "Mia", "Amelia", "Harper", "Evelyn",
+            "Abigail", "Emily", "Elizabeth", "Mila", "Ella", "Avery", "Sofia", "Camila", "Aria", "Scarlett"
+        ]
+        
+        # Australian first names
+        self.au_male_first_names = [
+            "Oliver", "William", "Jack", "Noah", "Thomas", "Henry", "Lachlan", "Lucas", "Cooper", "James",
+            "Alexander", "Ethan", "Jacob", "Leo", "Xavier", "Charlie", "Liam", "Max", "Harrison", "Riley"
+        ]
+        
+        self.au_female_first_names = [
+            "Olivia", "Charlotte", "Amelia", "Ava", "Isla", "Mia", "Ivy", "Lily", "Chloe", "Matilda",
+            "Ella", "Iris", "Evie", "Georgia", "Grace", "Sienna", "Zara", "Emma", "Sophie", "Mila"
+        ]
+        
+        # Japanese first names
+        self.jp_male_first_names = [
+            "Hiroshi", "Takeshi", "Yoshiki", "Kenji", "Daiki", "Shota", "Kenta", "Ryota", "Yuki", "Naoki",
+            "Kazuki", "Tomoya", "Ryo", "Hayato", "Kouta", "Sota", "Takumi", "Yusuke", "Souta", "Ren"
+        ]
+        
+        self.jp_female_first_names = [
+            "Yuki", "Akari", "Saki", "Nanami", "Sara", "Hana", "Miyu", "Rin", "Ayaka", "Mio",
+            "Kokoro", "Yui", "Aoi", "Rei", "Miku", "Rika", "Asuka", "Shiori", "Mao", "Haruka"
+        ]
+        
+        # Brazilian first names
+        self.br_male_first_names = [
+            "Miguel", "Davi", "Arthur", "Pedro", "Gabriel", "Bernardo", "Lucas", "Matheus", "Rafael", "Heitor",
+            "Enzo", "Guilherme", "Nicolas", "Lorenzo", "Gustavo", "Felipe", "Samuel", "João", "Daniel", "Vitor"
+        ]
+        
+        self.br_female_first_names = [
+            "Sophia", "Alice", "Julia", "Isabella", "Manuela", "Laura", "Luiza", "Valentina", "Giovanna", "Maria",
+            "Eduarda", "Helena", "Beatriz", "Maria", "Lara", "Heloísa", "Isadora", "Lívia", "Ana", "Cecília"
+        ]
+        
+        # Russian first names
+        self.ru_male_first_names = [
+            "Alexander", "Dmitry", "Maxim", "Sergey", "Andrey", "Alexey", "Artyom", "Ilya", "Vladimir", "Mikhail",
+            "Roman", "Vadim", "Viktor", "Anton", "Yaroslav", "Nikita", "Ivan", "Kirill", "Vasily", "Pavel"
+        ]
+        
+        self.ru_female_first_names = [
+            "Anna", "Maria", "Elena", "Victoria", "Daria", "Polina", "Arina", "Alyona", "Ksenia", "Yulia",
+            "Sofia", "Marina", "Alina", "Angelina", "Anastasia", "Natalia", "Veronika", "Diana", "Evgenia", "Karina"
+        ]
+        
+        # Chinese first names
+        self.cn_male_first_names = [
+            "Wei", "Ming", "Peng", "Qiang", "Tao", "Gang", "Jun", "Yong", "Bin", "Hao",
+            "Bo", "Jie", "Lei", "Feng", "Chao", "Hua", "Lin", "Yang", "Zhi", "Kai"
+        ]
+        
+        self.cn_female_first_names = [
+            "Li", "Min", "Xiao", "Ling", "Hua", "Fang", "Mei", "Qin", "Juan", "Yan",
+            "Lin", "Ying", "Zhen", "Na", "Xiulan", "Hong", "Lan", "Ting", "Qian", "Yun"
+        ]
+        
+        # Indian first names
+        self.in_male_first_names = [
+            "Aarav", "Vivaan", "Aditya", "Arjun", "Reyansh", "Sai", "Krishna", "Ishaan", "Shaurya", "Atharv",
+            "Dhruv", "Saanvi", "Aadhya", "Ananya", "Aaradhya", "Krisha", "Anika", "Ira", "Eva", "Shanaya"
+        ]
+        
+        self.in_female_first_names = [
+            "Saanvi", "Aadhya", "Ananya", "Aaradhya", "Krisha", "Anika", "Ira", "Eva", "Shanaya", "Kavya",
+            "Siya", "Aarohi", "Lakshmi", "Navya", "Prisha", "Riya", "Sana", "Tara", "Trisha", "Uma"
+        ]
+        
+        # American last names
+        self.us_last_names = [
+            "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez",
+            "Hernandez", "Lopez", "Gonzalez", "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
+            "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson"
+        ]
+        
+        # British last names
+        self.uk_last_names = [
+            "Smith", "Jones", "Taylor", "Brown", "Williams", "Wilson", "Johnson", "Davies", "Patel", "Robinson",
+            "Wright", "Thompson", "Evans", "Walker", "White", "Roberts", "Green", "Hall", "Wood", "Jackson"
+        ]
+        
+        # German last names
+        self.de_last_names = [
+            "Müller", "Schmidt", "Schneider", "Fischer", "Weber", "Meyer", "Wagner", "Becker", "Schulz", "Hoffmann",
+            "Schäfer", "Koch", "Bauer", "Richter", "Klein", "Wolf", "Schröder", "Neumann", "Schwarz", "Zimmermann"
+        ]
+        
+        # French last names
+        self.fr_last_names = [
+            "Martin", "Bernard", "Dubois", "Thomas", "Robert", "Richard", "Petit", "Durand", "Leroy", "Moreau",
+            "Simon", "Laurent", "Lefebvre", "Michel", "Garcia", "David", "Bertrand", "Roux", "Vincent", "Fournier"
+        ]
+        
+        # Turkish last names
+        self.tr_last_names = [
+            "Yılmaz", "Kaya", "Demir", "Şahin", "Çelik", "Yıldız", "Yıldırım", "Öztürk", "Aydın", "Özdemir",
+            "Arslan", "Doğan", "Kılıç", "Aslan", "Çetin", "Koç", "Kurt", "Özkan", "Aksoy", "Barış"
+        ]
+        
+        # Italian last names
+        self.it_last_names = [
+            "Rossi", "Russo", "Ferrari", "Esposito", "Bianchi", "Romano", "Colombo", "Ricci", "Marino", "Greco",
+            "Bruno", "Gallo", "Conti", "De Luca", "Mancini", "Costa", "Giordano", "Rizzo", "Lombardi", "Moretti"
+        ]
+        
+        # Spanish last names
+        self.es_last_names = [
+            "García", "Fernández", "González", "Rodríguez", "López", "Martínez", "Sánchez", "Pérez", "Gómez", "Martín",
+            "Jiménez", "Ruiz", "Hernández", "Díaz", "Moreno", "Álvarez", "Romero", "Alonso", "Gutiérrez", "Navarro"
+        ]
+        
+        # Canadian last names
+        self.ca_last_names = [
+            "Smith", "Brown", "Tremblay", "Martin", "Roy", "Wilson", "Macdonald", "Gagnon", "Johnson", "Taylor",
+            "Côté", "Campbell", "Anderson", "Leblanc", "Gauthier", "Morin", "Lavoie", "Fortin", "Gagné", "Bouchard"
+        ]
+        
+        # Australian last names
+        self.au_last_names = [
+            "Smith", "Jones", "Williams", "Brown", "Wilson", "Taylor", "Johnson", "White", "Martin", "Anderson",
+            "Thompson", "Nguyen", "Thomas", "Walker", "Harris", "Lee", "Ryan", "Robinson", "Kelly", "King"
+        ]
+        
+        # Japanese last names
+        self.jp_last_names = [
+            "Sato", "Suzuki", "Takahashi", "Tanaka", "Watanabe", "Ito", "Yamamoto", "Nakamura", "Kobayashi", "Kato",
+            "Yoshida", "Yamada", "Sasaki", "Yamaguchi", "Matsumoto", "Inoue", "Kimura", "Shimizu", "Hayashi", "Saito"
+        ]
+        
+        # Brazilian last names
+        self.br_last_names = [
+            "Silva", "Santos", "Oliveira", "Souza", "Rodrigues", "Ferreira", "Alves", "Pereira", "Lima", "Gomes",
+            "Costa", "Ribeiro", "Carvalho", "Almeida", "Nascimento", "Araújo", "Melo", "Barros", "Cardoso", "Correia"
+        ]
+        
+        # Russian last names
+        self.ru_last_names = [
+            "Smirnov", "Ivanov", "Kuznetsov", "Popov", "Lebedev", "Kozlov", "Novikov", "Morozov", "Petrov", "Volkov",
+            "Solovyov", "Vasilyev", "Zaytsev", "Pavlov", "Semyonov", "Golubev", "Vinogradov", "Bogdanov", "Vorobyov", "Fedorov"
+        ]
+        
+        # Chinese last names
+        self.cn_last_names = [
+            "Wang", "Li", "Zhang", "Liu", "Chen", "Yang", "Zhao", "Huang", "Zhou", "Wu",
+            "Xu", "Sun", "Ma", "Zhu", "Hu", "Guo", "He", "Gao", "Lin", "Luo"
+        ]
+        
+        # Indian last names
+        self.in_last_names = [
+            "Patel", "Sharma", "Singh", "Kumar", "Gupta", "Mehta", "Das", "Jain", "Shah", "Verma",
+            "Reddy", "Nair", "Rao", "Iyer", "Mukherjee", "Choudhary", "Pillai", "Chopra", "Khan", "Banerjee"
+        ]
+        
+        # Countries list
+        self.countries = [
+            "United States", "United Kingdom", "Germany", "France", "Turkey", 
+            "Italy", "Spain", "Canada", "Australia", "Japan", "Brazil", 
+            "Russia", "China", "India"
+        ]
+        
+        # Common occupations
+        self.occupations = [
+            "Software Engineer", "Teacher", "Nurse", "Doctor", "Accountant", "Sales Representative", "Manager",
+            "Engineer", "Marketing Specialist", "Writer", "Designer", "Chef", "Lawyer", "Architect", "Scientist",
+            "Artist", "Photographer", "Consultant", "Analyst", "Technician", "Professor", "Researcher", "Developer",
+            "Designer", "Entrepreneur", "Journalist", "Librarian", "Pharmacist", "Veterinarian", "Electrician",
+            "Plumber", "Carpenter", "Mechanic", "Actor", "Musician", "Dentist", "Psychologist", "Veterinarian", 
+            "Pilot", "Chef", "Waiter", "Receptionist", "Security Guard", "Driver", "Farmer", "Baker", "Butcher",
+            "Police Officer", "Firefighter", "Paramedic", "Dentist", "Surgeon", "Biologist", "Chemist", "Physicist",
+            "Mathematician", "Statistician", "Economist", "Financial Analyst", "HR Specialist", "Recruiter", "Coach",
+            "Translator", "Interpreter", "Tour Guide", "Flight Attendant", "Real Estate Agent", "Insurance Agent"
+        ]
+
+    def generate_first_name(self, gender: str = None, country: str = "US") -> str:
+        """Generate a random first name based on gender and country"""
+        if gender is None:
+            gender = random.choice(["male", "female"])
+            
+        # Select name lists based on country
+        country = country.upper()
+        if country == "UK":
+            male_names = self.uk_male_first_names
+            female_names = self.uk_female_first_names
+        elif country == "DE":
+            male_names = self.de_male_first_names
+            female_names = self.de_female_first_names
+        elif country == "FR":
+            male_names = self.fr_male_first_names
+            female_names = self.fr_female_first_names
+        elif country == "TR":
+            male_names = self.tr_male_first_names
+            female_names = self.tr_female_first_names
+        elif country == "IT":
+            male_names = self.it_male_first_names
+            female_names = self.it_female_first_names
+        elif country == "ES":
+            male_names = self.es_male_first_names
+            female_names = self.es_female_first_names
+        elif country == "CA":
+            male_names = self.ca_male_first_names
+            female_names = self.ca_female_first_names
+        elif country == "AU":
+            male_names = self.au_male_first_names
+            female_names = self.au_female_first_names
+        elif country == "JP":
+            male_names = self.jp_male_first_names
+            female_names = self.jp_female_first_names
+        elif country == "BR":
+            male_names = self.br_male_first_names
+            female_names = self.br_female_first_names
+        elif country == "RU":
+            male_names = self.ru_male_first_names
+            female_names = self.ru_female_first_names
+        elif country == "CN":
+            male_names = self.cn_male_first_names
+            female_names = self.cn_female_first_names
+        elif country == "IN":
+            male_names = self.in_male_first_names
+            female_names = self.in_female_first_names
+        else:  # Default to US
+            male_names = self.us_male_first_names
+            female_names = self.us_female_first_names
+            
+        if gender.lower() == "male":
+            return random.choice(male_names)
+        else:
+            return random.choice(female_names)
+    
+    def generate_last_name(self, country: str = "US") -> str:
+        """Generate a random last name based on country"""
+        country = country.upper()
+        if country == "UK":
+            return random.choice(self.uk_last_names)
+        elif country == "DE":
+            return random.choice(self.de_last_names)
+        elif country == "FR":
+            return random.choice(self.fr_last_names)
+        elif country == "TR":
+            return random.choice(self.tr_last_names)
+        elif country == "IT":
+            return random.choice(self.it_last_names)
+        elif country == "ES":
+            return random.choice(self.es_last_names)
+        elif country == "CA":
+            return random.choice(self.ca_last_names)
+        elif country == "AU":
+            return random.choice(self.au_last_names)
+        elif country == "JP":
+            return random.choice(self.jp_last_names)
+        elif country == "BR":
+            return random.choice(self.br_last_names)
+        elif country == "RU":
+            return random.choice(self.ru_last_names)
+        elif country == "CN":
+            return random.choice(self.cn_last_names)
+        elif country == "IN":
+            return random.choice(self.in_last_names)
+        else:  # Default to US
+            return random.choice(self.us_last_names)
+    
+    def generate_full_name(self, gender: str = None, country: str = "US") -> str:
+        """Generate a full name based on gender and country"""
+        first_name = self.generate_first_name(gender, country)
+        last_name = self.generate_last_name(country)
+        return f"{first_name} {last_name}"
+    
+    def generate_country(self) -> str:
+        """Generate a random country"""
+        return random.choice(self.countries)
+    
+    def generate_occupation(self) -> str:
+        """Generate a random occupation"""
+        return random.choice(self.occupations)
+    
+    def generate_fake_profile(self, gender: str = None, country: str = None) -> Dict[str, str]:
+        """Generate a fake profile with name, country, and occupation"""
+        # If no country specified, randomly select one
+        if country is None:
+            country_codes = ["US", "UK", "DE", "FR", "TR", "IT", "ES", "CA", "AU", "JP", "BR", "RU", "CN", "IN"]
+            country_code = random.choice(country_codes)
+        else:
+            country_code = country
+        
+        full_name = self.generate_full_name(gender, country_code)
+        name_parts = full_name.split()
+        first_name = name_parts[0]
+        last_name = name_parts[1]
+        
+        # Map country codes to full names
+        country_map = {
+            "US": "United States", "UK": "United Kingdom", "DE": "Germany", "FR": "France", 
+            "TR": "Turkey", "IT": "Italy", "ES": "Spain", "CA": "Canada", "AU": "Australia", 
+            "JP": "Japan", "BR": "Brazil", "RU": "Russia", "CN": "China", "IN": "India"
+        }
+        
+        return {
+            "Full Name": full_name,
+            "First Name": first_name,
+            "Last Name": last_name,
+            "Gender": gender.title() if gender else random.choice(["Male", "Female"]),
+            "Country": country_map.get(country_code, self.generate_country()),
+            "Occupation": self.generate_occupation()
+        }
+    
+    def generate_multiple_profiles(self, count: int = 5, gender: str = None, country: str = None) -> List[Dict[str, str]]:
+        """Generate multiple fake profiles"""
+        return [self.generate_fake_profile(gender, country) for _ in range(count)]
+
+def main():
+    generator = FakeNameGenerator()
+    
+    print("=== Fake Name Generator ===")
+    print("1. Generate single profile")
+    print("2. Generate multiple profiles")
+    print("3. Generate male profile")
+    print("4. Generate female profile")
+    print("5. Generate profile by country")
+    print("6. Generate multiple profiles by country")
+    
+    choice = input("Select an option (1-6): ").strip()
+    
+    if choice == "1":
+        profile = generator.generate_fake_profile()
+        print("\nGenerated Profile:")
+        print("-" * 30)
+        for key, value in profile.items():
+            print(f"{key:<15}: {value}")
+            
+    elif choice == "2":
+        try:
+            count = int(input("How many profiles to generate? (1-20): "))
+            count = max(1, min(count, 20))  # Limit between 1 and 20
+        except ValueError:
+            count = 5
+            
+        profiles = generator.generate_multiple_profiles(count)
+        print(f"\nGenerated {count} Profiles:")
+        print("=" * 50)
+        for i, profile in enumerate(profiles, 1):
+            print(f"\nProfile #{i}")
+            print("-" * 20)
+            for key, value in profile.items():
+                print(f"{key:<15}: {value}")
+                
+    elif choice == "3":
+        profile = generator.generate_fake_profile("male")
+        print("\nGenerated Male Profile:")
+        print("-" * 30)
+        for key, value in profile.items():
+            print(f"{key:<15}: {value}")
+            
+    elif choice == "4":
+        profile = generator.generate_fake_profile("female")
+        print("\nGenerated Female Profile:")
+        print("-" * 30)
+        for key, value in profile.items():
+            print(f"{key:<15}: {value}")
+            
+    elif choice == "5":
+        print("\nAvailable countries:")
+        print("1. US (United States)")
+        print("2. UK (United Kingdom)")
+        print("3. DE (Germany)")
+        print("4. FR (France)")
+        print("5. TR (Turkey)")
+        print("6. IT (Italy)")
+        print("7. ES (Spain)")
+        print("8. CA (Canada)")
+        print("9. AU (Australia)")
+        print("10. JP (Japan)")
+        print("11. BR (Brazil)")
+        print("12. RU (Russia)")
+        print("13. CN (China)")
+        print("14. IN (India)")
+        
+        country_choice = input("Select a country (1-14): ").strip()
+        country_map = {
+            "1": "US", "2": "UK", "3": "DE", "4": "FR", "5": "TR",
+            "6": "IT", "7": "ES", "8": "CA", "9": "AU", "10": "JP",
+            "11": "BR", "12": "RU", "13": "CN", "14": "IN"
+        }
+        country = country_map.get(country_choice, "US")
+        
+        gender_choice = input("Select gender (1. Male, 2. Female, 3. Random): ").strip()
+        gender_map = {"1": "male", "2": "female"}
+        gender = gender_map.get(gender_choice, None)
+        
+        profile = generator.generate_fake_profile(gender, country)
+        print(f"\nGenerated {country} Profile:")
+        print("-" * 40)
+        for key, value in profile.items():
+            print(f"{key:<15}: {value}")
+            
+    elif choice == "6":
+        print("\nAvailable countries:")
+        print("1. US (United States)")
+        print("2. UK (United Kingdom)")
+        print("3. DE (Germany)")
+        print("4. FR (France)")
+        print("5. TR (Turkey)")
+        print("6. IT (Italy)")
+        print("7. ES (Spain)")
+        print("8. CA (Canada)")
+        print("9. AU (Australia)")
+        print("10. JP (Japan)")
+        print("11. BR (Brazil)")
+        print("12. RU (Russia)")
+        print("13. CN (China)")
+        print("14. IN (India)")
+        
+        country_choice = input("Select a country (1-14): ").strip()
+        country_map = {
+            "1": "US", "2": "UK", "3": "DE", "4": "FR", "5": "TR",
+            "6": "IT", "7": "ES", "8": "CA", "9": "AU", "10": "JP",
+            "11": "BR", "12": "RU", "13": "CN", "14": "IN"
+        }
+        country = country_map.get(country_choice, "US")
+        
+        gender_choice = input("Select gender (1. Male, 2. Female, 3. Random): ").strip()
+        gender_map = {"1": "male", "2": "female"}
+        gender = gender_map.get(gender_choice, None)
+        
+        try:
+            count = int(input("How many profiles to generate? (1-20): "))
+            count = max(1, min(count, 20))  # Limit between 1 and 20
+        except ValueError:
+            count = 5
+            
+        profiles = generator.generate_multiple_profiles(count, gender, country)
+        print(f"\nGenerated {count} {country} Profiles:")
+        print("=" * 50)
+        for i, profile in enumerate(profiles, 1):
+            print(f"\nProfile #{i}")
+            print("-" * 25)
+            for key, value in profile.items():
+                print(f"{key:<15}: {value}")
+    else:
+        print("Invalid option. Generating default profile:")
+        profile = generator.generate_fake_profile()
+        print("\nGenerated Profile:")
+        print("-" * 30)
+        for key, value in profile.items():
+            print(f"{key:<15}: {value}")
+
+if __name__ == "__main__":
+    main()

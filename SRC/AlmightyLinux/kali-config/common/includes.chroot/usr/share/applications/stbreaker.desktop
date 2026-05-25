@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=stbreaker
+Comment=Steganography detection and analysis tool
+Comment[tr]=Steganografi algılama ve analiz aracı
+Comment[es]=Herramienta de detección y análisis de esteganografía
+Comment[fr]=Outil de détection et d'analyse de stéganographie
+Comment[de]=Steganographie-Erkennungs- und Analysetool
+Comment[ar]=أداة كشف وتحليل الاستغانوغرافيا
+Comment[ru]=Инструмент обнаружения и анализа стеганографии
+Comment[zh]=隐写术检测和分析工具
+Comment[ja]=ステガノグラフィ検出および分析ツール
+Comment[ko]=스테가노그래피 탐지 및 분석 도구
+Comment[pt]=Ferramenta de detecção e análise de esteganografia
+Comment[it]=Strumento di rilevamento e analisi della steganografia
+Comment[nl]=Steganografie-detectie en analysehulpmiddel
+Comment[sv]=Steganografiavslöjnings- och analysverktyg
+Comment[pl]=Narzędzie do wykrywania i analizy steganografii
+Exec=mate-terminal -- bash -c "stbreaker; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Analysis;
+StartupNotify=false

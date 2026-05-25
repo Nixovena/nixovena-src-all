@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Sherlock
+Comment=Hunt down social media accounts by username across networks
+Comment[tr]=Sosyal ağlar genelinde kullanıcı adıyla sosyal medya hesaplarını avlayın
+Comment[es]=Busca cuentas de redes sociales por nombre de usuario
+Comment[fr]=Traquez les comptes de réseaux sociaux par nom d'utilisateur
+Comment[de]=Suche nach Social-Media-Konten nach Benutzernamen
+Comment[ar]=مطاردة حسابات وسائل التواصل الاجتماعي باسم المستخدم
+Comment[ru]=Поиск аккаунтов в социальных сетях по имени пользователя
+Comment[zh]=跨社交网络按用户名搜寻社交媒体帐户
+Comment[ja]=ユーザー名でソーシャルメディアアカウントを検索
+Comment[ko]=사용자 이름으로 소셜 미디어 계정 추적
+Comment[pt]=Cace contas de mídia social por nome de usuário
+Comment[it]=Dai la caccia agli account dei social media tramite nome utente
+Comment[nl]=Jaag op sociale media-accounts met de gebruikersnaam
+Comment[sv]=Jaga sociala mediekonton med användarnamn
+Comment[pl]=Wyszukuj konta w mediach społecznościowych według nazwy użytkownika
+Exec=mate-terminal -- bash -c "sherlock -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/sherlock.png
+Categories=Social;
+StartupNotify=false

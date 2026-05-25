@@ -1,0 +1,1871 @@
+#!/usr/bin/env python3
+
+import argparse
+import asyncio
+import json
+import re
+import sys
+import os
+import math
+import hashlib
+import sqlite3
+import time
+import socket
+from datetime import datetime, timezone, timedelta
+from collections import defaultdict, Counter
+from urllib.parse import quote, urlparse
+
+try:
+    from telethon import TelegramClient, errors, functions, types
+    from telethon.tl.functions.users import GetFullUserRequest
+    from telethon.tl.functions.channels import (
+        GetFullChannelRequest, GetParticipantsRequest
+    )
+    from telethon.tl.functions.messages import (
+        GetHistoryRequest, SearchRequest, GetCommonChatsRequest,
+        GetStickerSetRequest
+    )
+    from telethon.tl.functions.contacts import ResolveUsernameRequest
+    from telethon.tl.functions.photos import GetUserPhotosRequest
+    from telethon.tl.types import (
+        Channel, Chat, User, ChannelParticipantsAdmins,
+        ChannelParticipantsRecent, ChannelParticipantsBots,
+        ChannelParticipantsSearch, ChannelParticipantsBanned,
+        ChannelParticipantsKicked,
+        InputMessagesFilterPhotos, InputMessagesFilterVideo,
+        InputMessagesFilterDocument, InputMessagesFilterUrl,
+        InputMessagesFilterVoice, InputMessagesFilterMusic,
+        InputMessagesFilterGif, InputMessagesFilterRoundVideo,
+        MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage,
+        MessageMediaGeo, MessageMediaGeoLive, MessageMediaContact,
+        MessageMediaPoll, MessageMediaDice, MessageMediaVenue,
+        DocumentAttributeFilename, DocumentAttributeVideo,
+        DocumentAttributeAudio, DocumentAttributeSticker,
+        DocumentAttributeAnimated, DocumentAttributeImageSize,
+        MessageEntityMention, MessageEntityTextUrl, MessageEntityUrl,
+        MessageEntityEmail, MessageEntityPhone, MessageEntityBotCommand,
+        MessageEntityHashtag, MessageEntityCashtag, MessageEntityMentionName,
+        PeerUser, PeerChat, PeerChannel,
+        MessageFwdHeader, MessageReplyHeader
+    )
+    TELETHON_AVAILABLE = True
+except ImportError:
+    TELETHON_AVAILABLE = False
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
+
+PHONE_COUNTRY_MAP = {
+    "1": "US/CA", "7": "RU/KZ", "20": "EG", "27": "ZA",
+    "30": "GR", "31": "NL", "32": "BE", "33": "FR", "34": "ES",
+    "36": "HU", "39": "IT", "40": "RO", "41": "CH", "43": "AT",
+    "44": "GB", "45": "DK", "46": "SE", "47": "NO", "48": "PL",
+    "49": "DE", "51": "PE", "52": "MX", "53": "CU", "54": "AR",
+    "55": "BR", "56": "CL", "57": "CO", "58": "VE", "60": "MY",
+    "61": "AU", "62": "ID", "63": "PH", "64": "NZ", "65": "SG",
+    "66": "TH", "81": "JP", "82": "KR", "84": "VN", "86": "CN",
+    "90": "TR", "91": "IN", "92": "PK", "93": "AF", "94": "LK",
+    "95": "MM", "98": "IR", "212": "MA", "213": "DZ", "216": "TN",
+    "218": "LY", "220": "GM", "221": "SN", "234": "NG", "249": "SD",
+    "254": "KE", "255": "TZ", "256": "UG", "260": "ZM", "263": "ZW",
+    "351": "PT", "352": "LU", "353": "IE", "354": "IS", "355": "AL",
+    "356": "MT", "357": "CY", "358": "FI", "359": "BG", "370": "LT",
+    "371": "LV", "372": "EE", "373": "MD", "374": "AM", "375": "BY",
+    "380": "UA", "381": "RS", "382": "ME", "383": "XK", "385": "HR",
+    "386": "SI", "387": "BA", "389": "MK", "420": "CZ", "421": "SK",
+    "880": "BD", "886": "TW", "960": "MV", "961": "LB", "962": "JO",
+    "963": "SY", "964": "IQ", "965": "KW", "966": "SA", "967": "YE",
+    "968": "OM", "970": "PS", "971": "AE", "972": "IL", "973": "BH",
+    "974": "QA", "975": "BT", "976": "MN", "977": "NP", "992": "TJ",
+    "993": "TM", "994": "AZ", "995": "GE", "996": "KG", "998": "UZ",
+}
+
+TELEGRAM_RESERVED_USERNAMES = frozenset([
+    "telegram", "telegrambot", "admin", "support", "help", "security",
+    "contact", "notifications", "stickers", "gamee", "gif", "pic",
+    "bing", "wiki", "imdb", "bold", "vote", "like", "vid",
+    "groupbot", "channelbot", "sticker", "music", "cloud",
+])
+
+BOT_INDICATORS = [
+    "bot", "Bot", "BOT", "_bot", "Robot", "robot",
+    "assistant", "Assistant", "helper", "Helper",
+    "service", "Service", "notify", "Notify",
+    "alert", "Alert", "auto", "Auto",
+]
+
+LANG_PATTERNS = {
+    "en": re.compile(r'\b(the|is|are|was|were|have|has|had|will|would|could|should|can|this|that|with|from|for|not|but|and|its|you|your)\b', re.I),
+    "ru": re.compile(r'[а-яёА-ЯЁ]{3,}'),
+    "ar": re.compile(r'[\u0600-\u06FF]{3,}'),
+    "zh": re.compile(r'[\u4e00-\u9fff]{2,}'),
+    "ja": re.compile(r'[\u3040-\u309f\u30a0-\u30ff]{2,}'),
+    "ko": re.compile(r'[\uac00-\ud7af]{2,}'),
+    "tr": re.compile(r'\b(bir|ve|bu|ile|için|olan|gibi|daha|çok|var|yok|ama|hem|ise|olarak|kadar)\b', re.I),
+    "de": re.compile(r'\b(der|die|das|und|ist|von|mit|auf|für|nicht|ein|eine|sich|auch|werden)\b', re.I),
+    "fr": re.compile(r'\b(les|des|une|est|que|dans|pour|pas|qui|sur|avec|sont|cette|mais|tout)\b', re.I),
+    "es": re.compile(r'\b(los|las|del|una|que|por|con|para|está|son|como|más|pero|sus|este)\b', re.I),
+    "pt": re.compile(r'\b(que|uma|dos|das|para|com|por|são|está|mais|tem|seu|sua|como|mas)\b', re.I),
+    "fa": re.compile(r'[\u0600-\u06FF]{3,}'),
+    "hi": re.compile(r'[\u0900-\u097F]{3,}'),
+    "uk": re.compile(r'[а-яіїєґА-ЯІЇЄҐ]{3,}'),
+}
+
+SUSPICIOUS_KEYWORDS = frozenset([
+    "hack", "crack", "leak", "dump", "carding", "phishing",
+    "exploit", "malware", "ransomware", "ddos", "botnet",
+    "stealer", "rat", "keylogger", "brute", "combo",
+    "fullz", "ssn", "cvv", "cc", "bin", "cashout",
+    "darkweb", "deepweb", "tor", "onion", "vpn",
+    "crypto", "bitcoin", "btc", "eth", "monero", "xmr",
+    "drugs", "weapons", "fraud", "scam", "fake",
+    "passport", "identity", "document", "counterfeit",
+])
+
+
+def _shannon_entropy(text):
+    if not text:
+        return 0.0
+    freq = {}
+    for c in text:
+        freq[c] = freq.get(c, 0) + 1
+    length = len(text)
+    ent = 0.0
+    for count in freq.values():
+        p = count / length
+        ent -= p * math.log2(p)
+    return round(ent, 4)
+
+
+def _detect_language(text):
+    if not text or len(text) < 10:
+        return "unknown"
+    scores = {}
+    for lang, pattern in LANG_PATTERNS.items():
+        matches = pattern.findall(text)
+        scores[lang] = len(matches)
+    if not scores or max(scores.values()) == 0:
+        return "unknown"
+    return max(scores, key=scores.get)
+
+
+def _phone_country(phone):
+    phone = phone.lstrip("+").strip()
+    for length in [3, 2, 1]:
+        prefix = phone[:length]
+        if prefix in PHONE_COUNTRY_MAP:
+            return PHONE_COUNTRY_MAP[prefix]
+    return "unknown"
+
+
+def _extract_entities_from_message(message):
+    entities = {
+        "mentions": [],
+        "urls": [],
+        "emails": [],
+        "phones": [],
+        "hashtags": [],
+        "cashtags": [],
+        "bot_commands": [],
+        "text_urls": [],
+        "mention_names": [],
+    }
+    if not message.entities:
+        return entities
+    text = message.text or message.raw_text or ""
+    for ent in message.entities:
+        try:
+            offset = ent.offset
+            length = ent.length
+            value = text[offset:offset + length]
+        except Exception:
+            value = ""
+        if isinstance(ent, MessageEntityMention):
+            entities["mentions"].append(value)
+        elif isinstance(ent, MessageEntityUrl):
+            entities["urls"].append(value)
+        elif isinstance(ent, MessageEntityTextUrl):
+            entities["text_urls"].append({"text": value, "url": ent.url})
+        elif isinstance(ent, MessageEntityEmail):
+            entities["emails"].append(value)
+        elif isinstance(ent, MessageEntityPhone):
+            entities["phones"].append(value)
+        elif isinstance(ent, MessageEntityHashtag):
+            entities["hashtags"].append(value)
+        elif isinstance(ent, MessageEntityCashtag):
+            entities["cashtags"].append(value)
+        elif isinstance(ent, MessageEntityBotCommand):
+            entities["bot_commands"].append(value)
+        elif isinstance(ent, MessageEntityMentionName):
+            entities["mention_names"].append({"text": value, "user_id": ent.user_id})
+    return entities
+
+
+def _classify_media(media):
+    if isinstance(media, MessageMediaPhoto):
+        return "photo"
+    elif isinstance(media, MessageMediaDocument):
+        if media.document:
+            mime = getattr(media.document, "mime_type", "") or ""
+            attrs = media.document.attributes if media.document.attributes else []
+            for attr in attrs:
+                if isinstance(attr, DocumentAttributeSticker):
+                    return "sticker"
+                if isinstance(attr, DocumentAttributeAnimated):
+                    return "animation"
+                if isinstance(attr, DocumentAttributeVideo):
+                    if getattr(attr, "round_message", False):
+                        return "video_note"
+                    return "video"
+                if isinstance(attr, DocumentAttributeAudio):
+                    if getattr(attr, "voice", False):
+                        return "voice"
+                    return "audio"
+            if "video" in mime:
+                return "video"
+            if "audio" in mime:
+                return "audio"
+            if "image/webp" in mime or "image/tgs" in mime:
+                return "sticker"
+            if "image/gif" in mime:
+                return "gif"
+            return "document"
+    elif isinstance(media, MessageMediaWebPage):
+        return "webpage"
+    elif isinstance(media, (MessageMediaGeo, MessageMediaGeoLive)):
+        return "location"
+    elif isinstance(media, MessageMediaContact):
+        return "contact"
+    elif isinstance(media, MessageMediaPoll):
+        return "poll"
+    elif isinstance(media, MessageMediaDice):
+        return "dice"
+    elif isinstance(media, MessageMediaVenue):
+        return "venue"
+    return "other"
+
+
+def _extract_media_metadata(media):
+    meta = {"type": _classify_media(media)}
+    if isinstance(media, MessageMediaPhoto) and media.photo:
+        meta["photo_id"] = media.photo.id
+        meta["date"] = media.photo.date.isoformat() if media.photo.date else None
+        if media.photo.sizes:
+            largest = max(media.photo.sizes, key=lambda s: getattr(s, "w", 0) * getattr(s, "h", 0) if hasattr(s, "w") else 0)
+            meta["width"] = getattr(largest, "w", None)
+            meta["height"] = getattr(largest, "h", None)
+    elif isinstance(media, MessageMediaDocument) and media.document:
+        doc = media.document
+        meta["doc_id"] = doc.id
+        meta["mime_type"] = getattr(doc, "mime_type", None)
+        meta["size"] = getattr(doc, "size", None)
+        meta["date"] = doc.date.isoformat() if doc.date else None
+        meta["dc_id"] = getattr(doc, "dc_id", None)
+        for attr in (doc.attributes or []):
+            if isinstance(attr, DocumentAttributeFilename):
+                meta["filename"] = attr.file_name
+            elif isinstance(attr, DocumentAttributeVideo):
+                meta["duration"] = attr.duration
+                meta["width"] = attr.w
+                meta["height"] = attr.h
+                meta["round_message"] = getattr(attr, "round_message", False)
+                meta["supports_streaming"] = getattr(attr, "supports_streaming", False)
+            elif isinstance(attr, DocumentAttributeAudio):
+                meta["duration"] = attr.duration
+                meta["title"] = getattr(attr, "title", None)
+                meta["performer"] = getattr(attr, "performer", None)
+                meta["voice"] = getattr(attr, "voice", False)
+            elif isinstance(attr, DocumentAttributeSticker):
+                meta["sticker_alt"] = getattr(attr, "alt", None)
+                if hasattr(attr, "stickerset") and attr.stickerset:
+                    meta["sticker_set_id"] = getattr(attr.stickerset, "id", None)
+                    meta["sticker_set_access_hash"] = getattr(attr.stickerset, "access_hash", None)
+            elif isinstance(attr, DocumentAttributeImageSize):
+                meta["width"] = attr.w
+                meta["height"] = attr.h
+    elif isinstance(media, MessageMediaWebPage) and media.webpage:
+        wp = media.webpage
+        meta["url"] = getattr(wp, "url", None)
+        meta["display_url"] = getattr(wp, "display_url", None)
+        meta["site_name"] = getattr(wp, "site_name", None)
+        meta["title"] = getattr(wp, "title", None)
+        meta["description"] = getattr(wp, "description", None)
+    elif isinstance(media, (MessageMediaGeo, MessageMediaGeoLive)):
+        geo = media.geo if hasattr(media, "geo") else None
+        if geo:
+            meta["latitude"] = getattr(geo, "lat", None)
+            meta["longitude"] = getattr(geo, "long", None)
+        if isinstance(media, MessageMediaGeoLive):
+            meta["period"] = getattr(media, "period", None)
+    elif isinstance(media, MessageMediaContact):
+        meta["phone"] = getattr(media, "phone_number", None)
+        meta["first_name"] = getattr(media, "first_name", None)
+        meta["last_name"] = getattr(media, "last_name", None)
+        meta["vcard"] = getattr(media, "vcard", None)
+        meta["user_id"] = getattr(media, "user_id", None)
+    elif isinstance(media, MessageMediaPoll) and media.poll:
+        meta["question"] = getattr(media.poll, "question", None)
+        if hasattr(media.poll, "question") and hasattr(media.poll.question, "text"):
+            meta["question"] = media.poll.question.text
+        meta["closed"] = getattr(media.poll, "closed", False)
+        meta["public_voters"] = getattr(media.poll, "public_voters", False)
+        meta["multiple_choice"] = getattr(media.poll, "multiple_choice", False)
+        meta["quiz"] = getattr(media.poll, "quiz", False)
+    return meta
+
+
+def _bot_likelihood(user_data):
+    score = 0
+    factors = []
+    username = (user_data.get("username") or "").lower()
+    first_name = (user_data.get("first_name") or "").lower()
+
+    if user_data.get("bot"):
+        return {"score": 100, "factors": ["Confirmed bot flag"]}
+
+    for indicator in BOT_INDICATORS:
+        if indicator.lower() in username:
+            score += 25
+            factors.append(f"Username contains '{indicator}'")
+            break
+
+    for indicator in BOT_INDICATORS:
+        if indicator.lower() in first_name:
+            score += 15
+            factors.append(f"Name contains '{indicator}'")
+            break
+
+    if not user_data.get("phone"):
+        score += 10
+        factors.append("No phone number")
+
+    if not user_data.get("bio") and not user_data.get("about"):
+        score += 5
+        factors.append("No bio")
+
+    if not user_data.get("last_name"):
+        score += 5
+        factors.append("No last name")
+
+    return {"score": min(100, score), "factors": factors}
+
+
+async def _safe_flood_wait(coro, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return await coro
+        except errors.FloodWaitError as e:
+            wait_time = min(e.seconds + 1, 300)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+        except errors.RPCError:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)
+            else:
+                raise
+
+
+class TelegramIntelligenceEngine:
+    def __init__(self, api_id=None, api_hash=None, session_name=None, scrape_limit=500, db_path=None):
+        self.api_id = api_id
+        self.api_hash = api_hash
+        self.scrape_limit = scrape_limit
+        self.client = None
+
+        if session_name is None:
+            xdg_data = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
+            session_dir = os.path.join(xdg_data, "telegrm00")
+            os.makedirs(session_dir, exist_ok=True)
+            session_name = os.path.join(session_dir, "session")
+
+        self.session_name = session_name
+
+        if self.api_id and self.api_hash and TELETHON_AVAILABLE:
+            self.client = TelegramClient(self.session_name, self.api_id, self.api_hash)
+
+        if db_path is None:
+            xdg_data = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
+            db_dir = os.path.join(xdg_data, "telegrm00")
+            os.makedirs(db_dir, exist_ok=True)
+            db_path = os.path.join(db_dir, "intelligence.db")
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute("""CREATE TABLE IF NOT EXISTS scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                scan_time TEXT NOT NULL,
+                target_id INTEGER,
+                results_json TEXT
+            )""")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_scans_target ON scans(target)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_scans_time ON scans(scan_time)")
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def _save_scan(self, target, target_type, target_id, results):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO scans (target, target_type, scan_time, target_id, results_json) VALUES (?,?,?,?,?)",
+                (target, target_type, datetime.now(timezone.utc).isoformat(), target_id,
+                 json.dumps(results, default=str, ensure_ascii=False))
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    def _get_history(self, target=None, limit=50):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            c = conn.cursor()
+            if target:
+                c.execute("SELECT target, target_type, scan_time, target_id FROM scans WHERE target=? ORDER BY scan_time DESC LIMIT ?", (target, limit))
+            else:
+                c.execute("SELECT target, target_type, scan_time, target_id FROM scans ORDER BY scan_time DESC LIMIT ?", (limit,))
+            rows = c.fetchall()
+            conn.close()
+            return [{"target": r[0], "type": r[1], "scan_time": r[2], "target_id": r[3]} for r in rows]
+        except Exception:
+            return []
+
+    def validate_target(self, target):
+        if target.startswith("@"):
+            return len(target) >= 6 and re.match(r'^@[a-zA-Z][a-zA-Z0-9_]{3,31}$', target) is not None
+        if target.startswith("+"):
+            return re.match(r'^\+\d{7,15}$', target) is not None
+        if target.startswith("https://t.me/") or target.startswith("http://t.me/"):
+            return True
+        if target.startswith("t.me/"):
+            return True
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9_]{3,31}$', target):
+            return True
+        if re.match(r'^\d+$', target):
+            return True
+        return False
+
+    def _normalize_target(self, target):
+        if target.startswith("https://t.me/"):
+            target = target[len("https://t.me/"):]
+        elif target.startswith("http://t.me/"):
+            target = target[len("http://t.me/"):]
+        elif target.startswith("t.me/"):
+            target = target[len("t.me/"):]
+
+        if "/" in target:
+            target = target.split("/")[0]
+        if "?" in target:
+            target = target.split("?")[0]
+
+        target = target.lstrip("@")
+        return target
+
+    async def _ensure_client(self):
+        if not self.client:
+            return False
+        if not self.client.is_connected():
+            await self.client.connect()
+        if not await self.client.is_user_authorized():
+            await self.client.start()
+        return True
+
+    async def _resolve_entity(self, target):
+        clean = self._normalize_target(target)
+        if clean.isdigit():
+            try:
+                entity = await self.client.get_entity(int(clean))
+                return entity
+            except Exception:
+                pass
+        try:
+            entity = await self.client.get_entity(clean)
+            return entity
+        except Exception:
+            pass
+        try:
+            result = await self.client(ResolveUsernameRequest(clean))
+            if result.users:
+                return result.users[0]
+            if result.chats:
+                return result.chats[0]
+        except Exception:
+            pass
+        return None
+
+    async def _get_user_full(self, entity):
+        data = {
+            "id": entity.id,
+            "access_hash": str(entity.access_hash) if hasattr(entity, "access_hash") and entity.access_hash else None,
+            "first_name": getattr(entity, "first_name", None) or "",
+            "last_name": getattr(entity, "last_name", None) or "",
+            "username": getattr(entity, "username", None) or "",
+            "phone": getattr(entity, "phone", None) or "",
+            "bot": getattr(entity, "bot", False),
+            "verified": getattr(entity, "verified", False),
+            "restricted": getattr(entity, "restricted", False),
+            "scam": getattr(entity, "scam", False),
+            "fake": getattr(entity, "fake", False),
+            "premium": getattr(entity, "premium", False),
+            "lang_code": getattr(entity, "lang_code", None) or "",
+            "status": None,
+            "restriction_reason": [],
+            "bot_info_version": getattr(entity, "bot_info_version", None),
+            "bot_inline_placeholder": getattr(entity, "bot_inline_placeholder", None),
+            "bot_nochats": getattr(entity, "bot_nochats", None),
+            "bot_inline_geo": getattr(entity, "bot_inline_geo", None),
+        }
+
+        status = getattr(entity, "status", None)
+        if status:
+            status_name = type(status).__name__
+            data["status"] = status_name
+            if hasattr(status, "was_online"):
+                data["last_seen"] = status.was_online.isoformat() if status.was_online else None
+
+        rr = getattr(entity, "restriction_reason", None)
+        if rr:
+            data["restriction_reason"] = [
+                {"platform": getattr(r, "platform", ""), "reason": getattr(r, "reason", ""), "text": getattr(r, "text", "")}
+                for r in rr
+            ]
+
+        if data["phone"]:
+            data["phone_country"] = _phone_country(data["phone"])
+
+        try:
+            full = await _safe_flood_wait(self.client(GetFullUserRequest(entity)))
+            fu = full.full_user
+            data["bio"] = getattr(fu, "about", None) or ""
+            data["common_chats_count"] = getattr(fu, "common_chats_count", 0)
+            data["blocked"] = getattr(fu, "blocked", False)
+            data["phone_calls_available"] = getattr(fu, "phone_calls_available", None)
+            data["phone_calls_private"] = getattr(fu, "phone_calls_private", None)
+            data["voice_messages_forbidden"] = getattr(fu, "voice_messages_forbidden", None)
+
+            pp = getattr(fu, "profile_photo", None)
+            if pp:
+                data["profile_photo"] = {
+                    "id": getattr(pp, "id", None),
+                    "date": pp.date.isoformat() if hasattr(pp, "date") and pp.date else None,
+                    "dc_id": getattr(pp, "dc_id", None),
+                    "has_video": getattr(pp, "has_video", False),
+                }
+
+            if getattr(fu, "bot_info", None):
+                bi = fu.bot_info
+                data["bot_info"] = {
+                    "description": getattr(bi, "description", None),
+                    "commands": [
+                        {"command": cmd.command, "description": cmd.description}
+                        for cmd in (getattr(bi, "commands", None) or [])
+                    ],
+                    "menu_button": str(getattr(bi, "menu_button", None)),
+                }
+        except Exception:
+            pass
+
+        data["bot_analysis"] = _bot_likelihood(data)
+
+        return data
+
+    async def _get_channel_full(self, entity):
+        data = {
+            "id": entity.id,
+            "access_hash": str(entity.access_hash) if hasattr(entity, "access_hash") and entity.access_hash else None,
+            "title": getattr(entity, "title", None) or "",
+            "username": getattr(entity, "username", None) or "",
+            "participants_count": getattr(entity, "participants_count", None),
+            "date": entity.date.isoformat() if hasattr(entity, "date") and entity.date else None,
+            "verified": getattr(entity, "verified", False),
+            "restricted": getattr(entity, "restricted", False),
+            "scam": getattr(entity, "scam", False),
+            "fake": getattr(entity, "fake", False),
+            "megagroup": getattr(entity, "megagroup", False),
+            "gigagroup": getattr(entity, "gigagroup", False),
+            "broadcast": getattr(entity, "broadcast", False),
+            "has_link": getattr(entity, "has_link", False),
+            "has_geo": getattr(entity, "has_geo", False),
+            "slowmode_enabled": getattr(entity, "slowmode_enabled", False),
+            "call_active": getattr(entity, "call_active", False),
+            "call_not_empty": getattr(entity, "call_not_empty", False),
+            "noforwards": getattr(entity, "noforwards", False),
+            "join_to_send": getattr(entity, "join_to_send", False),
+            "join_request": getattr(entity, "join_request", False),
+            "forum": getattr(entity, "forum", False),
+            "restriction_reason": [],
+        }
+
+        rr = getattr(entity, "restriction_reason", None)
+        if rr:
+            data["restriction_reason"] = [
+                {"platform": getattr(r, "platform", ""), "reason": getattr(r, "reason", ""), "text": getattr(r, "text", "")}
+                for r in rr
+            ]
+
+        try:
+            full = await _safe_flood_wait(self.client(GetFullChannelRequest(channel=entity)))
+            fc = full.full_chat
+            data["description"] = getattr(fc, "about", None) or ""
+            data["online_count"] = getattr(fc, "online_count", 0)
+            data["admins_count"] = getattr(fc, "admins_count", 0)
+            data["kicked_count"] = getattr(fc, "kicked_count", 0)
+            data["banned_count"] = getattr(fc, "banned_count", 0)
+            data["participants_count"] = getattr(fc, "participants_count", None) or data["participants_count"]
+            data["slowmode_seconds"] = getattr(fc, "slowmode_seconds", 0)
+            data["linked_chat_id"] = getattr(fc, "linked_chat_id", None)
+            data["stickerset"] = None
+            if getattr(fc, "stickerset", None):
+                ss = fc.stickerset
+                data["stickerset"] = {
+                    "title": getattr(ss, "title", None),
+                    "short_name": getattr(ss, "short_name", None),
+                }
+
+            cp = getattr(fc, "chat_photo", None)
+            if cp:
+                data["chat_photo"] = {
+                    "id": getattr(cp, "id", None),
+                    "date": cp.date.isoformat() if hasattr(cp, "date") and cp.date else None,
+                    "dc_id": getattr(cp, "dc_id", None),
+                    "has_video": getattr(cp, "has_video", False),
+                }
+
+            el = getattr(fc, "exported_invite", None)
+            if el:
+                data["invite_link"] = getattr(el, "link", None)
+
+            if full.chats:
+                data["related_chats"] = []
+                for chat in full.chats:
+                    if chat.id != entity.id:
+                        data["related_chats"].append({
+                            "id": chat.id,
+                            "title": getattr(chat, "title", ""),
+                            "username": getattr(chat, "username", ""),
+                            "type": "channel" if isinstance(chat, Channel) else "group",
+                        })
+        except Exception:
+            pass
+
+        return data
+
+    async def _analyze_messages(self, entity, limit=None):
+        if limit is None:
+            limit = self.scrape_limit
+
+        analysis = {
+            "total_scraped": 0,
+            "message_types": Counter(),
+            "media_types": Counter(),
+            "word_frequency": Counter(),
+            "hashtags": Counter(),
+            "mentions": Counter(),
+            "urls": [],
+            "emails": [],
+            "phones": [],
+            "cashtags": Counter(),
+            "bot_commands": Counter(),
+            "forwarded_from": Counter(),
+            "reply_count": 0,
+            "activity_by_hour": Counter(),
+            "activity_by_weekday": Counter(),
+            "activity_by_date": Counter(),
+            "languages_detected": Counter(),
+            "suspicious_keywords_found": Counter(),
+            "reactions_total": 0,
+            "views_total": 0,
+            "edit_count": 0,
+            "pinned_count": 0,
+            "unique_senders": Counter(),
+            "sticker_sets_used": Counter(),
+            "geo_locations": [],
+            "contacts_shared": [],
+            "polls": [],
+            "forwarding_chains": [],
+            "message_lengths": [],
+            "media_details": [],
+            "first_message_date": None,
+            "last_message_date": None,
+        }
+
+        try:
+            msg_count = 0
+            async for message in self.client.iter_messages(entity, limit=limit):
+                msg_count += 1
+
+                if message.date:
+                    dt = message.date
+                    analysis["activity_by_hour"][dt.hour] += 1
+                    analysis["activity_by_weekday"][dt.strftime("%A")] += 1
+                    analysis["activity_by_date"][dt.strftime("%Y-%m-%d")] += 1
+                    if analysis["last_message_date"] is None:
+                        analysis["last_message_date"] = dt.isoformat()
+                    analysis["first_message_date"] = dt.isoformat()
+
+                if message.sender_id:
+                    analysis["unique_senders"][str(message.sender_id)] += 1
+
+                if message.text:
+                    analysis["message_types"]["text"] += 1
+                    analysis["message_lengths"].append(len(message.text))
+
+                    words = re.findall(r'\b\w{4,}\b', message.text.lower())
+                    analysis["word_frequency"].update(words)
+
+                    lang = _detect_language(message.text)
+                    if lang != "unknown":
+                        analysis["languages_detected"][lang] += 1
+
+                    text_lower = message.text.lower()
+                    for kw in SUSPICIOUS_KEYWORDS:
+                        if kw in text_lower:
+                            analysis["suspicious_keywords_found"][kw] += 1
+
+                entities = _extract_entities_from_message(message)
+                analysis["mentions"].update(entities["mentions"])
+                analysis["hashtags"].update(entities["hashtags"])
+                analysis["cashtags"].update(entities["cashtags"])
+                analysis["bot_commands"].update(entities["bot_commands"])
+                analysis["urls"].extend(entities["urls"])
+                for tu in entities["text_urls"]:
+                    analysis["urls"].append(tu["url"])
+                analysis["emails"].extend(entities["emails"])
+                analysis["phones"].extend(entities["phones"])
+
+                if message.media:
+                    media_type = _classify_media(message.media)
+                    analysis["message_types"]["media"] += 1
+                    analysis["media_types"][media_type] += 1
+
+                    if media_type in ("photo", "video", "document", "audio", "voice", "video_note", "sticker", "gif"):
+                        meta = _extract_media_metadata(message.media)
+                        meta["message_id"] = message.id
+                        meta["date"] = message.date.isoformat() if message.date else None
+                        analysis["media_details"].append(meta)
+
+                    if media_type == "sticker":
+                        meta = _extract_media_metadata(message.media)
+                        ssid = meta.get("sticker_set_id")
+                        if ssid:
+                            analysis["sticker_sets_used"][str(ssid)] += 1
+
+                    if media_type == "location":
+                        meta = _extract_media_metadata(message.media)
+                        if meta.get("latitude") and meta.get("longitude"):
+                            analysis["geo_locations"].append({
+                                "lat": meta["latitude"],
+                                "lon": meta["longitude"],
+                                "date": message.date.isoformat() if message.date else None,
+                                "message_id": message.id,
+                            })
+
+                    if media_type == "contact":
+                        meta = _extract_media_metadata(message.media)
+                        analysis["contacts_shared"].append(meta)
+
+                    if media_type == "poll":
+                        meta = _extract_media_metadata(message.media)
+                        analysis["polls"].append(meta)
+                elif message.poll:
+                    analysis["message_types"]["poll"] += 1
+                elif not message.text:
+                    analysis["message_types"]["other"] += 1
+
+                if message.fwd_from:
+                    fwd = message.fwd_from
+                    fwd_info = {}
+                    if hasattr(fwd, "from_id") and fwd.from_id:
+                        if isinstance(fwd.from_id, PeerUser):
+                            fwd_info["type"] = "user"
+                            fwd_info["id"] = fwd.from_id.user_id
+                        elif isinstance(fwd.from_id, PeerChannel):
+                            fwd_info["type"] = "channel"
+                            fwd_info["id"] = fwd.from_id.channel_id
+                        elif isinstance(fwd.from_id, PeerChat):
+                            fwd_info["type"] = "chat"
+                            fwd_info["id"] = fwd.from_id.chat_id
+                    if hasattr(fwd, "from_name") and fwd.from_name:
+                        fwd_info["name"] = fwd.from_name
+                    if fwd_info:
+                        key = f"{fwd_info.get('type', 'unknown')}:{fwd_info.get('id', fwd_info.get('name', 'unknown'))}"
+                        analysis["forwarded_from"][key] += 1
+                        if len(analysis["forwarding_chains"]) < 200:
+                            fwd_info["date"] = message.date.isoformat() if message.date else None
+                            analysis["forwarding_chains"].append(fwd_info)
+
+                if message.reply_to:
+                    analysis["reply_count"] += 1
+
+                reactions = getattr(message, "reactions", None)
+                if reactions and hasattr(reactions, "results"):
+                    for r in reactions.results:
+                        analysis["reactions_total"] += getattr(r, "count", 0)
+
+                if getattr(message, "views", None):
+                    analysis["views_total"] += message.views
+
+                if getattr(message, "edit_date", None):
+                    analysis["edit_count"] += 1
+
+                if getattr(message, "pinned", False):
+                    analysis["pinned_count"] += 1
+
+            analysis["total_scraped"] = msg_count
+
+        except errors.FloodWaitError as e:
+            analysis["error"] = f"Flood wait: {e.seconds}s"
+        except Exception as e:
+            analysis["error"] = str(e)
+
+        analysis["message_types"] = dict(analysis["message_types"])
+        analysis["media_types"] = dict(analysis["media_types"])
+        analysis["top_words"] = analysis["word_frequency"].most_common(30)
+        analysis["top_hashtags"] = analysis["hashtags"].most_common(20)
+        analysis["top_mentions"] = analysis["mentions"].most_common(20)
+        analysis["top_cashtags"] = analysis["cashtags"].most_common(10)
+        analysis["top_bot_commands"] = analysis["bot_commands"].most_common(10)
+        analysis["top_forwarded_from"] = analysis["forwarded_from"].most_common(20)
+        analysis["top_senders"] = analysis["unique_senders"].most_common(20)
+        analysis["sticker_sets_used"] = dict(analysis["sticker_sets_used"])
+        analysis["languages_detected"] = dict(analysis["languages_detected"])
+        analysis["suspicious_keywords_found"] = dict(analysis["suspicious_keywords_found"])
+        analysis["activity_by_hour"] = dict(sorted(analysis["activity_by_hour"].items()))
+        analysis["activity_by_weekday"] = dict(analysis["activity_by_weekday"])
+        analysis["activity_by_date"] = dict(sorted(analysis["activity_by_date"].items()))
+        analysis["unique_sender_count"] = len(analysis["unique_senders"])
+
+        analysis["urls"] = list(set(analysis["urls"]))[:100]
+        analysis["emails"] = list(set(analysis["emails"]))
+        analysis["phones"] = list(set(analysis["phones"]))
+
+        del analysis["word_frequency"]
+        del analysis["hashtags"]
+        del analysis["mentions"]
+        del analysis["cashtags"]
+        del analysis["bot_commands"]
+        del analysis["forwarded_from"]
+        del analysis["unique_senders"]
+
+        if analysis["message_lengths"]:
+            lengths = analysis["message_lengths"]
+            analysis["message_length_stats"] = {
+                "min": min(lengths),
+                "max": max(lengths),
+                "avg": round(sum(lengths) / len(lengths), 1),
+                "median": sorted(lengths)[len(lengths) // 2],
+            }
+        analysis["media_details"] = analysis["media_details"][:100]
+        del analysis["message_lengths"]
+
+        if analysis["activity_by_hour"]:
+            hour_counts = analysis["activity_by_hour"]
+            if hour_counts:
+                sorted_hours = sorted(hour_counts.items(), key=lambda x: x[1], reverse=True)
+                peak_hours = [h for h, _ in sorted_hours[:3]]
+                quiet_hours = [h for h, _ in sorted_hours[-3:]] if len(sorted_hours) >= 3 else []
+                analysis["activity_patterns"] = {
+                    "peak_hours": peak_hours,
+                    "quiet_hours": quiet_hours,
+                    "estimated_timezone_offset": None,
+                }
+                if quiet_hours:
+                    avg_quiet = sum(quiet_hours) / len(quiet_hours)
+                    sleep_mid = avg_quiet
+                    offset = int(3 - sleep_mid) % 24
+                    if offset > 12:
+                        offset -= 24
+                    analysis["activity_patterns"]["estimated_timezone_offset"] = offset
+
+        return analysis
+
+    async def _get_participants_sample(self, entity, sample_size=200):
+        participants = {"admins": [], "bots": [], "recent": [], "total_fetched": 0}
+
+        try:
+            admins = await _safe_flood_wait(
+                self.client(GetParticipantsRequest(
+                    channel=entity, filter=ChannelParticipantsAdmins(),
+                    offset=0, limit=100, hash=0
+                ))
+            )
+            for user in admins.users:
+                participants["admins"].append({
+                    "id": user.id,
+                    "first_name": getattr(user, "first_name", "") or "",
+                    "last_name": getattr(user, "last_name", "") or "",
+                    "username": getattr(user, "username", "") or "",
+                    "bot": getattr(user, "bot", False),
+                    "verified": getattr(user, "verified", False),
+                    "premium": getattr(user, "premium", False),
+                })
+            participants["total_fetched"] += len(admins.users)
+        except Exception:
+            pass
+
+        try:
+            bots = await _safe_flood_wait(
+                self.client(GetParticipantsRequest(
+                    channel=entity, filter=ChannelParticipantsBots(),
+                    offset=0, limit=100, hash=0
+                ))
+            )
+            for user in bots.users:
+                participants["bots"].append({
+                    "id": user.id,
+                    "first_name": getattr(user, "first_name", "") or "",
+                    "username": getattr(user, "username", "") or "",
+                })
+            participants["total_fetched"] += len(bots.users)
+        except Exception:
+            pass
+
+        try:
+            remaining = max(0, sample_size - participants["total_fetched"])
+            if remaining > 0:
+                recent = await _safe_flood_wait(
+                    self.client(GetParticipantsRequest(
+                        channel=entity, filter=ChannelParticipantsRecent(),
+                        offset=0, limit=min(remaining, 200), hash=0
+                    ))
+                )
+                for user in recent.users:
+                    participants["recent"].append({
+                        "id": user.id,
+                        "first_name": getattr(user, "first_name", "") or "",
+                        "last_name": getattr(user, "last_name", "") or "",
+                        "username": getattr(user, "username", "") or "",
+                        "bot": getattr(user, "bot", False),
+                        "premium": getattr(user, "premium", False),
+                    })
+                participants["total_fetched"] += len(recent.users)
+        except Exception:
+            pass
+
+        return participants
+
+    async def _get_user_photos(self, entity, limit=20):
+        photos = []
+        try:
+            result = await _safe_flood_wait(
+                self.client(GetUserPhotosRequest(
+                    user_id=entity, offset=0, max_id=0, limit=limit
+                ))
+            )
+            for photo in result.photos:
+                photo_data = {
+                    "id": photo.id,
+                    "date": photo.date.isoformat() if photo.date else None,
+                    "dc_id": getattr(photo, "dc_id", None),
+                    "has_video": getattr(photo, "has_video", False),
+                }
+                if photo.sizes:
+                    largest = max(photo.sizes, key=lambda s: getattr(s, "w", 0) * getattr(s, "h", 0) if hasattr(s, "w") else 0)
+                    photo_data["width"] = getattr(largest, "w", None)
+                    photo_data["height"] = getattr(largest, "h", None)
+                photos.append(photo_data)
+        except Exception:
+            pass
+        return photos
+
+    async def _get_common_chats(self, entity):
+        chats = []
+        try:
+            result = await _safe_flood_wait(
+                self.client(GetCommonChatsRequest(user_id=entity, max_id=0, limit=100))
+            )
+            for chat in result.chats:
+                chats.append({
+                    "id": chat.id,
+                    "title": getattr(chat, "title", "") or "",
+                    "username": getattr(chat, "username", "") or "",
+                    "participants_count": getattr(chat, "participants_count", None),
+                    "type": "channel" if isinstance(chat, Channel) else "group",
+                })
+        except Exception:
+            pass
+        return chats
+
+    async def _domain_analysis(self, urls):
+        domains = Counter()
+        for url in urls:
+            try:
+                parsed = urlparse(url if url.startswith("http") else f"https://{url}")
+                if parsed.netloc:
+                    domains[parsed.netloc.lower()] += 1
+            except Exception:
+                pass
+        return domains.most_common(30)
+
+    async def analyze_user(self, target, verbose=True):
+        if not await self._ensure_client():
+            return {"error": "Client not available"}
+
+        if verbose:
+            print(f"\n\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;36m  TELEGRM00 - Telegram Intelligence Engine\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;37m  Target: {target}\033[0m")
+            print(f"\033[1;37m  Mode:   User Analysis\033[0m")
+            print(f"\033[1;37m  Time:   {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m\n")
+
+        results = {
+            "meta": {
+                "target": target,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+                "type": "user_analysis",
+            }
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Resolving entity...\033[0m")
+        entity = await self._resolve_entity(target)
+        if not entity:
+            if verbose:
+                print("\033[1;31m[-] Could not resolve target\033[0m")
+            results["error"] = "Could not resolve target"
+            return results
+
+        if not isinstance(entity, User):
+            if verbose:
+                print(f"\033[1;33m[!] Target is not a user (type: {type(entity).__name__}). Switching to channel analysis.\033[0m")
+            return await self.analyze_channel(target, verbose=verbose)
+
+        if verbose:
+            print("\033[1;33m[*] Fetching user profile...\033[0m")
+        results["user_profile"] = await self._get_user_full(entity)
+
+        if verbose:
+            print("\033[1;33m[*] Fetching profile photos...\033[0m")
+        results["profile_photos"] = await self._get_user_photos(entity)
+
+        if verbose:
+            print("\033[1;33m[*] Fetching common chats...\033[0m")
+        results["common_chats"] = await self._get_common_chats(entity)
+
+        if verbose:
+            print(f"\033[1;33m[*] Analyzing messages (limit: {self.scrape_limit})...\033[0m")
+        results["message_analysis"] = await self._analyze_messages(entity)
+
+        if results["message_analysis"].get("urls"):
+            if verbose:
+                print("\033[1;33m[*] Analyzing shared domains...\033[0m")
+            results["domain_analysis"] = await self._domain_analysis(results["message_analysis"]["urls"])
+
+        target_id = entity.id
+        self._save_scan(target, "user", target_id, results)
+
+        if verbose:
+            self._print_user_summary(results)
+
+        return results
+
+    async def analyze_channel(self, target, verbose=True):
+        if not await self._ensure_client():
+            return {"error": "Client not available"}
+
+        if verbose:
+            print(f"\n\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;36m  TELEGRM00 - Telegram Intelligence Engine\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;37m  Target: {target}\033[0m")
+            print(f"\033[1;37m  Mode:   Channel/Group Analysis\033[0m")
+            print(f"\033[1;37m  Time:   {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m\n")
+
+        results = {
+            "meta": {
+                "target": target,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+                "type": "channel_analysis",
+            }
+        }
+
+        if verbose:
+            print("\033[1;33m[*] Resolving entity...\033[0m")
+        entity = await self._resolve_entity(target)
+        if not entity:
+            if verbose:
+                print("\033[1;31m[-] Could not resolve target\033[0m")
+            results["error"] = "Could not resolve target"
+            return results
+
+        if isinstance(entity, User):
+            if verbose:
+                print(f"\033[1;33m[!] Target is a user. Switching to user analysis.\033[0m")
+            return await self.analyze_user(target, verbose=verbose)
+
+        if verbose:
+            print("\033[1;33m[*] Fetching channel/group profile...\033[0m")
+        results["channel_profile"] = await self._get_channel_full(entity)
+
+        if verbose:
+            print("\033[1;33m[*] Fetching participants...\033[0m")
+        results["participants"] = await self._get_participants_sample(entity)
+
+        if verbose:
+            print(f"\033[1;33m[*] Analyzing messages (limit: {self.scrape_limit})...\033[0m")
+        results["message_analysis"] = await self._analyze_messages(entity)
+
+        if results["message_analysis"].get("urls"):
+            if verbose:
+                print("\033[1;33m[*] Analyzing shared domains...\033[0m")
+            results["domain_analysis"] = await self._domain_analysis(results["message_analysis"]["urls"])
+
+        if results["message_analysis"].get("suspicious_keywords_found"):
+            results["threat_indicators"] = {
+                "suspicious_keywords": results["message_analysis"]["suspicious_keywords_found"],
+                "total_suspicious_hits": sum(results["message_analysis"]["suspicious_keywords_found"].values()),
+            }
+
+        target_id = entity.id
+        self._save_scan(target, "channel", target_id, results)
+
+        if verbose:
+            self._print_channel_summary(results)
+
+        return results
+
+    async def analyze_phone(self, phone, verbose=True):
+        if not await self._ensure_client():
+            return {"error": "Client not available"}
+
+        if verbose:
+            print(f"\n\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;36m  TELEGRM00 - Telegram Intelligence Engine\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m")
+            print(f"\033[1;37m  Target: {phone}\033[0m")
+            print(f"\033[1;37m  Mode:   Phone Lookup\033[0m")
+            print(f"\033[1;36m{'='*60}\033[0m\n")
+
+        results = {
+            "meta": {
+                "target": phone,
+                "scan_time": datetime.now(timezone.utc).isoformat(),
+                "type": "phone_lookup",
+            },
+            "phone_info": {
+                "number": phone,
+                "country": _phone_country(phone),
+            }
+        }
+
+        try:
+            if verbose:
+                print("\033[1;33m[*] Looking up phone number...\033[0m")
+            from telethon.tl.functions.contacts import ImportContactsRequest, DeleteContactsRequest
+            from telethon.tl.types import InputPhoneContact
+            import random
+
+            contact = InputPhoneContact(
+                client_id=random.randint(0, 2**31),
+                phone=phone,
+                first_name="Lookup",
+                last_name=""
+            )
+            result = await self.client(ImportContactsRequest([contact]))
+
+            if result.users:
+                user = result.users[0]
+                results["user_found"] = True
+                results["user_profile"] = await self._get_user_full(user)
+                results["profile_photos"] = await self._get_user_photos(user)
+
+                try:
+                    await self.client(DeleteContactsRequest(id=[user]))
+                except Exception:
+                    pass
+
+                if verbose:
+                    print(f"\033[1;32m[+] User found: {user.first_name or ''} {user.last_name or ''} (@{user.username or 'N/A'})\033[0m")
+            else:
+                results["user_found"] = False
+                if verbose:
+                    print("\033[1;33m[!] No user found for this phone number\033[0m")
+
+            if result.imported:
+                try:
+                    if result.users:
+                        await self.client(DeleteContactsRequest(id=[result.users[0]]))
+                except Exception:
+                    pass
+
+        except Exception as e:
+            results["error"] = str(e)
+            if verbose:
+                print(f"\033[1;31m[-] Error: {e}\033[0m")
+
+        self._save_scan(phone, "phone", None, results)
+
+        if verbose and results.get("user_found"):
+            self._print_user_summary(results)
+
+        return results
+
+    def _print_user_summary(self, results):
+        reset = "\033[0m"
+        bold = "\033[1m"
+        green = "\033[32m"
+        red = "\033[31m"
+        yellow = "\033[33m"
+        cyan = "\033[36m"
+        dim = "\033[2m"
+        white = "\033[1;37m"
+
+        profile = results.get("user_profile", {})
+        msgs = results.get("message_analysis", {})
+        photos = results.get("profile_photos", [])
+        common = results.get("common_chats", [])
+
+        print(f"\n{bold}{'═'*60}{reset}")
+        print(f"{bold}  USER ANALYSIS RESULTS{reset}")
+        print(f"{bold}{'═'*60}{reset}")
+
+        print(f"\n{bold}  Profile{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        print(f"  ID:            {profile.get('id', 'N/A')}")
+        name = f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip()
+        if name:
+            print(f"  Name:          {name}")
+        if profile.get("username"):
+            print(f"  Username:      @{profile['username']}")
+        if profile.get("phone"):
+            phone = profile["phone"]
+            country = profile.get("phone_country", "")
+            print(f"  Phone:         +{phone} ({country})")
+        if profile.get("bio"):
+            bio = profile["bio"][:80]
+            print(f"  Bio:           {bio}")
+
+        flags = []
+        if profile.get("verified"):
+            flags.append(f"{green}Verified{reset}")
+        if profile.get("premium"):
+            flags.append(f"{cyan}Premium{reset}")
+        if profile.get("bot"):
+            flags.append(f"{yellow}Bot{reset}")
+        if profile.get("scam"):
+            flags.append(f"{red}SCAM{reset}")
+        if profile.get("fake"):
+            flags.append(f"{red}FAKE{reset}")
+        if profile.get("restricted"):
+            flags.append(f"{red}Restricted{reset}")
+        if flags:
+            print(f"  Flags:         {', '.join(flags)}")
+
+        if profile.get("status"):
+            print(f"  Status:        {profile['status']}")
+        if profile.get("last_seen"):
+            print(f"  Last Seen:     {profile['last_seen']}")
+        if profile.get("lang_code"):
+            print(f"  Language:      {profile['lang_code']}")
+
+        bot_analysis = profile.get("bot_analysis", {})
+        if bot_analysis and bot_analysis.get("score", 0) > 0 and not profile.get("bot"):
+            print(f"  Bot Likelihood:{yellow} {bot_analysis['score']}%{reset}")
+            for f in bot_analysis.get("factors", [])[:3]:
+                print(f"    {dim}▸ {f}{reset}")
+
+        if photos:
+            print(f"\n{bold}  Profile Photos ({len(photos)}){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for p in photos[:5]:
+                dims = f"{p.get('width', '?')}x{p.get('height', '?')}" if p.get("width") else ""
+                video = " [VIDEO]" if p.get("has_video") else ""
+                print(f"  {dim}ID: {p['id']}  {p.get('date', '')}  {dims}{video}{reset}")
+
+        if common:
+            print(f"\n{bold}  Common Chats ({len(common)}){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for ch in common[:10]:
+                username = f" (@{ch['username']})" if ch.get("username") else ""
+                members = f" [{ch['participants_count']} members]" if ch.get("participants_count") else ""
+                print(f"  {ch['title']}{username}{members}")
+            if len(common) > 10:
+                print(f"  {dim}... and {len(common) - 10} more{reset}")
+
+        if msgs and not msgs.get("error"):
+            print(f"\n{bold}  Message Analysis ({msgs.get('total_scraped', 0)} messages){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+
+            mt = msgs.get("message_types", {})
+            if mt:
+                parts = [f"{k}: {v}" for k, v in sorted(mt.items(), key=lambda x: x[1], reverse=True)]
+                print(f"  Types:         {', '.join(parts)}")
+
+            media_t = msgs.get("media_types", {})
+            if media_t:
+                parts = [f"{k}: {v}" for k, v in sorted(media_t.items(), key=lambda x: x[1], reverse=True)]
+                print(f"  Media:         {', '.join(parts)}")
+
+            stats = msgs.get("message_length_stats", {})
+            if stats:
+                print(f"  Msg Length:    avg={stats.get('avg')}, min={stats.get('min')}, max={stats.get('max')}")
+
+            langs = msgs.get("languages_detected", {})
+            if langs:
+                parts = [f"{k}: {v}" for k, v in sorted(langs.items(), key=lambda x: x[1], reverse=True)[:5]]
+                print(f"  Languages:     {', '.join(parts)}")
+
+            top_words = msgs.get("top_words", [])
+            if top_words:
+                words = [f"{w[0]}({w[1]})" for w in top_words[:10]]
+                print(f"  Top Words:     {', '.join(words)}")
+
+            top_hashtags = msgs.get("top_hashtags", [])
+            if top_hashtags:
+                tags = [f"{h[0]}({h[1]})" for h in top_hashtags[:10]]
+                print(f"  Hashtags:      {', '.join(tags)}")
+
+            top_mentions = msgs.get("top_mentions", [])
+            if top_mentions:
+                ments = [f"{m[0]}({m[1]})" for m in top_mentions[:10]]
+                print(f"  Mentions:      {', '.join(ments)}")
+
+            urls = msgs.get("urls", [])
+            if urls:
+                print(f"  URLs:          {len(urls)} unique")
+                for u in urls[:5]:
+                    print(f"    {dim}{u}{reset}")
+                if len(urls) > 5:
+                    print(f"    {dim}... and {len(urls) - 5} more{reset}")
+
+            emails = msgs.get("emails", [])
+            if emails:
+                print(f"  Emails Found:  {', '.join(emails[:10])}")
+
+            phones = msgs.get("phones", [])
+            if phones:
+                print(f"  Phones Found:  {', '.join(phones[:10])}")
+
+            patterns = msgs.get("activity_patterns", {})
+            if patterns:
+                peak = patterns.get("peak_hours", [])
+                if peak:
+                    print(f"  Peak Hours:    {', '.join(str(h) + ':00' for h in peak)}")
+                tz = patterns.get("estimated_timezone_offset")
+                if tz is not None:
+                    sign = "+" if tz >= 0 else ""
+                    print(f"  Est. Timezone: UTC{sign}{tz}")
+
+            if msgs.get("first_message_date"):
+                print(f"  Date Range:    {msgs['first_message_date'][:10]} → {msgs.get('last_message_date', '')[:10]}")
+
+            geo = msgs.get("geo_locations", [])
+            if geo:
+                print(f"  Locations:     {green}{len(geo)} shared{reset}")
+                for g in geo[:3]:
+                    print(f"    {dim}{g['lat']}, {g['lon']} ({g.get('date', '')[:10]}){reset}")
+
+            suspicious = msgs.get("suspicious_keywords_found", {})
+            if suspicious:
+                print(f"\n  {red}Suspicious Keywords:{reset}")
+                for kw, count in sorted(suspicious.items(), key=lambda x: x[1], reverse=True)[:10]:
+                    print(f"    {yellow}▸{reset} {kw}: {count}")
+
+        domains = results.get("domain_analysis", [])
+        if domains:
+            print(f"\n{bold}  Top Domains{reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for domain, count in domains[:10]:
+                print(f"  {domain:40s} {count}")
+
+        fwd = msgs.get("top_forwarded_from", []) if msgs else []
+        if fwd:
+            print(f"\n{bold}  Forwarded From (Top){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for src, count in fwd[:10]:
+                print(f"  {src:40s} {count}")
+
+        print(f"\n{bold}{'═'*60}{reset}\n")
+
+    def _print_channel_summary(self, results):
+        reset = "\033[0m"
+        bold = "\033[1m"
+        green = "\033[32m"
+        red = "\033[31m"
+        yellow = "\033[33m"
+        cyan = "\033[36m"
+        dim = "\033[2m"
+        white = "\033[1;37m"
+
+        profile = results.get("channel_profile", {})
+        msgs = results.get("message_analysis", {})
+        participants = results.get("participants", {})
+
+        print(f"\n{bold}{'═'*60}{reset}")
+        print(f"{bold}  CHANNEL/GROUP ANALYSIS RESULTS{reset}")
+        print(f"{bold}{'═'*60}{reset}")
+
+        print(f"\n{bold}  Profile{reset}")
+        print(f"{bold}  {'─'*56}{reset}")
+        print(f"  ID:            {profile.get('id', 'N/A')}")
+        if profile.get("title"):
+            print(f"  Title:         {profile['title']}")
+        if profile.get("username"):
+            print(f"  Username:      @{profile['username']}")
+        if profile.get("description"):
+            desc = profile["description"][:100]
+            print(f"  Description:   {desc}")
+
+        ch_type = "Channel" if profile.get("broadcast") else "Supergroup" if profile.get("megagroup") else "Group"
+        if profile.get("gigagroup"):
+            ch_type = "Gigagroup"
+        if profile.get("forum"):
+            ch_type += " (Forum)"
+        print(f"  Type:          {ch_type}")
+
+        if profile.get("participants_count"):
+            print(f"  Members:       {profile['participants_count']:,}")
+        if profile.get("online_count"):
+            print(f"  Online:        {profile['online_count']:,}")
+        if profile.get("admins_count"):
+            print(f"  Admins:        {profile['admins_count']}")
+        if profile.get("date"):
+            print(f"  Created:       {profile['date'][:10]}")
+
+        flags = []
+        if profile.get("verified"):
+            flags.append(f"{green}Verified{reset}")
+        if profile.get("scam"):
+            flags.append(f"{red}SCAM{reset}")
+        if profile.get("fake"):
+            flags.append(f"{red}FAKE{reset}")
+        if profile.get("restricted"):
+            flags.append(f"{red}Restricted{reset}")
+        if profile.get("noforwards"):
+            flags.append(f"{yellow}No Forwards{reset}")
+        if profile.get("slowmode_enabled"):
+            flags.append(f"{dim}Slowmode ({profile.get('slowmode_seconds', '?')}s){reset}")
+        if profile.get("join_request"):
+            flags.append(f"{dim}Join Request{reset}")
+        if flags:
+            print(f"  Flags:         {', '.join(flags)}")
+
+        if profile.get("invite_link"):
+            print(f"  Invite:        {profile['invite_link']}")
+
+        if profile.get("linked_chat_id"):
+            print(f"  Linked Chat:   {profile['linked_chat_id']}")
+
+        related = profile.get("related_chats", [])
+        if related:
+            print(f"\n{bold}  Related Chats ({len(related)}){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for ch in related[:5]:
+                username = f" (@{ch['username']})" if ch.get("username") else ""
+                print(f"  [{ch['type']}] {ch['title']}{username}")
+
+        if participants:
+            admins = participants.get("admins", [])
+            bots = participants.get("bots", [])
+            recent = participants.get("recent", [])
+
+            if admins:
+                print(f"\n{bold}  Admins ({len(admins)}){reset}")
+                print(f"{bold}  {'─'*56}{reset}")
+                for a in admins:
+                    name = f"{a.get('first_name', '')} {a.get('last_name', '')}".strip()
+                    username = f" (@{a['username']})" if a.get("username") else ""
+                    flags_str = ""
+                    if a.get("bot"):
+                        flags_str += f" {yellow}[BOT]{reset}"
+                    if a.get("premium"):
+                        flags_str += f" {cyan}[P]{reset}"
+                    print(f"  {name}{username}{flags_str}")
+
+            if bots:
+                print(f"\n{bold}  Bots ({len(bots)}){reset}")
+                print(f"{bold}  {'─'*56}{reset}")
+                for b in bots:
+                    username = f"@{b['username']}" if b.get("username") else str(b["id"])
+                    print(f"  {b.get('first_name', '')} ({username})")
+
+        if msgs and not msgs.get("error"):
+            print(f"\n{bold}  Message Analysis ({msgs.get('total_scraped', 0)} messages){reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+
+            mt = msgs.get("message_types", {})
+            if mt:
+                parts = [f"{k}: {v}" for k, v in sorted(mt.items(), key=lambda x: x[1], reverse=True)]
+                print(f"  Types:         {', '.join(parts)}")
+
+            media_t = msgs.get("media_types", {})
+            if media_t:
+                parts = [f"{k}: {v}" for k, v in sorted(media_t.items(), key=lambda x: x[1], reverse=True)]
+                print(f"  Media:         {', '.join(parts)}")
+
+            if msgs.get("views_total"):
+                print(f"  Total Views:   {msgs['views_total']:,}")
+            if msgs.get("reactions_total"):
+                print(f"  Total Reacts:  {msgs['reactions_total']:,}")
+            if msgs.get("unique_sender_count"):
+                print(f"  Unique Senders:{msgs['unique_sender_count']}")
+
+            stats = msgs.get("message_length_stats", {})
+            if stats:
+                print(f"  Msg Length:    avg={stats.get('avg')}, min={stats.get('min')}, max={stats.get('max')}")
+
+            langs = msgs.get("languages_detected", {})
+            if langs:
+                parts = [f"{k}: {v}" for k, v in sorted(langs.items(), key=lambda x: x[1], reverse=True)[:5]]
+                print(f"  Languages:     {', '.join(parts)}")
+
+            top_words = msgs.get("top_words", [])
+            if top_words:
+                words = [f"{w[0]}({w[1]})" for w in top_words[:10]]
+                print(f"  Top Words:     {', '.join(words)}")
+
+            top_hashtags = msgs.get("top_hashtags", [])
+            if top_hashtags:
+                tags = [f"{h[0]}({h[1]})" for h in top_hashtags[:10]]
+                print(f"  Hashtags:      {', '.join(tags)}")
+
+            top_mentions = msgs.get("top_mentions", [])
+            if top_mentions:
+                ments = [f"{m[0]}({m[1]})" for m in top_mentions[:10]]
+                print(f"  Mentions:      {', '.join(ments)}")
+
+            urls = msgs.get("urls", [])
+            if urls:
+                print(f"  URLs:          {len(urls)} unique")
+
+            patterns = msgs.get("activity_patterns", {})
+            if patterns:
+                peak = patterns.get("peak_hours", [])
+                if peak:
+                    print(f"  Peak Hours:    {', '.join(str(h) + ':00' for h in peak)}")
+
+            if msgs.get("first_message_date"):
+                print(f"  Date Range:    {msgs['first_message_date'][:10]} → {msgs.get('last_message_date', '')[:10]}")
+
+            fwd = msgs.get("top_forwarded_from", [])
+            if fwd:
+                print(f"\n{bold}  Top Forward Sources{reset}")
+                print(f"{bold}  {'─'*56}{reset}")
+                for src, count in fwd[:10]:
+                    print(f"  {src:40s} {count}")
+
+            top_senders = msgs.get("top_senders", [])
+            if top_senders:
+                print(f"\n{bold}  Top Senders{reset}")
+                print(f"{bold}  {'─'*56}{reset}")
+                for sid, count in top_senders[:10]:
+                    print(f"  User {sid:>15s}  {count} messages")
+
+            suspicious = msgs.get("suspicious_keywords_found", {})
+            if suspicious:
+                print(f"\n  {red}Suspicious Keywords:{reset}")
+                for kw, count in sorted(suspicious.items(), key=lambda x: x[1], reverse=True)[:10]:
+                    print(f"    {yellow}▸{reset} {kw}: {count}")
+
+        domains = results.get("domain_analysis", [])
+        if domains:
+            print(f"\n{bold}  Top Domains{reset}")
+            print(f"{bold}  {'─'*56}{reset}")
+            for domain, count in domains[:10]:
+                print(f"  {domain:40s} {count}")
+
+        threat = results.get("threat_indicators", {})
+        if threat:
+            total = threat.get("total_suspicious_hits", 0)
+            if total > 0:
+                print(f"\n{bold}{red}  THREAT INDICATORS: {total} suspicious keyword hits{reset}")
+
+        print(f"\n{bold}{'═'*60}{reset}\n")
+
+    def export_json(self, data, output_path=None):
+        if output_path is None:
+            target = data.get("meta", {}).get("target", "unknown")
+            target = re.sub(r'[^\w\-.]', '_', target)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = f"telegrm00_{target}_{ts}.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return output_path
+
+    def export_html(self, data, output_path=None):
+        if output_path is None:
+            target = data.get("meta", {}).get("target", "unknown")
+            target = re.sub(r'[^\w\-.]', '_', target)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = f"telegrm00_{target}_{ts}.html"
+
+        profile = data.get("user_profile") or data.get("channel_profile", {})
+        msgs = data.get("message_analysis", {})
+        meta = data.get("meta", {})
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>telegrm00 Report - {meta.get('target', '')}</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0f0f0f;color:#e0e0e0;padding:20px}}
+.container{{max-width:900px;margin:0 auto}}
+h1{{color:#00d4ff;font-size:1.8em;margin-bottom:5px}}
+h2{{color:#00d4ff;font-size:1.2em;margin:20px 0 10px;border-bottom:1px solid #333;padding-bottom:5px}}
+h3{{color:#aaa;font-size:0.95em;margin:10px 0 5px}}
+.header{{background:linear-gradient(135deg,#1a1a2e,#16213e);padding:25px;border-radius:12px;margin-bottom:20px;border:1px solid #333}}
+.section{{background:#1a1a1a;padding:18px;border-radius:10px;margin-bottom:15px;border:1px solid #2a2a2a}}
+.grid{{display:grid;grid-template-columns:140px 1fr;gap:6px 15px;font-size:0.9em}}
+.label{{color:#888;font-weight:600}}
+.value{{color:#e0e0e0}}
+.tag{{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.8em;margin:2px}}
+.tag-green{{background:#0a3d0a;color:#4caf50;border:1px solid #4caf50}}
+.tag-red{{background:#3d0a0a;color:#f44336;border:1px solid #f44336}}
+.tag-blue{{background:#0a1a3d;color:#2196f3;border:1px solid #2196f3}}
+.tag-yellow{{background:#3d3d0a;color:#ffeb3b;border:1px solid #ffeb3b}}
+table{{width:100%;border-collapse:collapse;font-size:0.85em;margin:8px 0}}
+th{{background:#252525;color:#aaa;text-align:left;padding:8px;border-bottom:1px solid #333}}
+td{{padding:6px 8px;border-bottom:1px solid #222}}
+.bar{{height:14px;background:linear-gradient(90deg,#00d4ff,#0066ff);border-radius:3px;min-width:2px}}
+.bar-container{{background:#222;border-radius:3px;overflow:hidden;width:100%}}
+.meta{{color:#666;font-size:0.8em;margin-top:15px;text-align:center}}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>telegrm00 Intelligence Report</h1>
+<div class="grid">
+<span class="label">Target</span><span class="value">{meta.get('target', 'N/A')}</span>
+<span class="label">Type</span><span class="value">{meta.get('type', 'N/A')}</span>
+<span class="label">Scan Time</span><span class="value">{meta.get('scan_time', 'N/A')}</span>
+</div>
+</div>
+"""
+
+        if profile:
+            html += '<div class="section"><h2>Profile</h2><div class="grid">'
+            fields = [
+                ("ID", "id"), ("Name", None), ("Username", "username"),
+                ("Bio", "bio"), ("Description", "description"),
+                ("Members", "participants_count"),
+            ]
+            for label, key in fields:
+                if key is None:
+                    val = f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip()
+                else:
+                    val = profile.get(key)
+                if val:
+                    if isinstance(val, int) and val > 999:
+                        val = f"{val:,}"
+                    html += f'<span class="label">{label}</span><span class="value">{val}</span>'
+
+            flags_html = ""
+            for flag, cls in [("verified", "green"), ("premium", "blue"), ("bot", "yellow"), ("scam", "red"), ("fake", "red")]:
+                if profile.get(flag):
+                    flags_html += f'<span class="tag tag-{cls}">{flag.upper()}</span>'
+            if flags_html:
+                html += f'<span class="label">Flags</span><span class="value">{flags_html}</span>'
+
+            html += '</div></div>'
+
+        if msgs and not msgs.get("error"):
+            html += f'<div class="section"><h2>Message Analysis ({msgs.get("total_scraped", 0)} messages)</h2>'
+
+            mt = msgs.get("message_types", {})
+            if mt:
+                html += '<h3>Message Types</h3><table><tr><th>Type</th><th>Count</th><th>Chart</th></tr>'
+                max_val = max(mt.values()) if mt.values() else 1
+                for k, v in sorted(mt.items(), key=lambda x: x[1], reverse=True):
+                    pct = int(v / max_val * 100)
+                    html += f'<tr><td>{k}</td><td>{v}</td><td><div class="bar-container"><div class="bar" style="width:{pct}%"></div></div></td></tr>'
+                html += '</table>'
+
+            langs = msgs.get("languages_detected", {})
+            if langs:
+                html += '<h3>Languages</h3><table><tr><th>Language</th><th>Count</th></tr>'
+                for k, v in sorted(langs.items(), key=lambda x: x[1], reverse=True):
+                    html += f'<tr><td>{k}</td><td>{v}</td></tr>'
+                html += '</table>'
+
+            top_words = msgs.get("top_words", [])
+            if top_words:
+                html += '<h3>Top Words</h3><table><tr><th>Word</th><th>Count</th></tr>'
+                for w, c in top_words[:15]:
+                    html += f'<tr><td>{w}</td><td>{c}</td></tr>'
+                html += '</table>'
+
+            suspicious = msgs.get("suspicious_keywords_found", {})
+            if suspicious:
+                html += '<h3 style="color:#f44336">Suspicious Keywords</h3><table><tr><th>Keyword</th><th>Count</th></tr>'
+                for kw, c in sorted(suspicious.items(), key=lambda x: x[1], reverse=True):
+                    html += f'<tr><td style="color:#f44336">{kw}</td><td>{c}</td></tr>'
+                html += '</table>'
+
+            html += '</div>'
+
+        html += f'<div class="meta">Generated by telegrm00 — {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}</div>'
+        html += '</div></body></html>'
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(html)
+        return output_path
+
+
+async def main():
+    parser = argparse.ArgumentParser(
+        prog="telegrm00",
+        description="Telegram Intelligence Engine",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Examples:\n"
+               "  telegrm00 -u @username --api-id 12345 --api-hash abc123\n"
+               "  telegrm00 -c channelname --api-id 12345 --api-hash abc123\n"
+               "  telegrm00 -p +905551234567 --api-id 12345 --api-hash abc123\n"
+               "  telegrm00 -u @username -o report.json -l 1000\n"
+               "  telegrm00 -b targets.txt --api-id 12345 --api-hash abc123\n"
+               "  telegrm00 --history\n"
+    )
+
+    parser.add_argument("-u", "--username", help="Target username (@username or username)")
+    parser.add_argument("-p", "--phone", help="Target phone number (+123456789)")
+    parser.add_argument("-c", "--channel", help="Target channel/group")
+    parser.add_argument("-o", "--output", help="Output file path (.json or .html)")
+    parser.add_argument("-f", "--format", choices=["json", "html"], default="json", help="Output format")
+    parser.add_argument("-l", "--limit", type=int, default=500, help="Message scrape limit")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Quiet mode (JSON output only)")
+    parser.add_argument("-b", "--batch", help="Batch mode: file with one target per line")
+    parser.add_argument("--api-id", type=int, help="Telegram API ID")
+    parser.add_argument("--api-hash", help="Telegram API Hash")
+    parser.add_argument("--session", help="Custom session file path")
+    parser.add_argument("--db", help="Custom database path")
+    parser.add_argument("--history", action="store_true", help="Show scan history")
+    parser.add_argument("--history-target", help="Show history for specific target")
+    parser.add_argument("--history-limit", type=int, default=50, help="History result limit")
+
+    args = parser.parse_args()
+
+    if not TELETHON_AVAILABLE:
+        print("\033[1;31m[-] Telethon is required. Install with: pip install telethon\033[0m")
+        sys.exit(1)
+
+    engine = TelegramIntelligenceEngine(
+        api_id=args.api_id,
+        api_hash=args.api_hash,
+        session_name=args.session,
+        scrape_limit=args.limit,
+        db_path=args.db,
+    )
+
+    if args.history or args.history_target:
+        history = engine._get_history(target=args.history_target, limit=args.history_limit)
+        if args.quiet:
+            print(json.dumps(history, indent=2, default=str))
+        else:
+            if not history:
+                print("No scan history found.")
+            else:
+                print(f"\n\033[1m{'Target':<35} {'Type':<10} {'ID':<15} {'Time'}\033[0m")
+                print("─" * 85)
+                for h in history:
+                    print(f"{h['target']:<35} {h['type']:<10} {str(h.get('target_id', 'N/A')):<15} {h['scan_time']}")
+        return
+
+    if args.batch:
+        if not os.path.isfile(args.batch):
+            print(f"[-] File not found: {args.batch}")
+            sys.exit(1)
+        if not args.api_id or not args.api_hash:
+            print("[-] --api-id and --api-hash are required")
+            sys.exit(1)
+
+        async with engine.client:
+            with open(args.batch, "r") as f:
+                targets = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            all_results = {}
+            for i, target in enumerate(targets):
+                if not args.quiet:
+                    print(f"\n\033[1;35m[{i+1}/{len(targets)}] Processing: {target}\033[0m")
+                if target.startswith("+"):
+                    r = await engine.analyze_phone(target, verbose=not args.quiet)
+                elif target.startswith("channel:"):
+                    r = await engine.analyze_channel(target[8:], verbose=not args.quiet)
+                else:
+                    r = await engine.analyze_user(target, verbose=not args.quiet)
+                all_results[target] = r
+                await asyncio.sleep(2)
+
+            if args.quiet:
+                print(json.dumps(all_results, indent=2, default=str, ensure_ascii=False))
+            if args.output:
+                fmt = args.format
+                if args.output.endswith(".html"):
+                    fmt = "html"
+                if fmt == "html":
+                    for target, data in all_results.items():
+                        safe_target = re.sub(r'[^\w\-.]', '_', target)
+                        path = engine.export_html(data, f"{args.output.rsplit('.', 1)[0]}_{safe_target}.html")
+                        if not args.quiet:
+                            print(f"\033[1;32m[+] Report saved: {path}\033[0m")
+                else:
+                    path = engine.export_json(all_results, args.output)
+                    if not args.quiet:
+                        print(f"\033[1;32m[+] Report saved: {path}\033[0m")
+        return
+
+    target = None
+    mode = None
+    if args.username:
+        target = args.username
+        mode = "user"
+    elif args.phone:
+        target = args.phone
+        mode = "phone"
+    elif args.channel:
+        target = args.channel
+        mode = "channel"
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+    if not args.api_id or not args.api_hash:
+        print("[-] --api-id and --api-hash are required for Telegram API access")
+        sys.exit(1)
+
+    if not engine.validate_target(target):
+        print(f"[-] Invalid target format: {target}")
+        sys.exit(1)
+
+    async with engine.client:
+        if mode == "phone":
+            results = await engine.analyze_phone(target, verbose=not args.quiet)
+        elif mode == "channel":
+            results = await engine.analyze_channel(target, verbose=not args.quiet)
+        else:
+            results = await engine.analyze_user(target, verbose=not args.quiet)
+
+    if args.quiet and results:
+        print(json.dumps(results, indent=2, default=str, ensure_ascii=False))
+
+    if args.output and results:
+        fmt = args.format
+        if args.output.endswith(".html"):
+            fmt = "html"
+        if fmt == "html":
+            path = engine.export_html(results, args.output)
+        else:
+            path = engine.export_json(results, args.output)
+        if not args.quiet:
+            print(f"\033[1;32m[+] Report saved: {path}\033[0m")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,0 +1,25 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${CYAN}========================================================${NC}"
+echo -e "           RESCUEXY BOOT ANALYZER"
+echo -e "${CYAN}========================================================${NC}"
+
+echo -e "\n${YELLOW}[ BOOT MODE ]${NC}"
+[ -d /sys/firmware/efi ] && echo -e "${GREEN}UEFI${NC}" || echo -e "${RED}Legacy BIOS${NC}"
+
+echo -e "\n${YELLOW}[ EFI PARTITIONS ]${NC}"
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT | grep -E "vfat|fat32" || echo "No EFI partition found"
+
+echo -e "\n${YELLOW}[ GRUB DETECTION ]${NC}"
+for disk in $(lsblk -dn -o NAME | head -5); do
+    grub=$(dd if=/dev/$disk bs=512 count=1 2>/dev/null | strings | grep -i grub)
+    [ -n "$grub" ] && echo -e "/dev/$disk: ${GREEN}GRUB Found${NC}" || echo "/dev/$disk: No GRUB"
+done
+
+echo -e "\n${YELLOW}[ OS-PROBER ]${NC}"
+which os-prober &>/dev/null && os-prober || echo "os-prober not installed"

@@ -1,0 +1,46 @@
+##
+## Extra Hardened Sudoers Configuration
+##
+## note: To prevent an attacker from reading the terminal history, no logs are kept.
+
+# 1. Strict Umask for Sudoed Commands
+# Ensures files created via sudo are only accessible by root (umask 0077)
+Defaults umask_override
+Defaults umask=0077
+
+# 2. Environment Management
+# Reset environment and only keep essential, safe variables.
+Defaults env_reset
+Defaults env_keep -= "HOME MAIL"
+Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# 3. Authentication Hardening
+# Limit password attempts to prevent brute-force.
+Defaults passwd_tries=3
+Defaults badpass_message="Access Denied: Authentication failure."
+# Reduced timeout (2 minutes) to prevent session hijacking.
+Defaults timestamp_timeout=2
+
+# 4. Security Enforcement
+# Require a real TTY for sudo.
+Defaults requiretty
+# Execute commands in a separate pseudo-terminal (PTY) to prevent terminal hijacking/escapes.
+Defaults use_pty
+
+# 5. Disable lecture 
+Defaults lecture="never"
+
+# 6. Password Feedback
+#Defaults pwfeedback
+
+# 7. Protect against sub-command escapes
+# These are newer sudo features for deeper auditing/restriction.
+# Defaults intercept
+# Defaults log_subcmds
+
+# 8. Failed attempts notification (System level)
+Defaults mail_badpass
+Defaults mailto="root"
+
+# 9. No external logging 
+# We avoid dedicated log files to minimize footprints.

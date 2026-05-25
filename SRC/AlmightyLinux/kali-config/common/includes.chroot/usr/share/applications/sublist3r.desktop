@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=sublist3r
+Comment=Fast subdomains enumeration tool for penetration testers
+Comment[tr]=Sızma testleri için hızlı alt alan adı numaralandırma aracı
+Comment[es]=Herramienta de enumeración de subdominios rápida
+Comment[fr]=Outil d'énumération de sous-domaines rapide
+Comment[de]=Schnelles Subdomain-Aufzählungstool
+Comment[ar]=أداة سرد النطاقات الفرعية السريعة
+Comment[ru]=Инструмент быстрого перечисления поддоменов
+Comment[zh]=快速子域枚举工具
+Comment[ja]=高速サブドメイン列挙ツール
+Comment[ko]=빠른 하위 도메인 열거 도구
+Comment[pt]=Ferramenta rápida de enumeração de subdomínios
+Comment[it]=Strumento di enumerazione veloce di sottodomini
+Comment[nl]=Snelle subdomeinen enumeratietool
+Comment[sv]=Snabbt verktyg för underdomänsuppräkning
+Comment[pl]=Szybkie narzędzie do wyliczania subdomen
+Exec=mate-terminal -- bash -c "sublist3r -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

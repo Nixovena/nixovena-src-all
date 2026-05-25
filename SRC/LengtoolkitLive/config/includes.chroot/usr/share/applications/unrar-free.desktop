@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Unrar-free
+Comment=LengToolkit - unrar-free
+Exec=mate-terminal -- bash -c "unrar-free --help; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

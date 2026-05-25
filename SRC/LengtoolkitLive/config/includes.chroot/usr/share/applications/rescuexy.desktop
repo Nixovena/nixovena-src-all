@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Rescuexy Framework
+Comment=LengToolkit - System Recovery Tools Framework
+Exec=mate-terminal -- bash -c "sudo rescuexy; exec bash"
+Icon=/usr/share/icons/lengtoolkit/rescuexy.png
+Terminal=false
+Type=Application
+Categories=LengToolkit;

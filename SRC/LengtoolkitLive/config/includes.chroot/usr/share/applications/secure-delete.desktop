@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Secure-delete
+Comment=LengToolkit - secure-delete
+Exec=mate-terminal -- bash -c "secure-delete; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

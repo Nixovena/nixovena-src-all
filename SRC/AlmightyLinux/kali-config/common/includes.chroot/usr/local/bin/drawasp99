@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+
+import argparse
+import random
+import time
+import sys
+import os
+import json
+import re
+import urllib.parse
+import urllib.request
+import urllib.error
+import ssl
+import hashlib
+from datetime import datetime
+
+VERSION = "1.0"
+
+RED = "\033[91m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+CYAN = "\033[96m"
+MAGENTA = "\033[95m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.2151.97",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0",
+    "Mozilla/5.0 (X11; Fedora; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Vivaldi/6.5.3206.50",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0",
+    "Mozilla/5.0 (X11; Linux i686; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0",
+    "Mozilla/5.0 (Android 13; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0",
+    "Mozilla/5.0 (Linux; Android 12; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+]
+
+DORKS = {
+    "sql": [
+        "inurl:php?id=", "inurl:asp?id=", "inurl:index.php?id=",
+        "inurl:article.php?id=", "inurl:page.php?id=", "inurl:read.php?id=",
+        "inurl:show.php?id=", "inurl:product.php?id=", "inurl:detail.php?id=",
+        "inurl:news.php?id=", "inurl:item.php?id=", "inurl:view.php?id=",
+        "inurl:gallery.php?id=", "inurl:category.php?id=", "inurl:content.php?id=",
+        'inurl:".php?cat="', 'inurl:".php?pid="', 'inurl:".php?nid="',
+        'inurl:".asp?id="', 'inurl:".aspx?id="', 'inurl:".jsp?id="',
+    ],
+    "xss": [
+        "inurl:search.php?q=", "inurl:results.php?keyword=",
+        "inurl:find.php?str=", "inurl:query=",
+        "intext:search results for", "inurl:search?q=",
+        "inurl:redirect?url=", "inurl:return?url=",
+        "inurl:callback=", "inurl:next=", "inurl:dest=",
+        "inurl:redirect_uri=", "inurl:continue=",
+    ],
+    "config": [
+        "ext:xml config", "ext:conf config", "ext:cnf config",
+        "ext:ini config", "ext:env config", "ext:cfg config",
+        "ext:yaml config", "ext:yml config", "ext:toml config",
+        "ext:properties config", 'intitle:"index of" ".env"',
+        'intitle:"index of" "config.php"',
+        'intitle:"index of" "wp-config.php"',
+        'ext:json "password"', 'ext:json "api_key"',
+    ],
+    "backup": [
+        "ext:bkp", "ext:bak", "ext:old", "ext:backup",
+        "ext:sql.gz", "ext:tar.gz backup",
+        'intitle:"index of" "backup"',
+        "ext:sql.bz2", "ext:zip backup",
+        'intitle:"index of" "db_backup"',
+        'intitle:"index of" ".sql"',
+        "ext:sql.zip", "ext:dump",
+        'intitle:"index of" "database"',
+        'ext:sql "CREATE TABLE"',
+    ],
+    "directories": [
+        "intitle:index.of", "intitle:index of /config",
+        "intitle:index of /admin", "intitle:index of /wp-content/uploads",
+        "intitle:index of /private", "intitle:index of /secret",
+        "intitle:index of /tmp", "intitle:index of /backup",
+        "intitle:index of /logs", "intitle:index of /includes",
+        "intitle:index of /upload", "intitle:index of /data",
+        "intitle:index of /db", "intitle:index of /sql",
+        "intitle:index of /conf", "intitle:index of /cgi-bin",
+        "intitle:index of /.git", "intitle:index of /.svn",
+    ],
+    "cameras": [
+        "inurl:view/view.shtml", "inurl:ViewerFrame?Mode=",
+        'intitle:"Live View / - AXIS"',
+        'intitle:"Network Camera NetworkCamera"',
+        'inurl:"/view.shtml"', 'intitle:"IP Camera"',
+        "inurl:CgiStart?page=Single", "inurl:video.mjpg",
+        'intitle:"webcamXP 5"', "inurl:lvappl",
+        'intitle:"Axis Video Server"',
+        'inurl:"/webcam.html"',
+    ],
+    "documents": [
+        "ext:pdf confidential", "ext:doc restrict",
+        "ext:xls password", "ext:txt login",
+        'ext:xlsx "internal use only"',
+        'ext:pptx "not for distribution"',
+        "ext:docx confidential",
+        'ext:pdf "do not distribute"',
+        'ext:pdf "draft"', 'ext:doc "proprietary"',
+        "ext:odt confidential", "ext:rtf password",
+    ],
+    "wordpress": [
+        "inurl:wp-content/uploads", "inurl:wp-config.php.bak",
+        'intitle:"Index of /wp-content/plugins"',
+        "inurl:wp-admin/admin-ajax.php",
+        "inurl:wp-login.php", "inurl:wp-includes/",
+        "inurl:xmlrpc.php", "inurl:wp-json/wp/v2/users",
+        'intitle:"Index of /wp-content/themes"',
+        "inurl:wp-content/debug.log",
+        'intitle:"index of" "wp-config.php.save"',
+        "inurl:wp-cron.php",
+    ],
+    "database": [
+        'ext:sql intext:"INSERT INTO"', "ext:db database",
+        "ext:sqlite", "ext:mdb",
+        'ext:sql "CREATE DATABASE"',
+        'ext:sql "DROP TABLE"',
+        'ext:sql intext:"phpMyAdmin"',
+        "ext:accdb", "ext:dbf",
+        'intitle:"phpMyAdmin" "Welcome to phpMyAdmin"',
+        'inurl:"phpmyadmin/index.php"',
+        "inurl:adminer.php", "inurl:dbadmin",
+    ],
+    "passwords": [
+        'intext:"password" ext:txt', "inurl:passwords.txt",
+        'intext:"db_password="', 'ext:json intext:"password"',
+        'ext:log "password"', 'ext:csv "password"',
+        'inurl:"credentials"', 'intext:"passwd" ext:txt',
+        'ext:yml "password:"', 'ext:conf "password"',
+        'intitle:"index of" "passwd"', 'ext:env "PASSWORD"',
+        'ext:env "DB_PASSWORD"', 'ext:env "SECRET_KEY"',
+    ],
+    "login": [
+        "inurl:admin/login", "inurl:administrator/login",
+        "inurl:user/login", "inurl:cpanel",
+        'intitle:"admin login"', 'intitle:"administrator login"',
+        'intitle:"control panel" login',
+        "inurl:wp-login.php", "inurl:admin.php",
+        "inurl:login.asp", "inurl:login.aspx",
+        "inurl:auth/login", "inurl:signin",
+        "inurl:dashboard/login", "inurl:manage/login",
+    ],
+    "cloud": [
+        "site:s3.amazonaws.com", "site:blob.core.windows.net",
+        "site:storage.googleapis.com",
+        "site:digitaloceanspaces.com",
+        "site:firebaseio.com",
+        'inurl:"s3.amazonaws.com"',
+        'inurl:"storage.googleapis.com"',
+        "site:herokuapp.com", "site:netlify.app",
+        "site:vercel.app",
+        'intext:"AKIA" ext:txt', 'intext:"AKIA" ext:env',
+        'site:trello.com intext:"password"',
+    ],
+    "git": [
+        'intitle:"index of" ".git"',
+        "inurl:/.git/config", "inurl:/.git/HEAD",
+        "inurl:/.gitignore", "inurl:/.gitmodules",
+        'intitle:"index of" ".svn"',
+        "inurl:/.hg/", "inurl:/.bzr/",
+        "inurl:/.env.local", "inurl:/.env.production",
+        "inurl:/.env.development",
+        "inurl:/.dockerenv", "inurl:/Dockerfile",
+        "inurl:/docker-compose.yml",
+    ],
+    "email": [
+        'ext:txt "email" "password"',
+        'ext:csv "email" "password"',
+        'ext:xlsx "email" "password"',
+        'ext:sql "email" "password"',
+        'intext:"@gmail.com" ext:txt',
+        'intext:"@yahoo.com" ext:txt',
+        'intext:"email" "username" "password" ext:csv',
+        'ext:log "email"',
+        'intext:"mail" "credentials" ext:txt',
+    ],
+    "api": [
+        "inurl:api/v1", "inurl:api/v2", "inurl:api/v3",
+        "inurl:api/swagger", "inurl:swagger-ui",
+        "inurl:api-docs", "inurl:graphql",
+        "inurl:rest/api", "inurl:api/config",
+        'inurl:"api_key="', 'inurl:"access_token="',
+        'ext:json "api_key"', 'ext:json "secret"',
+        "inurl:/api/debug", 'intitle:"Swagger UI"',
+        'intitle:"API Documentation"',
+    ],
+    "iot": [
+        'intitle:"RouterOS" login',
+        'intitle:"mikrotik" login',
+        'intitle:"NETGEAR" inurl:login',
+        'intitle:"D-Link" inurl:login',
+        "inurl:cgi-bin/luci", 'intitle:"OpenWrt"',
+        'intitle:"Printer" inurl:hp/device',
+        'intitle:"UPS" inurl:status',
+        'intitle:"NAS" login',
+        'intitle:"Synology" login',
+    ],
+    "admin": [
+        "inurl:/admin/", "inurl:/administrator/",
+        "inurl:/panel/", "inurl:/cpanel/",
+        "inurl:/manager/", "inurl:/console/",
+        'intitle:"Dashboard" login',
+        'intitle:"Admin Panel"',
+        "inurl:/phpmyadmin/", "inurl:/adminer/",
+        "inurl:/webmin/", "inurl:/cockpit/",
+        "inurl:/_admin/", "inurl:/sysadmin/",
+    ],
+    "sensitive": [
+        'ext:pem "PRIVATE KEY"', 'ext:key "PRIVATE KEY"',
+        'ext:ppk "PuTTY"', 'ext:jks keystore',
+        'ext:p12 certificate', 'ext:pfx certificate',
+        "inurl:id_rsa", "inurl:id_dsa", "inurl:id_ecdsa",
+        'ext:log "error" "password"',
+        'ext:log "warning" "credentials"',
+        "inurl:/.ssh/", "inurl:/.gnupg/",
+        'ext:crt "BEGIN CERTIFICATE"',
+        'ext:cer "BEGIN CERTIFICATE"',
+    ],
+    "cve": [
+        'intitle:"Apache Struts" inurl:showcase',
+        'intitle:"JBoss" inurl:management',
+        'intitle:"Tomcat" inurl:manager',
+        "inurl:wp-content/plugins/revslider",
+        'intitle:"Jenkins" inurl:login',
+        'intitle:"Grafana" login',
+        'intitle:"Kibana" inurl:app',
+        'intitle:"Elasticsearch" inurl:_cat',
+        'intitle:"Solr Admin"',
+        'intitle:"Apache2 Ubuntu Default Page"',
+        'intitle:"Welcome to nginx"',
+    ],
+    "subdomain": [
+        "site:*.{target}", "inurl:dev.", "inurl:staging.",
+        "inurl:test.", "inurl:stage.", "inurl:beta.",
+        "inurl:demo.", "inurl:sandbox.", "inurl:internal.",
+        "inurl:uat.", "inurl:preprod.", "inurl:qa.",
+        "inurl:api.", "inurl:admin.", "inurl:mail.",
+        "inurl:vpn.", "inurl:remote.", "inurl:portal.",
+    ],
+}
+
+
+def search_google(query, num_results):
+    encoded_query = urllib.parse.quote(query)
+    url = f"https://www.google.com/search?q={encoded_query}&num={num_results}&hl=en"
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    req = urllib.request.Request(url, headers=headers)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
+            return resp.read().decode('utf-8', errors='ignore')
+    except Exception:
+        return None
+
+
+def search_bing(query, num_results):
+    encoded_query = urllib.parse.quote(query)
+    url = f"https://www.bing.com/search?q={encoded_query}&count={num_results}"
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    req = urllib.request.Request(url, headers=headers)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
+            return resp.read().decode('utf-8', errors='ignore')
+    except Exception:
+        return None
+
+
+def search_duckduckgo(query, num_results):
+    encoded_query = urllib.parse.quote(query)
+    url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    req = urllib.request.Request(url, headers=headers)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=20) as resp:
+            return resp.read().decode('utf-8', errors='ignore')
+    except Exception:
+        return None
+
+
+SEARCH_ENGINES = {
+    "google": search_google,
+    "bing": search_bing,
+    "duckduckgo": search_duckduckgo,
+}
+
+BLOCKED_DOMAINS = {
+    "google.com", "google.co", "googleapis.com", "gstatic.com",
+    "bing.com", "microsoft.com", "msn.com",
+    "duckduckgo.com", "duck.com",
+    "yahoo.com", "yimg.com",
+    "accounts.google.com", "support.google.com",
+    "maps.google.com", "translate.google.com",
+}
+
+
+def extract_urls(html_content, engine="google"):
+    if not html_content:
+        return []
+    results = []
+
+    if engine == "google":
+        patterns = [
+            re.findall(r'href=["\']\/url\?q=([^"\'&]+)', html_content),
+            re.findall(r'<a href="(https?://[^"]+)"', html_content),
+        ]
+    elif engine == "bing":
+        patterns = [
+            re.findall(r'<a[^>]+href="(https?://[^"]+)"', html_content),
+        ]
+    elif engine == "duckduckgo":
+        patterns = [
+            re.findall(r'href="(https?://[^"]+)"', html_content),
+            re.findall(r'<a[^>]+rel="nofollow"[^>]+href="(https?://[^"]+)"', html_content),
+        ]
+    else:
+        patterns = [re.findall(r'href="(https?://[^"]+)"', html_content)]
+
+    for url_list in patterns:
+        for url in url_list:
+            url = urllib.parse.unquote(url)
+            parsed = urllib.parse.urlparse(url)
+            domain = parsed.netloc.lower().lstrip("www.")
+            if not url.startswith("http"):
+                continue
+            if any(blocked in domain for blocked in BLOCKED_DOMAINS):
+                continue
+            if "/search?" in url or "/url?" in url:
+                continue
+            results.append(url)
+
+    return list(dict.fromkeys(results))
+
+
+def setup_proxy(proxy_host, proxy_port):
+    try:
+        import socks
+        import socket
+        socks.set_default_proxy(socks.SOCKS5, proxy_host, proxy_port)
+        socket.socket = socks.socksocket
+        print(f"{GREEN}[+] SOCKS5 proxy -> {proxy_host}:{proxy_port}{RESET}")
+        return True
+    except ImportError:
+        print(f"{YELLOW}[!] PySocks not installed, proxy not available{RESET}")
+        return False
+    except Exception as e:
+        print(f"{RED}[!] Proxy error: {e}{RESET}")
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="drawasp99",
+        description=f"drawasp99 v{VERSION} - Google Dorking & Recon Tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  drawasp99 -t example.com
+  drawasp99 -t example.com -c sql
+  drawasp99 -t example.com -c all -n 20
+  drawasp99 -q "inurl:admin login" -n 15
+  drawasp99 -t example.com --engine bing
+  drawasp99 -t example.com -o results.json --json
+  drawasp99 -t example.com --proxy-host 127.0.0.1 --proxy-port 9050
+
+Categories:
+  """ + ", ".join(sorted(DORKS.keys()))
+    )
+    parser.add_argument("-t", "--target", help="Target domain")
+    parser.add_argument("-c", "--category", choices=list(DORKS.keys()) + ["all"], help="Dork category")
+    parser.add_argument("-q", "--query", help="Custom search query")
+    parser.add_argument("-n", "--num", type=int, default=10, help="Results per query (default: 10)")
+    parser.add_argument("-o", "--output", help="Output file")
+    parser.add_argument("-s", "--silent", action="store_true", help="Silent mode (URLs only)")
+    parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output format")
+    parser.add_argument("--engine", choices=["google", "bing", "duckduckgo", "all"], default="google", help="Search engine (default: google)")
+    parser.add_argument("--delay-min", type=float, default=2.0, help="Min delay between requests (default: 2.0)")
+    parser.add_argument("--delay-max", type=float, default=6.0, help="Max delay between requests (default: 6.0)")
+    parser.add_argument("--proxy-host", help="SOCKS5 proxy host")
+    parser.add_argument("--proxy-port", type=int, help="SOCKS5 proxy port")
+    parser.add_argument("--version", action="version", version=f"drawasp99 v{VERSION}")
+
+    args = parser.parse_args()
+
+    if not args.target and not args.query and not args.category:
+        parser.print_help()
+        sys.exit(1)
+
+    if args.proxy_host and args.proxy_port:
+        setup_proxy(args.proxy_host, args.proxy_port)
+
+    if not args.silent:
+        print(f"{CYAN}{BOLD}drawasp99 v{VERSION} - Google Dorking & Recon{RESET}")
+        print(f"{DIM}{'=' * 50}{RESET}")
+        if args.target:
+            print(f"{CYAN}[*] Target: {args.target}{RESET}")
+        print(f"{CYAN}[*] Engine: {args.engine}{RESET}")
+        print(f"{CYAN}[*] Results per query: {args.num}{RESET}")
+        print()
+
+    queries = []
+    query_metadata = []
+
+    if args.query:
+        dork_query = args.query
+        if args.target:
+            dork_query = f"site:{args.target} {dork_query}"
+        queries.append(dork_query)
+        query_metadata.append({"query": dork_query, "category": "custom"})
+    elif args.category:
+        categories = list(DORKS.keys()) if args.category == "all" else [args.category]
+        for cat in categories:
+            for dork in DORKS[cat]:
+                dork_query = dork
+                if args.target:
+                    if "{target}" in dork_query:
+                        dork_query = dork_query.replace("{target}", args.target)
+                    else:
+                        dork_query = f"site:{args.target} {dork_query}"
+                elif "{target}" in dork_query:
+                    continue
+                queries.append(dork_query)
+                query_metadata.append({"query": dork_query, "category": cat})
+    elif args.target:
+        for cat, dork_list in DORKS.items():
+            for dork in dork_list:
+                dork_query = dork
+                if "{target}" in dork_query:
+                    dork_query = dork_query.replace("{target}", args.target)
+                else:
+                    dork_query = f"site:{args.target} {dork_query}"
+                queries.append(dork_query)
+                query_metadata.append({"query": dork_query, "category": cat})
+
+    all_results = set()
+    json_results = []
+    engines_to_use = list(SEARCH_ENGINES.keys()) if args.engine == "all" else [args.engine]
+    total_queries = len(queries) * len(engines_to_use)
+    current = 0
+
+    for idx, dork_query in enumerate(queries):
+        meta = query_metadata[idx] if idx < len(query_metadata) else {}
+
+        for engine_name in engines_to_use:
+            current += 1
+            search_func = SEARCH_ENGINES[engine_name]
+
+            if not args.silent:
+                progress = f"[{current}/{total_queries}]"
+                print(f"{YELLOW}{progress} [{engine_name}] {dork_query}{RESET}")
+
+            delay = random.uniform(args.delay_min, args.delay_max)
+            time.sleep(delay)
+
+            raw_html = search_func(dork_query, args.num)
+            found_urls = extract_urls(raw_html, engine_name)
+
+            if found_urls:
+                for result_url in found_urls:
+                    if result_url not in all_results:
+                        all_results.add(result_url)
+                        if args.silent:
+                            print(result_url)
+                        else:
+                            print(f"  {GREEN}[+] {result_url}{RESET}")
+                        if args.json_output:
+                            json_results.append({
+                                "url": result_url,
+                                "query": dork_query,
+                                "category": meta.get("category", "custom"),
+                                "engine": engine_name,
+                                "timestamp": datetime.now().isoformat(),
+                            })
+            else:
+                if not args.silent:
+                    print(f"  {DIM}[-] No results{RESET}")
+
+    if not args.silent:
+        print(f"\n{CYAN}{'=' * 50}{RESET}")
+        print(f"{GREEN}[+] Total unique URLs found: {len(all_results)}{RESET}")
+        print(f"{CYAN}[*] Queries executed: {total_queries}{RESET}")
+
+    if args.output and all_results:
+        if args.json_output:
+            output_data = {
+                "tool": f"drawasp99 v{VERSION}",
+                "target": args.target,
+                "timestamp": datetime.now().isoformat(),
+                "total_results": len(all_results),
+                "queries_executed": total_queries,
+                "engine": args.engine,
+                "results": json_results,
+            }
+            with open(args.output, "w", encoding="utf-8") as out_file:
+                json.dump(output_data, out_file, indent=2, ensure_ascii=False)
+        else:
+            with open(args.output, "w", encoding="utf-8") as out_file:
+                for result_url in sorted(all_results):
+                    out_file.write(f"{result_url}\n")
+        if not args.silent:
+            print(f"{GREEN}[+] Results saved to: {args.output}{RESET}")
+
+
+if __name__ == "__main__":
+    main()

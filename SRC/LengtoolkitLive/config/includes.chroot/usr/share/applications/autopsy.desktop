@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Autopsy
+Comment=LengToolkit - Web-based Forensic Browser
+Exec=mate-terminal -- bash -c "autopsyguide; exec bash"
+Icon=/usr/share/icons/lengtoolkit/autopsy.png
+Terminal=false
+Type=Application
+Categories=LengToolkit;

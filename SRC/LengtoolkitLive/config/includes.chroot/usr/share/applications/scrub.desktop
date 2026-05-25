@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Scrub
+Comment=LengToolkit - scrub (Iterative Disk Sanitization)
+Exec=mate-terminal -- bash -c "scrub; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

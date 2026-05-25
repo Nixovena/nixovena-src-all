@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+import sys
+import os
+
+APP_DIR = "/opt/almighty-osint-ai"
+if APP_DIR not in sys.path:
+    sys.path.insert(0, APP_DIR)
+
+if not os.path.isdir(APP_DIR):
+    print(f"Error: {APP_DIR} not found", file=sys.stderr)
+    sys.exit(1)
+
+from almighty_osint_ai import main
+
+if __name__ == "__main__":
+    main()

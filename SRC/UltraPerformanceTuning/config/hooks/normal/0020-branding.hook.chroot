@@ -1,0 +1,43 @@
+#!/bin/bash
+set -e
+
+# This hook replaces default XFCE and Debian wallpaper paths with the UPT default wallpaper.
+# This ensures that when XFCE detects an unrecognized monitor, it falls back to the UPT wallpaper instead of the default Debian wallpaper.
+
+echo "Branding: Overriding default system wallpapers with UPT wallpaper..."
+
+# 1. Redirect Debian desktop-base defaults
+mkdir -p /usr/share/images/desktop-base
+mkdir -p /etc/alternatives
+
+# Force update-alternatives to point to the UPT wallpaper
+rm -f /etc/alternatives/desktop-background
+ln -s /usr/share/wallpapers/upt/default.png /etc/alternatives/desktop-background
+
+rm -f /usr/share/images/desktop-base/desktop-background
+ln -s /usr/share/wallpapers/upt/default.png /usr/share/images/desktop-base/desktop-background
+
+rm -f /usr/share/images/desktop-base/default
+ln -s /usr/share/wallpapers/upt/default.png /usr/share/images/desktop-base/default
+
+# Ensure active-theme directories also point to the UPT wallpaper
+if [ -d /usr/share/images/desktop-base/active-theme/wallpaper/contents/images ]; then
+    rm -rf /usr/share/images/desktop-base/active-theme/wallpaper/contents/images/*
+    # Link the UPT wallpaper for all expected resolution sizes
+    for size in 1024x768 1280x720 1280x800 1280x1024 1600x1200 1920x1080 1920x1200 2560x1440 2560x1600 3840x2160; do
+        ln -sf /usr/share/wallpapers/upt/default.png /usr/share/images/desktop-base/active-theme/wallpaper/contents/images/${size}.png
+        ln -sf /usr/share/wallpapers/upt/default.png /usr/share/images/desktop-base/active-theme/wallpaper/contents/images/${size}.svg
+    done
+fi
+
+# 2. Redirect XFCE default wallpaper folder
+mkdir -p /usr/share/backgrounds/xfce
+rm -f /usr/share/backgrounds/xfce/xfce-blue.jpg
+ln -s /usr/share/wallpapers/upt/default.png /usr/share/backgrounds/xfce/xfce-blue.jpg
+
+# 3. Redirect LightDM greeter default background
+mkdir -p /usr/share/backgrounds
+rm -f /usr/share/backgrounds/debian-theme.png
+ln -s /usr/share/wallpapers/upt/default.png /usr/share/backgrounds/debian-theme.png
+
+exit 0

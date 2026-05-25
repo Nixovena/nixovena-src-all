@@ -1,0 +1,12 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - ext4magic Helper"
+echo "--------------------------------------------------------"
+echo "Recover deleted files from ext3/ext4 file systems."
+echo ""
+echo "  sudo ext4magic /dev/sdX -M             : Restore all possible files"
+echo "  sudo ext4magic /dev/sdX -m             : Restore all deleted files"
+echo "  sudo ext4magic /dev/sdX -L             : List all files on the file system"
+echo "  sudo ext4magic /dev/sdX -l             : List all deleted files"
+echo "  sudo ext4magic /dev/sdX -r -f user/doc : Restore a specific file"
+echo "--------------------------------------------------------"

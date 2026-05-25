@@ -1,0 +1,32 @@
+#!/bin/bash
+set -e
+
+# Slarpx Final Hardening Hook - Build Artifact Cleanup
+echo "[*] Final cleanup and hardening..."
+
+# 1. Remove all custom source code (binaries already compiled)
+if [ -d "/usr/src" ]; then
+    rm -rf /usr/src/*
+    echo "[+] Removed /usr/src contents."
+fi
+
+# 2. Clear apt cache and temporary build files
+apt-get clean
+rm -rf /tmp/* /var/tmp/*
+
+# 3. Remove build logs if any exist in the chroot
+rm -f /var/log/alternatives.log /var/log/bootstrap.log /var/log/dpkg.log
+
+# 4. Clear shell history artifacts
+rm -f /root/.bash_history /root/.wget-hsts
+rm -rf /root/.cache
+
+# 5. Clear machine-id for unique generation on first boot
+truncate -s 0 /etc/machine-id 2>/dev/null || true
+rm -f /var/lib/dbus/machine-id 2>/dev/null || true
+
+# 6. Remove leftover package manager state
+rm -f /var/cache/apt/*.bin
+rm -rf /var/lib/apt/lists/*
+
+echo "[+] Final cleanup completed. Distribution is ready."

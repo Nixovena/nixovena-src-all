@@ -1,0 +1,1994 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Author: Nixovena Labs
+
+import sys
+import os
+import re
+import json
+import time
+import hashlib
+import argparse
+from datetime import datetime, timezone, timedelta
+from urllib.parse import quote_plus
+from collections import defaultdict
+from typing import Optional, Dict, List, Any, Tuple
+from dataclasses import dataclass, field, asdict
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] DeepChainTK requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+try:
+    import requests
+except ImportError:
+    sys.exit("[!] Missing dependency: requests\n    Install: pip install requests")
+
+sys.dont_write_bytecode = True
+
+VERSION = "1.1.0"
+REPORT_DIR = os.path.expanduser("~/.deepchaintk/reports")
+SAT_PER_BTC = 100_000_000
+WEI_PER_ETH = 10**18
+REQUEST_TIMEOUT = 20
+MAX_TX_DISPLAY = 25
+
+
+class C:
+    RST = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RED = "\033[38;2;255;85;85m"
+    GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"
+    BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"
+    PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"
+    CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"
+    GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color, text):
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = f"""
+{C.PINK}
+⠀⠀⠀⠀⣿⡇⠀⢸⣿⡇⠀⠀⠀⠀
+⠸⠿⣿⣿⣿⡿⠿⠿⣿⣿⣿⣶⣄⠀
+⠀⠀⢸⣿⣿⡇⠀⠀⠀⠈⣿⣿⣿⠀
+⠀⠀⢸⣿⣿⡇⠀⠀⢀⣠⣿⣿⠟⠀
+⠀⠀⢸⣿⣿⡿⠿⠿⠿⣿⣿⣥⣄⠀
+⠀⠀⢸⣿⣿⡇⠀⠀⠀⠀⢻⣿⣿⣧
+⠀⠀⢸⣿⣿⡇⠀⠀⠀⠀⣼⣿⣿⣿
+⢰⣶⣿⣿⣿⣷⣶⣶⣾⣿⣿⠿⠛⠁
+⠀⠀⠀⠀⣿⡇⠀⢸⣿⡇⠀⠀⠀⠀
+{C.RST}
+   {C.GRAY}v{VERSION} deepchaintk - Blockchain Forensics & Crypto OSINT{C.RST}
+   {C.GRAY}Developed by Nixovena Labs{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+
+class Log:
+
+    @staticmethod
+    def info(msg):
+        print(f"  {C.BLUE}[*]{C.RST} {msg}")
+
+    @staticmethod
+    def success(msg):
+        print(f"  {C.GREEN}[+]{C.RST} {msg}")
+
+    @staticmethod
+    def warn(msg):
+        print(f"  {C.YELLOW}[!]{C.RST} {msg}")
+
+    @staticmethod
+    def error(msg):
+        print(f"  {C.RED}[-]{C.RST} {msg}")
+
+    @staticmethod
+    def found(source, details=""):
+        extra = f" - {details}" if details else ""
+        print(f"  {C.GREEN}[+]{C.RST} {C.WHITE}{source}{C.RST}{extra}")
+
+    @staticmethod
+    def header(title):
+        w = 55
+        print()
+        print(f"  {C.PINK}{'=' * w}{C.RST}")
+        print(f"  {C.PINK}|{C.RST}  {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f"  {C.PINK}{'=' * w}{C.RST}")
+
+    @staticmethod
+    def subheader(title):
+        print(f"\n  {C.PURPLE}-- {title} --{C.RST}")
+
+    @staticmethod
+    def detail(key, value, indent=2):
+        pad = "  " * indent
+        print(f"{pad}{C.GRAY}|-- {C.CYAN}{key}{C.RST}: {value}")
+
+    @staticmethod
+    def detail_last(key, value, indent=2):
+        pad = "  " * indent
+        print(f"{pad}{C.GRAY}\\-- {C.CYAN}{key}{C.RST}: {value}")
+
+    @staticmethod
+    def risk_bar(score, max_score=100):
+        bar_len = 20
+        filled = min(bar_len, int(bar_len * score / max_score))
+        if score >= 50:
+            color = C.RED
+        elif score >= 25:
+            color = C.YELLOW
+        else:
+            color = C.GREEN
+        bar = f"{color}{'#' * filled}{C.DARK}{'.' * (bar_len - filled)}{C.RST}"
+        print(f"    {bar} {score}/{max_score}")
+
+
+CHAIN_NAMES = {
+    "BTC": "Bitcoin",
+    "ETH": "Ethereum",
+    "LTC": "Litecoin",
+    "DOGE": "Dogecoin",
+    "DASH": "Dash",
+    "XRP": "Ripple",
+    "BCH": "Bitcoin Cash",
+    "TRX": "Tron",
+}
+
+KNOWN_ENTITIES = {
+    "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa": ("Satoshi Nakamoto Genesis", "historical"),
+    "12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S": ("Satoshi Nakamoto Block 1", "historical"),
+    "1HLoD9E4SDFFPDiYfNYnkBLQ85Y51J3Zb1": ("Hal Finney (first tx)", "historical"),
+    "bc1qa5wkgaew2dkv56kxvg7ewqwfnqcc580c2gmaq": ("Binance Cold", "exchange"),
+    "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo": ("Binance Hot", "exchange"),
+    "3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6": ("Binance", "exchange"),
+    "bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h": ("Binance", "exchange"),
+    "bc1ql49ydapnjafl5t2cp9zqpjwe6pdgmxy98859v2": ("Binance Cold 2", "exchange"),
+    "3LYJfcfHPXYJreMsASk2jkn69LWEYKzexb": ("Coinbase Cold", "exchange"),
+    "3Kzh9qAqVWQhEsfQz7zEQL1EuSx5tyNLNS": ("Coinbase", "exchange"),
+    "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh": ("Coinbase", "exchange"),
+    "1Kr6QSydW9bFQG1mXiPNNu6WpJGmUa9i1g": ("Bitfinex Cold", "exchange"),
+    "3D2oetdNuZUqQHPJmcMDDHYoqkyNVsFk9r": ("Bitfinex", "exchange"),
+    "bc1qjasf9z3h7w3jspkhtgatgpyvvzgpa2wwd2lr0e": ("Bitfinex Hot", "exchange"),
+    "1P5ZEDWTKTFGxQjZphgWPQUpe554WKDfHQ": ("Kraken Cold", "exchange"),
+    "3FupZp77ySr7jwoLYEJ9mwzJpvoNBXsBnE": ("Kraken", "exchange"),
+    "bc1qgdjqv0av3q56jvd82tkdjpy7gdp9ut8tlqmgrpmv24sq90ecnvqqjwvw97": ("Kraken", "exchange"),
+    "3CHKjwy2yMfubFRtdgQqaQYWAfNCEYS7Tt": ("Huobi", "exchange"),
+    "12tkqA9xSoowkzoERHMWNKsTey55YEBqkv": ("Huobi Cold", "exchange"),
+    "3Cbq7aT1tY8kMxWLbitaG7yT6bPbKChq64": ("OKX", "exchange"),
+    "35hK24tcLEWcgNA4JxpvbkNkoAcDGqQPsP": ("Bittrex Cold", "exchange"),
+    "1AnwDVbwsLBVwRfqN2x9Eo4YEJSPXo2cwG": ("Bitstamp", "exchange"),
+    "385cR5DM96n1HvBDMzLHPYcw89fZAXULJP": ("Gemini Cold", "exchange"),
+    "1NDyJtNTjmwk5xPNhjgAMu4HDHigtobu1s": ("Silk Road Seized", "darknet"),
+    "1F1tAaz5x1HUXrCNLbtMDqcw6o5GNn4xqX": ("Silk Road DPR", "darknet"),
+    "1JZbY6sLBQpfMyqfjwTFqQDdT38PfgY8Bq": ("AlphaBay Seized", "darknet"),
+    "1HQ3Go3ggs8pFnXuHVHRytPCq5fGG8Hbhx": ("Hydra Market", "darknet"),
+    "1FfmbHfnpaZjKFvyi1okTjJJusN455paPH": ("FBI Seizure", "law_enforcement"),
+    "bc1qa5wkgaew2dkv56kxvg7ewqwfnqcc580c2gmaq5": ("DOJ Seizure", "law_enforcement"),
+    "13AM4VW2dhxYgXeQepoHkHSQuy6NgaEb94": ("WannaCry", "ransomware"),
+    "12t9YDPg1RDJ9twDovwLJ7RATiW2mhGz31": ("WannaCry Variant", "ransomware"),
+    "115p7UMMngoj1pMvkpHijcRdfJNXj6LrLn": ("WannaCry", "ransomware"),
+    "1Mz7153HMuxXTuR2R1t78mGSdzaAtNbBWX": ("DarkSide", "ransomware"),
+    "bc1qq2euq8pw950klpjcawuy4uj39ym43hs6cfsyit": ("Colonial Pipeline", "ransomware"),
+    "1LX7BQ31hCFYXkC9h3xNnErqcULaXG9LrG": ("REvil Ransomware", "ransomware"),
+    "bc1q7v9c0gnjvk7q7lzj3p4cxtm0a7hpfwx7gqrm0d": ("Conti Ransomware", "ransomware"),
+    "bc1qxq8m7lgr0z40w7r3p3qkc6jvxq4rtdklh2v2k0": ("LockBit", "ransomware"),
+    "1FeexV6bAHb8ybZjqQMjJrcCrHGW9sb6uF": ("Mt. Gox Cold", "exchange_hack"),
+    "1KMbwcH1sGqEdNZ6gNJjkMbyBRTMBFGcmR": ("Mt. Gox Trustee", "exchange_hack"),
+    "16ftSEQ4ctQFDf7v22hSNkDBSQzSF62QSM": ("Bitfinex Hack 2016", "exchange_hack"),
+    "bc1qnf28pyqcwch9c8jvxgvaegc3hykjf8h0pkh3p7": ("Bitfinex Hack 2016", "exchange_hack"),
+    "1C55GBfDtbMoElErX4fuNvZWYcJBnyvECE": ("Bitmixer.io", "mixer"),
+    "3BMEXqGpG4FxBA1KWhRFufXfSTRgzfDBhJ": ("Blender.io", "mixer"),
+    "1HZDj9J5p25Dj5x52D4Uqaf3CUjGxC2X4a": ("Bitcoin Fog", "mixer"),
+    "bc1qclxqz3z4xq8p3a4j4n7m37l9q3llwzkz9dgw9p": ("ChipMixer (Seized)", "mixer"),
+    "bc1qwqdg6squsna38e46795at95yu9atm8azzmyvckulcc7kytlcckxswvvzej": ("Sinbad.io (OFAC)", "sanctioned"),
+    "1L7ouLthRT1iJBfreqcxprXuvbtg3p3Csw": ("Lazarus Group", "sanctioned"),
+    "12QtD5BFwRsdNsAZY76UVE1xyCGNTojH9h": ("Lazarus Group", "sanctioned"),
+    "1AzKZb2pidqx29Y6vK6rmGqbHhf2c8nGfA": ("Lazarus / Ronin Bridge", "sanctioned"),
+    "0xa0e1c89Ef1a489c9C7dE96311eD5Ce5D32c20E4B": ("Tornado Cash 0.1 (OFAC)", "sanctioned"),
+    "0x3CBdeD43EFdAf0FC77b9C55F6fC9988fCC9b757d": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0x67d40EE1A85bf4a4Bb7Ffae16De985e8427B6b45": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0x910Cbd523D972eb0a6f4cAe4618aD62622b39DbF": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0x07687e702b410Fa43f4cB4Af7FA097918ffD2730": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0x12D66f87A04A9E220743712cE6d9bB1B5616B8Fc": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0x47CE0C6eD5B0Ce3d3A51fdb1C52DC66a7c3c2936": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0x910Cbd523D972eb0a6f4cae4618ad62622b39dbf": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0xD691F27f38B395864Ea86CfC7253969B409c362d": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0xaEaaC358560e11f52454D997AAFF2c5731B6f8a6": ("Tornado Cash (OFAC)", "sanctioned"),
+    "0x098B716B8Aaf21512996dC57EB0615e2383E2f96": ("Lazarus Group (OFAC)", "sanctioned"),
+    "0xa7e5d5A720f06526557c513402f2e6B5fA20b008": ("Lazarus Group (OFAC)", "sanctioned"),
+    "0x8576aCC5C05D6Ce88f4e49bf65BdF0C62F91353C": ("Lazarus Group (OFAC)", "sanctioned"),
+    "0xb6f5ec1A0a9cd1526536D3F0426c429529471F40": ("Garantex (OFAC)", "sanctioned"),
+    "0xD82B49a30538A6624fF18fb37e1c1B0EaBdAFB31": ("Hydra Market (OFAC)", "sanctioned"),
+    "0x2F389cE8bD8ff92dE3402FfCe4691d17fC4f6535": ("Suex (OFAC)", "sanctioned"),
+    "0x7Db418b5D567A4e0E8c59Ad71BE1FcE48f3E6107": ("Suex (OFAC)", "sanctioned"),
+    "0x72a5843cc08275C8171E582972Aa4fDa8C397B2A": ("Suex (OFAC)", "sanctioned"),
+    "0x308eD4B7b49797e1A98D3818bFF6fe5385410370": ("Chatex (OFAC)", "sanctioned"),
+    "0x28a55C4b4f9615FDE3CDAdDf6cc01FcF2E38A6b0": ("Lazarus / Atomic Wallet", "sanctioned"),
+    "0xDD4c48C0B24039969fC16D1cdF626eaB821d3384": ("Binance Hot (ETH)", "exchange"),
+    "0x28C6c06298d514Db089934071355E5743bf21d60": ("Binance 14 (ETH)", "exchange"),
+    "0x21a31Ee1afC51d94C2eFcCAa2092aD1028285549": ("Binance 15 (ETH)", "exchange"),
+    "0xDFd5293D8e347dFe59E90eFd55b2956a1343963d": ("Binance 16 (ETH)", "exchange"),
+    "0x564286362092D8e7936f0549571a803B203aAceD": ("Binance 17 (ETH)", "exchange"),
+    "0x71660c4005BA85c37ccec55d0C4493E66Fe775d3": ("Coinbase 1 (ETH)", "exchange"),
+    "0x503828976D22510aad0201ac7EC88293211D23Da": ("Coinbase 2 (ETH)", "exchange"),
+    "0xddfAbCdc4D8FfC6d5beaf154f18B778f892A0740": ("Coinbase 3 (ETH)", "exchange"),
+    "0x3cD751E6b0078Be393132286c442345e5DC49699": ("Coinbase 4 (ETH)", "exchange"),
+    "0xb5d85CBf7cB3EE0D56b3bB207D5Fc4B82f43F511": ("Coinbase 5 (ETH)", "exchange"),
+    "0xeB2629a2734e272Bcc07BDA959863f316F4bD4Cf": ("Coinbase 6 (ETH)", "exchange"),
+    "0x267be1C1D684F78cb4F6a176C4911b741E4Ffdc0": ("Kraken (ETH)", "exchange"),
+    "0xfa52274DD61E1643d2205169732f29114BC240b3": ("Kraken (ETH)", "exchange"),
+    "0xDA816e2122a8a39b0926bfA84edd3D42477E9EFD": ("Kraken (ETH)", "exchange"),
+    "0xbE0eB53F46cd790Cd13851d5EFf43D12404d33E8": ("Binance 7 (ETH)", "exchange"),
+    "0xF977814e90dA44bFA03b6295A0616a897441aceC": ("Binance 8 (ETH)", "exchange"),
+    "0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503": ("Binance Cold (ETH)", "exchange"),
+}
+
+_KNOWN_ENTITIES_LC = {k.lower(): v for k, v in KNOWN_ENTITIES.items()}
+
+
+def lookup_entity(address):
+    if not address:
+        return None
+    return _KNOWN_ENTITIES_LC.get(address.lower())
+
+
+ENTITY_CATEGORIES = {
+    "exchange": {"risk": 5, "label": "Cryptocurrency Exchange"},
+    "exchange_hack": {"risk": 40, "label": "Hacked Exchange"},
+    "darknet": {"risk": 50, "label": "Darknet Market"},
+    "ransomware": {"risk": 60, "label": "Ransomware"},
+    "mixer": {"risk": 35, "label": "Mixing Service"},
+    "scam": {"risk": 45, "label": "Known Scam"},
+    "law_enforcement": {"risk": 10, "label": "Law Enforcement Seizure"},
+    "historical": {"risk": 0, "label": "Historical Address"},
+    "sanctioned": {"risk": 70, "label": "OFAC Sanctioned"},
+}
+
+
+class ChainValidator:
+
+    BTC_P2PKH = re.compile(r'^[1][a-km-zA-HJ-NP-Z1-9]{25,34}$')
+    BTC_P2SH = re.compile(r'^[3][a-km-zA-HJ-NP-Z1-9]{25,34}$')
+    BTC_BECH32 = re.compile(r'^bc1[a-z0-9]{39,59}$')
+    ETH_ADDR = re.compile(r'^0x[a-fA-F0-9]{40}$')
+    LTC_LEGACY = re.compile(r'^[LM][a-km-zA-HJ-NP-Z1-9]{25,34}$')
+    LTC_BECH32 = re.compile(r'^ltc1[a-z0-9]{39,59}$')
+    DOGE_ADDR = re.compile(r'^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$')
+    DASH_ADDR = re.compile(r'^X[1-9A-HJ-NP-Za-km-z]{33}$')
+    XRP_ADDR = re.compile(r'^r[0-9a-zA-Z]{24,34}$')
+    TRX_ADDR = re.compile(r'^T[a-zA-Z0-9]{33}$')
+    BCH_CASH = re.compile(r'^(bitcoincash:)?[qp][a-z0-9]{41}$')
+
+    @staticmethod
+    def identify(address):
+        addr = address.strip()
+        if ChainValidator.BTC_P2PKH.match(addr):
+            return "BTC", "P2PKH (Legacy)"
+        if ChainValidator.BTC_P2SH.match(addr):
+            return "BTC", "P2SH (SegWit-compatible)"
+        if ChainValidator.BTC_BECH32.match(addr):
+            return "BTC", "Bech32 (Native SegWit)"
+        if ChainValidator.ETH_ADDR.match(addr):
+            return "ETH", "Ethereum"
+        if ChainValidator.LTC_LEGACY.match(addr):
+            return "LTC", "Litecoin Legacy"
+        if ChainValidator.LTC_BECH32.match(addr):
+            return "LTC", "Litecoin Bech32"
+        if ChainValidator.DOGE_ADDR.match(addr):
+            return "DOGE", "Dogecoin"
+        if ChainValidator.DASH_ADDR.match(addr):
+            return "DASH", "Dash"
+        if ChainValidator.XRP_ADDR.match(addr):
+            return "XRP", "Ripple"
+        if ChainValidator.TRX_ADDR.match(addr):
+            return "TRX", "Tron"
+        if ChainValidator.BCH_CASH.match(addr):
+            return "BCH", "Bitcoin Cash"
+        return None, None
+
+
+class HTTPClient:
+
+    def __init__(self, base_delay=1.5, max_delay=30, backoff=2.0):
+        self._delay = base_delay
+        self._base = base_delay
+        self._max = max_delay
+        self._backoff = backoff
+        self._session = requests.Session()
+        self._session.headers.update({
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+            "Accept": "application/json",
+        })
+
+    def get(self, url, params=None, retries=2):
+        for attempt in range(retries + 1):
+            try:
+                time.sleep(self._delay)
+                resp = self._session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+                if resp.status_code == 200:
+                    self._delay = self._base
+                    return resp
+                if resp.status_code == 429:
+                    self._delay = min(self._delay * self._backoff, self._max)
+                    if attempt < retries:
+                        continue
+                return resp
+            except (requests.ConnectionError, requests.Timeout, requests.ReadTimeout):
+                if attempt < retries:
+                    self._delay = min(self._delay * self._backoff, self._max)
+                    continue
+            except Exception:
+                return None
+        return None
+
+    def get_json(self, url, params=None):
+        resp = self.get(url, params=params)
+        if resp and resp.status_code == 200:
+            try:
+                return resp.json()
+            except Exception:
+                return None
+        return None
+
+
+class BlockchainAPI:
+
+    def __init__(self, http):
+        self.http = http
+
+    def get_btc_address(self, address):
+        data = self._blockstream_address(address)
+        if data:
+            return data
+        data = self._mempool_address(address)
+        if data:
+            return data
+        data = self._blockchain_info_address(address)
+        if data:
+            return data
+        return None
+
+    def get_btc_txs(self, address):
+        txs = self._blockstream_txs(address)
+        if txs is not None:
+            return txs
+        txs = self._mempool_txs(address)
+        if txs is not None:
+            return txs
+        return []
+
+    def get_btc_tx(self, txid):
+        data = self.http.get_json(f"https://blockstream.info/api/tx/{txid}")
+        if data:
+            return data
+        data = self.http.get_json(f"https://mempool.space/api/tx/{txid}")
+        if data:
+            return data
+        return None
+
+    def get_eth_address(self, address):
+        data = self.http.get_json(
+            "https://api.ethplorer.io/getAddressInfo/" + address,
+            params={"apiKey": "freekey"}
+        )
+        if data and "error" not in data:
+            return self._parse_ethplorer(data, address)
+
+        data = self.http.get_json(
+            f"https://api.blockchair.com/ethereum/dashboards/address/{address}"
+        )
+        if data and "data" in data:
+            return self._parse_blockchair_eth(data, address)
+        return None
+
+    def get_ltc_address(self, address):
+        return self._blockchair_address("litecoin", address)
+
+    def get_doge_address(self, address):
+        return self._blockchair_address("dogecoin", address)
+
+    def get_dash_address(self, address):
+        return self._blockchair_address("dash", address)
+
+    def get_bch_address(self, address):
+        return self._blockchair_address("bitcoin-cash", address)
+
+    def get_xrp_address(self, address):
+        data = self.http.get_json(f"https://api.xrpscan.com/api/v1/account/{address}")
+        if data and isinstance(data, dict) and not data.get("error"):
+            return {
+                "address": address,
+                "chain": "XRP",
+                "balance": float(data.get("xrpBalance", 0) or 0),
+                "total_received": 0,
+                "total_sent": 0,
+                "tx_count": data.get("transactionCount", 0) or 0,
+                "first_seen": (data.get("inception") or "")[:10] or None,
+                "parent_account": data.get("parentAccount"),
+                "account_name": (data.get("accountName") or {}).get("name") if isinstance(data.get("accountName"), dict) else None,
+                "source": "xrpscan",
+            }
+        return None
+
+    def get_xrp_txs(self, address, limit=25):
+        data = self.http.get_json(f"https://api.xrpscan.com/api/v1/account/{address}/transactions")
+        if not data or not isinstance(data, dict):
+            return []
+        txs_raw = data.get("transactions") or []
+        out = []
+        for tx in txs_raw[:limit]:
+            tx_obj = tx.get("tx") or tx
+            ts = tx.get("date") or tx_obj.get("date")
+            ttype = tx_obj.get("TransactionType", "")
+            amt = tx_obj.get("Amount")
+            try:
+                value = float(amt) / 1_000_000 if isinstance(amt, (str, int, float)) else 0
+            except Exception:
+                value = 0
+            src = tx_obj.get("Account", "")
+            dst = tx_obj.get("Destination", "")
+            direction = "incoming" if dst == address else ("outgoing" if src == address else "other")
+            out.append({
+                "txid": tx_obj.get("hash") or tx.get("hash", ""),
+                "confirmed": True,
+                "timestamp": ts,
+                "type": ttype,
+                "total_output": value,
+                "fee": float(tx_obj.get("Fee", 0) or 0) / 1_000_000,
+                "input_count": 1,
+                "output_count": 1,
+                "inputs": [{"address": src, "value": value}],
+                "outputs": [{"address": dst, "value": value}],
+                "direction": direction,
+            })
+        return out
+
+    def get_trx_address(self, address):
+        data = self.http.get_json(
+            "https://apilist.tronscanapi.com/api/account",
+            params={"address": address}
+        )
+        if data and isinstance(data, dict) and (data.get("address") or data.get("balance") is not None):
+            balance = float(data.get("balance", 0) or 0) / 1_000_000
+            tx_count = data.get("totalTransactionCount") or data.get("transactions") or 0
+            tokens = []
+            for tok in (data.get("trc20token_balances") or [])[:20]:
+                try:
+                    bal_raw = tok.get("balance") or "0"
+                    dec = int(tok.get("tokenDecimal", 6))
+                    bal = float(bal_raw) / (10 ** dec) if dec >= 0 else float(bal_raw)
+                except Exception:
+                    bal = 0
+                tokens.append({
+                    "symbol": tok.get("tokenAbbr", "?"),
+                    "name": tok.get("tokenName", ""),
+                    "balance": bal,
+                    "decimals": int(tok.get("tokenDecimal", 6)),
+                    "contract": tok.get("tokenId", ""),
+                })
+            created = data.get("date_created")
+            first_seen = None
+            if created:
+                try:
+                    first_seen = datetime.fromtimestamp(int(created) / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+                except Exception:
+                    first_seen = None
+            return {
+                "address": address,
+                "chain": "TRX",
+                "balance": balance,
+                "total_received": float(data.get("totalReceived", 0) or 0) / 1_000_000,
+                "total_sent": float(data.get("totalTransferOut", 0) or 0) / 1_000_000,
+                "tx_count": tx_count,
+                "first_seen": first_seen,
+                "tokens": tokens,
+                "source": "tronscan",
+            }
+        return None
+
+    def get_trx_txs(self, address, limit=25):
+        data = self.http.get_json(
+            "https://apilist.tronscanapi.com/api/transaction",
+            params={"address": address, "limit": limit, "sort": "-timestamp"}
+        )
+        if not data or not isinstance(data, dict):
+            return []
+        out = []
+        for tx in (data.get("data") or [])[:limit]:
+            ts = tx.get("timestamp")
+            if ts:
+                try:
+                    ts_iso = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc).isoformat()
+                except Exception:
+                    ts_iso = None
+            else:
+                ts_iso = None
+            src = tx.get("ownerAddress", "")
+            dst = tx.get("toAddress", "")
+            amount = float(tx.get("amount", 0) or 0) / 1_000_000
+            direction = "incoming" if dst == address else "outgoing"
+            out.append({
+                "txid": tx.get("hash", ""),
+                "confirmed": tx.get("confirmed", True),
+                "timestamp": ts_iso,
+                "total_output": amount,
+                "fee": float(tx.get("cost", {}).get("net_fee", 0) or 0) / 1_000_000 if isinstance(tx.get("cost"), dict) else 0,
+                "input_count": 1,
+                "output_count": 1,
+                "inputs": [{"address": src, "value": amount}],
+                "outputs": [{"address": dst, "value": amount}],
+                "direction": direction,
+            })
+        return out
+
+    def get_eth_token_transfers(self, address, limit=15):
+        data = self.http.get_json(
+            "https://api.ethplorer.io/getAddressHistory/" + address,
+            params={"apiKey": "freekey", "limit": limit, "type": "transfer"}
+        )
+        if not data or "error" in data:
+            return []
+        out = []
+        for op in (data.get("operations") or [])[:limit]:
+            tinfo = op.get("tokenInfo", {}) or {}
+            dec = int(tinfo.get("decimals", 18) or 18)
+            try:
+                value = float(op.get("value", 0)) / (10 ** dec)
+            except Exception:
+                value = 0
+            ts = op.get("timestamp")
+            ts_iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else None
+            out.append({
+                "txid": op.get("transactionHash", ""),
+                "timestamp": ts_iso,
+                "from": op.get("from", ""),
+                "to": op.get("to", ""),
+                "value": value,
+                "symbol": tinfo.get("symbol", "?"),
+                "name": tinfo.get("name", ""),
+                "direction": "incoming" if (op.get("to", "").lower() == address.lower()) else "outgoing",
+            })
+        return out
+
+    def get_address(self, chain, address):
+        dispatch = {
+            "BTC": self.get_btc_address,
+            "ETH": self.get_eth_address,
+            "LTC": self.get_ltc_address,
+            "DOGE": self.get_doge_address,
+            "DASH": self.get_dash_address,
+            "BCH": self.get_bch_address,
+            "XRP": self.get_xrp_address,
+            "TRX": self.get_trx_address,
+        }
+        func = dispatch.get(chain)
+        if func:
+            return func(address)
+        return None
+
+    def _blockstream_address(self, address):
+        data = self.http.get_json(f"https://blockstream.info/api/address/{address}")
+        if not data:
+            return None
+        cs = data.get("chain_stats", {})
+        ms = data.get("mempool_stats", {})
+        funded = cs.get("funded_txo_sum", 0) + ms.get("funded_txo_sum", 0)
+        spent = cs.get("spent_txo_sum", 0) + ms.get("spent_txo_sum", 0)
+        tx_count = cs.get("tx_count", 0) + ms.get("tx_count", 0)
+        return {
+            "address": address,
+            "chain": "BTC",
+            "balance": (funded - spent) / SAT_PER_BTC,
+            "total_received": funded / SAT_PER_BTC,
+            "total_sent": spent / SAT_PER_BTC,
+            "tx_count": tx_count,
+            "source": "blockstream",
+        }
+
+    def _mempool_address(self, address):
+        data = self.http.get_json(f"https://mempool.space/api/address/{address}")
+        if not data:
+            return None
+        cs = data.get("chain_stats", {})
+        ms = data.get("mempool_stats", {})
+        funded = cs.get("funded_txo_sum", 0) + ms.get("funded_txo_sum", 0)
+        spent = cs.get("spent_txo_sum", 0) + ms.get("spent_txo_sum", 0)
+        tx_count = cs.get("tx_count", 0) + ms.get("tx_count", 0)
+        return {
+            "address": address,
+            "chain": "BTC",
+            "balance": (funded - spent) / SAT_PER_BTC,
+            "total_received": funded / SAT_PER_BTC,
+            "total_sent": spent / SAT_PER_BTC,
+            "tx_count": tx_count,
+            "source": "mempool.space",
+        }
+
+    def _blockchain_info_address(self, address):
+        data = self.http.get_json(f"https://blockchain.info/rawaddr/{address}?limit=0")
+        if not data or "error" in data:
+            return None
+        return {
+            "address": address,
+            "chain": "BTC",
+            "balance": data.get("final_balance", 0) / SAT_PER_BTC,
+            "total_received": data.get("total_received", 0) / SAT_PER_BTC,
+            "total_sent": data.get("total_sent", 0) / SAT_PER_BTC,
+            "tx_count": data.get("n_tx", 0),
+            "source": "blockchain.info",
+        }
+
+    def _blockstream_txs(self, address):
+        data = self.http.get_json(f"https://blockstream.info/api/address/{address}/txs")
+        if not data or not isinstance(data, list):
+            return None
+        txs = []
+        for tx in data[:MAX_TX_DISPLAY]:
+            txs.append(self._normalize_btc_tx(tx, address))
+        return txs
+
+    def _mempool_txs(self, address):
+        data = self.http.get_json(f"https://mempool.space/api/address/{address}/txs")
+        if not data or not isinstance(data, list):
+            return None
+        txs = []
+        for tx in data[:MAX_TX_DISPLAY]:
+            txs.append(self._normalize_btc_tx(tx, address))
+        return txs
+
+    def _normalize_btc_tx(self, tx, target_addr):
+        txid = tx.get("txid", "")
+        status = tx.get("status", {})
+        confirmed = status.get("confirmed", False)
+        block_time = status.get("block_time", 0)
+        block_height = status.get("block_height", 0)
+
+        total_in = sum(v.get("prevout", {}).get("value", 0) for v in tx.get("vin", []))
+        total_out = sum(v.get("value", 0) for v in tx.get("vout", []))
+        fee = total_in - total_out if total_in > 0 else 0
+
+        input_addrs = []
+        for vin in tx.get("vin", []):
+            prevout = vin.get("prevout", {})
+            addr = prevout.get("scriptpubkey_address", "")
+            val = prevout.get("value", 0)
+            if addr:
+                input_addrs.append({"address": addr, "value": val / SAT_PER_BTC})
+
+        output_addrs = []
+        for vout in tx.get("vout", []):
+            addr = vout.get("scriptpubkey_address", "")
+            val = vout.get("value", 0)
+            if addr:
+                output_addrs.append({"address": addr, "value": val / SAT_PER_BTC})
+
+        is_incoming = not any(i["address"] == target_addr for i in input_addrs)
+
+        return {
+            "txid": txid,
+            "confirmed": confirmed,
+            "block_height": block_height,
+            "timestamp": datetime.fromtimestamp(block_time, tz=timezone.utc).isoformat() if block_time else None,
+            "total_input": total_in / SAT_PER_BTC,
+            "total_output": total_out / SAT_PER_BTC,
+            "fee": fee / SAT_PER_BTC,
+            "input_count": len(tx.get("vin", [])),
+            "output_count": len(tx.get("vout", [])),
+            "inputs": input_addrs,
+            "outputs": output_addrs,
+            "direction": "incoming" if is_incoming else "outgoing",
+        }
+
+    def _parse_ethplorer(self, data, address):
+        eth_data = data.get("ETH", {})
+        balance = eth_data.get("balance", 0)
+        total_in = eth_data.get("totalIn", 0)
+        total_out = eth_data.get("totalOut", 0)
+        tx_count = data.get("countTxs", 0)
+        tokens = []
+        for tok in data.get("tokens", [])[:20]:
+            tinfo = tok.get("tokenInfo", {})
+            tokens.append({
+                "name": tinfo.get("name", "Unknown"),
+                "symbol": tinfo.get("symbol", "???"),
+                "balance": tok.get("balance", 0),
+                "decimals": int(tinfo.get("decimals", 18)),
+            })
+        return {
+            "address": address,
+            "chain": "ETH",
+            "balance": balance,
+            "total_received": total_in,
+            "total_sent": total_out,
+            "tx_count": tx_count,
+            "tokens": tokens,
+            "source": "ethplorer",
+        }
+
+    def _parse_blockchair_eth(self, data, address):
+        addr_key = list(data.get("data", {}).keys())
+        if not addr_key:
+            return None
+        info = data["data"][addr_key[0]].get("address", {})
+        return {
+            "address": address,
+            "chain": "ETH",
+            "balance": info.get("balance", 0) / WEI_PER_ETH,
+            "total_received": info.get("received", 0) / WEI_PER_ETH,
+            "total_sent": info.get("spent", 0) / WEI_PER_ETH,
+            "tx_count": info.get("transaction_count", 0),
+            "tokens": [],
+            "source": "blockchair",
+        }
+
+    def _blockchair_address(self, chain_name, address):
+        data = self.http.get_json(
+            f"https://api.blockchair.com/{chain_name}/dashboards/address/{address}"
+        )
+        if not data or "data" not in data:
+            return None
+        addr_key = list(data["data"].keys())
+        if not addr_key:
+            return None
+        info = data["data"][addr_key[0]].get("address", {})
+        chain_code = {
+            "litecoin": "LTC", "dogecoin": "DOGE", "dash": "DASH",
+            "bitcoin-cash": "BCH"
+        }.get(chain_name, chain_name.upper())
+        divisor = SAT_PER_BTC
+        return {
+            "address": address,
+            "chain": chain_code,
+            "balance": info.get("balance", 0) / divisor,
+            "total_received": info.get("received", 0) / divisor,
+            "total_sent": info.get("spent", 0) / divisor,
+            "tx_count": info.get("transaction_count", 0),
+            "first_seen": info.get("first_seen_receiving"),
+            "last_seen": info.get("last_seen_spending") or info.get("last_seen_receiving"),
+            "source": "blockchair",
+        }
+
+
+class RiskAnalyzer:
+
+    ROUND_AMOUNTS_BTC = [0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0]
+
+    def score_address(self, addr_info, txs=None):
+        score = 0
+        indicators = []
+        address = addr_info.get("address", "")
+        chain = addr_info.get("chain", "BTC")
+
+        entity = lookup_entity(address)
+        if entity:
+            name, category = entity
+            cat_info = ENTITY_CATEGORIES.get(category, {})
+            score += cat_info.get("risk", 0)
+            indicators.append(f"Known entity: {name} ({cat_info.get('label', category)})")
+
+        balance = addr_info.get("balance", 0)
+        total_recv = addr_info.get("total_received", 0)
+        tx_count = addr_info.get("tx_count", 0)
+
+        if chain == "BTC":
+            if balance > 1000:
+                score += 10
+                indicators.append("Very high BTC balance (>1000)")
+            elif balance > 100:
+                score += 5
+                indicators.append("High BTC balance (>100)")
+            if total_recv > 10000:
+                score += 10
+                indicators.append("Very high total volume (>10000 BTC)")
+            elif total_recv > 1000:
+                score += 5
+                indicators.append("High total volume (>1000 BTC)")
+        elif chain == "ETH":
+            if balance > 10000:
+                score += 10
+                indicators.append("Very high ETH balance (>10000)")
+            elif balance > 1000:
+                score += 5
+                indicators.append("High ETH balance (>1000)")
+
+        if tx_count > 10000:
+            score += 10
+            indicators.append("Extremely high tx count (>10000)")
+        elif tx_count > 1000:
+            score += 5
+            indicators.append("Very high tx count (>1000)")
+
+        if txs:
+            pattern_results = self.analyze_patterns(txs)
+            for p_name, p_detected, p_score, p_desc in pattern_results:
+                if p_detected:
+                    score += p_score
+                    indicators.append(p_desc)
+
+            dust_hit = self._detect_dust_attack(txs)
+            if dust_hit:
+                score += 5
+                indicators.append(f"Possible dust attack pattern ({dust_hit} micro-deposits)")
+
+            dormancy = self._detect_dormancy_break(txs)
+            if dormancy:
+                score += 10
+                indicators.append(f"Dormancy break: {dormancy} days inactive then sudden movement")
+
+        if score >= 50:
+            level = "CRITICAL"
+        elif score >= 30:
+            level = "HIGH"
+        elif score >= 15:
+            level = "MEDIUM"
+        else:
+            level = "LOW"
+
+        return {
+            "score": min(score, 100),
+            "level": level,
+            "indicators": indicators,
+        }
+
+    def analyze_patterns(self, txs):
+        results = []
+
+        if len(txs) >= 3:
+            mixing = self._detect_mixing(txs)
+            results.append(("mixing", mixing, 15, "Potential mixing/tumbling pattern"))
+
+        if len(txs) >= 5:
+            peel = self._detect_peel_chain(txs)
+            results.append(("peel_chain", peel, 15, "Peel chain pattern detected"))
+
+        round_pct = self._detect_round_amounts(txs)
+        if round_pct > 0.4:
+            results.append(("round_amounts", True, 10, f"High ratio of round amounts ({round_pct:.0%})"))
+
+        if len(txs) >= 3:
+            rapid = self._detect_rapid_movement(txs)
+            results.append(("rapid_movement", rapid, 10, "Rapid fund movement pattern"))
+
+        consolidation_pct = sum(1 for t in txs if t.get("input_count", 0) > 5 and t.get("output_count", 0) <= 2) / max(len(txs), 1)
+        if consolidation_pct > 0.3:
+            results.append(("consolidation", True, 8, "Frequent UTXO consolidation"))
+
+        return results
+
+    def _detect_mixing(self, txs):
+        for tx in txs:
+            ins = tx.get("input_count", 0)
+            outs = tx.get("output_count", 0)
+            if ins > 10 and outs <= 3:
+                return True
+            if ins >= 3 and outs >= 3:
+                output_vals = [o.get("value", 0) for o in tx.get("outputs", [])]
+                if output_vals and len(set(round(v, 4) for v in output_vals)) <= 2:
+                    return True
+        return False
+
+    def _detect_peel_chain(self, txs):
+        outgoing = [t for t in txs if t.get("direction") == "outgoing"]
+        if len(outgoing) < 5:
+            return False
+        timestamps = []
+        for t in outgoing:
+            ts = t.get("timestamp")
+            if ts:
+                try:
+                    timestamps.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
+                except Exception:
+                    pass
+        if len(timestamps) < 5:
+            return False
+        timestamps.sort()
+        short_intervals = 0
+        for i in range(1, len(timestamps)):
+            diff = (timestamps[i] - timestamps[i-1]).total_seconds()
+            if diff < 3600:
+                short_intervals += 1
+        return short_intervals >= 4
+
+    def _detect_round_amounts(self, txs):
+        if not txs:
+            return 0.0
+        round_count = 0
+        total = 0
+        for tx in txs:
+            for out in tx.get("outputs", []):
+                val = out.get("value", 0)
+                total += 1
+                if any(abs(val - ra) < 0.001 for ra in self.ROUND_AMOUNTS_BTC):
+                    round_count += 1
+                elif val > 0 and abs(val - round(val, 1)) < 0.001:
+                    round_count += 1
+        return round_count / max(total, 1)
+
+    def _detect_dust_attack(self, txs):
+        count = 0
+        for tx in txs:
+            if tx.get("direction") != "incoming":
+                continue
+            for o in tx.get("outputs", []):
+                v = o.get("value", 0)
+                if 0 < v <= 0.00001:
+                    count += 1
+        return count if count >= 3 else 0
+
+    def _detect_dormancy_break(self, txs):
+        timestamps = []
+        for t in txs:
+            ts = t.get("timestamp")
+            if not ts:
+                continue
+            try:
+                timestamps.append(datetime.fromisoformat(str(ts).replace("Z", "+00:00")))
+            except Exception:
+                continue
+        if len(timestamps) < 2:
+            return 0
+        timestamps.sort()
+        max_gap = 0
+        for i in range(1, len(timestamps)):
+            gap = (timestamps[i] - timestamps[i-1]).days
+            if gap > max_gap:
+                max_gap = gap
+        last_gap = (timestamps[-1] - timestamps[-2]).days if len(timestamps) >= 2 else 0
+        if max_gap >= 365 and last_gap >= 180:
+            return last_gap
+        return 0
+
+    def _detect_rapid_movement(self, txs):
+        incoming_ts = []
+        outgoing_ts = []
+        for t in txs:
+            ts = t.get("timestamp")
+            if not ts:
+                continue
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if t.get("direction") == "incoming":
+                incoming_ts.append(dt)
+            else:
+                outgoing_ts.append(dt)
+        for i_ts in incoming_ts:
+            for o_ts in outgoing_ts:
+                diff = abs((o_ts - i_ts).total_seconds())
+                if 0 < diff < 1800:
+                    return True
+        return False
+
+
+class WalletProfiler:
+
+    def profile(self, addr_info, txs=None):
+        profile = {
+            "classification": "Unknown",
+            "behavior_tags": [],
+            "activity_summary": {},
+        }
+        balance = addr_info.get("balance", 0)
+        tx_count = addr_info.get("tx_count", 0)
+        total_recv = addr_info.get("total_received", 0)
+        total_sent = addr_info.get("total_sent", 0)
+
+        if tx_count == 0 and balance == 0:
+            profile["classification"] = "Empty/Unused"
+            return profile
+
+        if tx_count == 0 and balance > 0:
+            profile["classification"] = "Receive-only (Cold Storage?)"
+            profile["behavior_tags"].append("never-spent")
+            return profile
+
+        if total_recv > 0 and total_sent == 0:
+            profile["classification"] = "Accumulator"
+            profile["behavior_tags"].append("never-spent")
+        elif balance < total_recv * 0.01 and total_sent > 0:
+            profile["classification"] = "Pass-through"
+            profile["behavior_tags"].append("low-retention")
+        elif tx_count > 5000:
+            profile["classification"] = "High-volume (Exchange/Service)"
+            profile["behavior_tags"].append("service-like")
+        elif tx_count > 500:
+            profile["classification"] = "Active Trader"
+            profile["behavior_tags"].append("frequent-user")
+        elif tx_count < 10 and balance > total_recv * 0.8:
+            profile["classification"] = "Long-term Holder"
+            profile["behavior_tags"].append("hodler")
+        else:
+            profile["classification"] = "Regular User"
+
+        if txs:
+            timestamps = []
+            for t in txs:
+                ts = t.get("timestamp")
+                if ts:
+                    try:
+                        timestamps.append(datetime.fromisoformat(ts.replace("Z", "+00:00")))
+                    except Exception:
+                        pass
+            if timestamps:
+                timestamps.sort()
+                first = timestamps[0]
+                last = timestamps[-1]
+                span = (last - first).days
+                profile["activity_summary"]["first_activity"] = first.strftime("%Y-%m-%d")
+                profile["activity_summary"]["last_activity"] = last.strftime("%Y-%m-%d")
+                profile["activity_summary"]["active_days"] = span
+                if span > 0:
+                    profile["activity_summary"]["tx_per_day"] = round(len(timestamps) / span, 4)
+
+            incoming = sum(1 for t in txs if t.get("direction") == "incoming")
+            outgoing = len(txs) - incoming
+            profile["activity_summary"]["incoming_txs"] = incoming
+            profile["activity_summary"]["outgoing_txs"] = outgoing
+
+        return profile
+
+
+class PriceFeed:
+
+    SYMBOL_TO_CG = {
+        "BTC": "bitcoin",
+        "ETH": "ethereum",
+        "LTC": "litecoin",
+        "DOGE": "dogecoin",
+        "DASH": "dash",
+        "BCH": "bitcoin-cash",
+        "XRP": "ripple",
+        "TRX": "tron",
+    }
+
+    def __init__(self, http):
+        self.http = http
+        self._cache = {}
+
+    def get_usd(self, chain):
+        cg = self.SYMBOL_TO_CG.get(chain)
+        if not cg:
+            return None
+        if cg in self._cache:
+            return self._cache[cg]
+        data = self.http.get_json(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": cg, "vs_currencies": "usd", "include_24hr_change": "true", "include_market_cap": "true"}
+        )
+        if not data or cg not in data:
+            return None
+        info = {
+            "usd": data[cg].get("usd"),
+            "change_24h": data[cg].get("usd_24h_change"),
+            "market_cap": data[cg].get("usd_market_cap"),
+        }
+        self._cache[cg] = info
+        return info
+
+
+class SanctionsCheck:
+
+    OFAC_FEEDS = [
+        "https://raw.githubusercontent.com/0xB10C/ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_BTC.txt",
+        "https://raw.githubusercontent.com/0xB10C/ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_ETH.txt",
+        "https://raw.githubusercontent.com/0xB10C/ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_XBT.txt",
+        "https://raw.githubusercontent.com/0xB10C/ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_BCH.txt",
+        "https://raw.githubusercontent.com/0xB10C/ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_LTC.txt",
+        "https://raw.githubusercontent.com/0xB10C/ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_USDT.txt",
+        "https://raw.githubusercontent.com/0xB10C/ofac-sanctioned-digital-currency-addresses/lists/sanctioned_addresses_XMR.txt",
+    ]
+
+    def __init__(self, http):
+        self.http = http
+        self._set = None
+
+    def _load(self):
+        if self._set is not None:
+            return self._set
+        merged = set()
+        for url in self.OFAC_FEEDS:
+            try:
+                resp = self.http.get(url)
+                if resp and resp.status_code == 200:
+                    for line in resp.text.splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            merged.add(line.lower())
+            except Exception:
+                continue
+        self._set = merged
+        return merged
+
+    def is_sanctioned(self, address):
+        if not address:
+            return False
+        s = self._load()
+        return address.lower() in s
+
+
+class ENSResolver:
+
+    def __init__(self, http):
+        self.http = http
+
+    def reverse(self, address):
+        if not address or not address.startswith("0x"):
+            return None
+        data = self.http.get_json(f"https://api.ensideas.com/ens/resolve/{address}")
+        if data and isinstance(data, dict):
+            return data.get("name") or None
+        return None
+
+
+class CounterpartyAnalyzer:
+
+    def analyze(self, address, txs, max_top=8):
+        if not txs:
+            return {"top_senders": [], "top_receivers": [], "unique_counterparties": 0}
+        senders = defaultdict(float)
+        receivers = defaultdict(float)
+        unique = set()
+        for tx in txs:
+            for vin in tx.get("inputs", []):
+                a = vin.get("address", "")
+                if a and a != address:
+                    senders[a] += float(vin.get("value", 0) or 0)
+                    unique.add(a)
+            for vout in tx.get("outputs", []):
+                a = vout.get("address", "")
+                if a and a != address:
+                    receivers[a] += float(vout.get("value", 0) or 0)
+                    unique.add(a)
+        top_s = sorted(senders.items(), key=lambda x: x[1], reverse=True)[:max_top]
+        top_r = sorted(receivers.items(), key=lambda x: x[1], reverse=True)[:max_top]
+        def _label(a, v):
+            ent = lookup_entity(a)
+            return {
+                "address": a,
+                "value": v,
+                "entity": ent[0] if ent else None,
+                "category": ent[1] if ent else None,
+            }
+        return {
+            "top_senders": [_label(a, v) for a, v in top_s],
+            "top_receivers": [_label(a, v) for a, v in top_r],
+            "unique_counterparties": len(unique),
+        }
+
+
+class ClusterAnalyzer:
+
+    def analyze(self, address, txs, limit=12):
+        cluster = set()
+        evidence = 0
+        for tx in txs or []:
+            inputs = [i.get("address", "") for i in tx.get("inputs", []) if i.get("address")]
+            if address in inputs and len(inputs) > 1:
+                for a in inputs:
+                    if a and a != address:
+                        cluster.add(a)
+                evidence += 1
+        sample = list(cluster)[:limit]
+        labels = []
+        for a in sample:
+            ent = lookup_entity(a)
+            labels.append({"address": a, "entity": ent[0] if ent else None})
+        return {
+            "cluster_size": len(cluster),
+            "evidence_txs": evidence,
+            "sample": labels,
+        }
+
+
+class TimingAnalyzer:
+
+    def analyze(self, txs):
+        if not txs:
+            return {"hours": [0] * 24, "weekdays": [0] * 7, "peak_hour_utc": None, "likely_tz_offset": None, "burstiness": 0.0}
+        hours = [0] * 24
+        weekdays = [0] * 7
+        timestamps = []
+        for t in txs:
+            ts = t.get("timestamp")
+            if not ts:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+            except Exception:
+                continue
+            timestamps.append(dt)
+            hours[dt.hour] += 1
+            weekdays[dt.weekday()] += 1
+        peak_hour = max(range(24), key=lambda h: hours[h]) if any(hours) else None
+        tz_offset = None
+        if peak_hour is not None:
+            tz_offset = (15 - peak_hour) % 24
+            if tz_offset > 12:
+                tz_offset -= 24
+        burstiness = 0.0
+        if len(timestamps) >= 3:
+            timestamps.sort()
+            diffs = [(timestamps[i] - timestamps[i-1]).total_seconds() for i in range(1, len(timestamps))]
+            if diffs:
+                avg = sum(diffs) / len(diffs)
+                if avg > 0:
+                    var = sum((d - avg) ** 2 for d in diffs) / len(diffs)
+                    sd = var ** 0.5
+                    burstiness = (sd - avg) / (sd + avg) if (sd + avg) > 0 else 0
+        return {
+            "hours": hours,
+            "weekdays": weekdays,
+            "peak_hour_utc": peak_hour,
+            "likely_tz_offset": tz_offset,
+            "burstiness": round(burstiness, 3),
+        }
+
+
+class DorkGenerator:
+
+    @staticmethod
+    def generate(target, chain="BTC"):
+        Log.header("GOOGLE DORK GENERATOR")
+        Log.info(f"Target: {_c(C.WHITE, target)} ({chain})")
+
+        explorer_sites = {
+            "BTC": ["blockchain.com", "blockchair.com", "mempool.space", "oxt.me", "btc.com"],
+            "ETH": ["etherscan.io", "ethplorer.io", "blockchair.com"],
+            "LTC": ["blockchair.com", "litecoinblockexplorer.net"],
+            "DOGE": ["dogechain.info", "blockchair.com"],
+        }
+
+        dorks = [
+            (f'"{target}"', "All web mentions"),
+            (f'"{target}" site:reddit.com', "Reddit discussions"),
+            (f'"{target}" site:bitcointalk.org', "Bitcointalk forum"),
+            (f'"{target}" site:twitter.com OR site:x.com', "Twitter / X mentions"),
+            (f'"{target}" site:t.me', "Telegram channels/groups"),
+            (f'"{target}" site:github.com OR site:gist.github.com', "GitHub leaks / code"),
+            (f'"{target}" site:pastebin.com OR site:ghostbin.com OR site:rentry.co', "Paste sites"),
+            (f'"{target}" site:archive.org OR site:web.archive.org', "Wayback / archive"),
+            (f'"{target}" site:dread.onion OR site:tape.onion', "Darknet forums (clearnet mirrors)"),
+            (f'"{target}" site:breached.to OR site:raidforums.com OR site:dehashed.com', "Breach / leak forums"),
+            (f'"{target}" "scam" OR "fraud" OR "hack" OR "phishing"', "Scam/fraud reports"),
+            (f'"{target}" "ransomware" OR "ransom note" OR "darknet" OR "leak site"', "Criminal activity"),
+            (f'"{target}" "exchange" OR "withdraw" OR "deposit"', "Exchange activity"),
+            (f'"{target}" "mixer" OR "tumbler" OR "mixing" OR "coinjoin"', "Mixing service links"),
+            (f'"{target}" "wallet" OR "owner" OR "belongs to"', "Ownership clues"),
+            (f'"{target}" "investigation" OR "traced" OR "seized" OR "indictment"', "Law enforcement"),
+            (f'"{target}" "OFAC" OR "sanctioned" OR "sdn list"', "Sanctions hits"),
+            (f'"{target}" filetype:csv OR filetype:json OR filetype:txt OR filetype:xlsx', "Data files"),
+            (f'"{target}" filetype:pdf', "PDF reports"),
+            (f'"{target}" site:medium.com OR site:substack.com OR site:mirror.xyz', "Blog posts / Analysis"),
+            (f'"{target}" "kyc" OR "identity" OR "verified" OR "doxx"', "Identity links"),
+            (f'"{target}" site:chainabuse.com OR site:bitcoinabuse.com OR site:cryptoscamdb.org', "Abuse databases"),
+            (f'"{target}" site:opensea.io OR site:looksrare.org OR site:rarible.com', "NFT marketplaces"),
+        ]
+
+        sites = explorer_sites.get(chain, explorer_sites["BTC"])
+        for site in sites:
+            dorks.append((f'"{target}" site:{site}', f"Explorer: {site}"))
+
+        direct_links = [
+            (f"https://www.chainabuse.com/address/{target}", "Chainabuse reports"),
+            (f"https://www.bitcoinabuse.com/reports/{target}", "BitcoinAbuse reports"),
+            (f"https://web.archive.org/web/*/{target}", "Wayback Machine"),
+            (f"https://duckduckgo.com/?q=%22{quote_plus(target)}%22", "DuckDuckGo"),
+            (f"https://www.bing.com/search?q=%22{quote_plus(target)}%22", "Bing"),
+            (f"https://yandex.com/search/?text=%22{quote_plus(target)}%22", "Yandex"),
+            (f"https://github.com/search?q=%22{quote_plus(target)}%22&type=code", "GitHub code search"),
+            (f"https://intelx.io/?s=%22{quote_plus(target)}%22", "Intelligence X"),
+            (f"https://news.google.com/search?q=%22{quote_plus(target)}%22", "Google News"),
+        ]
+
+        Log.subheader("Search Queries")
+        for query, desc in dorks:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+
+        Log.subheader("Direct OSINT Links")
+        for url, desc in direct_links:
+            Log.detail(desc, url)
+
+        return [{"query": q, "desc": d} for q, d in dorks] + [{"url": u, "desc": d} for u, d in direct_links]
+
+
+class ReportExporter:
+
+    @staticmethod
+    def ensure_dir():
+        os.makedirs(REPORT_DIR, exist_ok=True)
+
+    @staticmethod
+    def export_json(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"deepchain_{safe}_{ts}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return path
+
+    @staticmethod
+    def export_txt(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"deepchain_{safe}_{ts}.txt")
+        lines = [
+            "=" * 60,
+            f"  DeepChainTK v{VERSION} - Investigation Report",
+            "=" * 60,
+            f"  Target    : {data.get('target', target)}",
+            f"  Chain     : {data.get('chain', 'N/A')}",
+            f"  Generated : {datetime.now().isoformat()}",
+            "=" * 60, "",
+        ]
+        addr = data.get("address_info", {})
+        if addr:
+            lines.append(f"Balance       : {addr.get('balance', 0)}")
+            if data.get("usd_balance") is not None:
+                lines.append(f"USD Value     : ${data['usd_balance']:,.2f}")
+            lines.append(f"Total Recv    : {addr.get('total_received', 0)}")
+            lines.append(f"Total Sent    : {addr.get('total_sent', 0)}")
+            lines.append(f"TX Count      : {addr.get('tx_count', 0)}")
+            if data.get("ens"):
+                lines.append(f"ENS           : {data['ens']}")
+            if data.get("sanctioned"):
+                lines.append("Sanctions     : *** OFAC SANCTIONED ***")
+            lines.append("")
+        risk = data.get("risk", {})
+        if risk:
+            lines.append(f"Risk Score    : {risk.get('score', 0)}/100")
+            lines.append(f"Risk Level    : {risk.get('level', 'N/A')}")
+            for ind in risk.get("indicators", []):
+                lines.append(f"  - {ind}")
+            lines.append("")
+        profile_data = data.get("profile", {})
+        if profile_data:
+            lines.append(f"Classification: {profile_data.get('classification', 'N/A')}")
+            lines.append(f"Tags          : {', '.join(profile_data.get('behavior_tags', []))}")
+            lines.append("")
+        cp = data.get("counterparties") or {}
+        if cp.get("unique_counterparties"):
+            lines.append(f"Counterparties: {cp['unique_counterparties']} unique")
+            for s in (cp.get("top_senders") or [])[:5]:
+                tag = f" [{s['entity']}]" if s.get("entity") else ""
+                lines.append(f"  <- {s['address']}{tag}  {s['value']:.6f}")
+            for r in (cp.get("top_receivers") or [])[:5]:
+                tag = f" [{r['entity']}]" if r.get("entity") else ""
+                lines.append(f"  -> {r['address']}{tag}  {r['value']:.6f}")
+            lines.append("")
+        cluster = data.get("cluster") or {}
+        if cluster.get("cluster_size"):
+            lines.append(f"Cluster Size  : {cluster['cluster_size']} ({cluster.get('evidence_txs', 0)} evidence txs)")
+            for entry in (cluster.get("sample") or [])[:8]:
+                tag = f" [{entry['entity']}]" if entry.get("entity") else ""
+                lines.append(f"  ~ {entry['address']}{tag}")
+            lines.append("")
+        timing = data.get("timing") or {}
+        if timing.get("peak_hour_utc") is not None:
+            lines.append(f"Peak Hour     : {timing['peak_hour_utc']:02d}:00 UTC")
+            if timing.get("likely_tz_offset") is not None:
+                sign = "+" if timing["likely_tz_offset"] >= 0 else ""
+                lines.append(f"Inferred TZ   : UTC{sign}{timing['likely_tz_offset']}")
+            lines.append(f"Burstiness    : {timing.get('burstiness', 0)}")
+            lines.append("")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return path
+
+    @staticmethod
+    def export_html(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"deepchain_{safe}_{ts}.html")
+        addr = data.get("address_info", {})
+        risk = data.get("risk", {})
+        profile_data = data.get("profile", {})
+        score = risk.get("score", 0)
+        level = risk.get("level", "LOW")
+        level_color = {"CRITICAL": "#ff5555", "HIGH": "#ffb86c", "MEDIUM": "#f1fa8c", "LOW": "#50fa7b"}.get(level, "#50fa7b")
+        indicators_html = "".join(f"<li>{i}</li>" for i in risk.get("indicators", []))
+        tokens_html = ""
+        for tok in addr.get("tokens", []):
+            tokens_html += f"<tr><td>{tok.get('symbol','')}</td><td>{tok.get('name','')}</td><td>{tok.get('balance','')}</td></tr>"
+        cp = data.get("counterparties") or {}
+        senders_html = ""
+        for s in (cp.get("top_senders") or [])[:8]:
+            tag = f" <em style='color:#ffb86c'>[{s.get('entity')}]</em>" if s.get("entity") else ""
+            senders_html += f"<tr><td><code>{s.get('address','')[:32]}...</code>{tag}</td><td>{s.get('value',0):.6f}</td></tr>"
+        receivers_html = ""
+        for r in (cp.get("top_receivers") or [])[:8]:
+            tag = f" <em style='color:#ffb86c'>[{r.get('entity')}]</em>" if r.get("entity") else ""
+            receivers_html += f"<tr><td><code>{r.get('address','')[:32]}...</code>{tag}</td><td>{r.get('value',0):.6f}</td></tr>"
+        cluster = data.get("cluster") or {}
+        cluster_html = ""
+        for entry in (cluster.get("sample") or [])[:10]:
+            tag = f" <em style='color:#ffb86c'>[{entry.get('entity')}]</em>" if entry.get("entity") else ""
+            cluster_html += f"<tr><td><code>{entry.get('address','')[:40]}...</code>{tag}</td></tr>"
+        timing = data.get("timing") or {}
+        hours = timing.get("hours") or []
+        mx = max(hours) if hours else 0
+        hours_html = ""
+        if mx:
+            bar_cells = "".join(
+                f"<div title='{h:02d}:00 - {hours[h]} txs' style=\"flex:1;height:{max(2, int(40 * hours[h] / mx))}px;background:#bd93f9;margin:0 1px;border-radius:2px\"></div>"
+                for h in range(24)
+            )
+            hours_html = f'<div style="display:flex;align-items:flex-end;height:44px">{bar_cells}</div><div style="display:flex;justify-content:space-between;color:var(--dim);font-size:.7rem">00<span>06</span><span>12</span><span>18</span>23</div>'
+        ens_html = f'<tr><td>ENS</td><td><strong>{data.get("ens")}</strong></td></tr>' if data.get("ens") else ""
+        sanc_html = '<tr><td>Sanctions</td><td style="color:#ff5555;font-weight:bold">OFAC LISTED</td></tr>' if data.get("sanctioned") else ""
+        usd_html = f'<tr><td>USD Value</td><td>${data["usd_balance"]:,.2f}</td></tr>' if data.get("usd_balance") is not None else ""
+        price = data.get("price") or {}
+        price_html = ""
+        if price.get("usd"):
+            change = price.get("change_24h") or 0
+            ccolor = "#50fa7b" if change >= 0 else "#ff5555"
+            price_html = f'<tr><td>Market Price</td><td>${price["usd"]:,.4f} <span style="color:{ccolor}">({change:+.2f}% 24h)</span></td></tr>'
+        html = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DeepChainTK Report - {target}</title>
+<style>
+:root{{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#ff79c6;--green:#50fa7b;--red:#ff5555}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:2rem;line-height:1.6}}
+.c{{max-width:900px;margin:0 auto}}
+.hdr{{background:linear-gradient(135deg,#1a1e2e,#2d1b3d);border:1px solid var(--border);border-radius:12px;padding:2rem;text-align:center;margin-bottom:2rem}}
+.hdr h1{{color:var(--accent);font-size:1.8rem}}.hdr .m{{color:var(--dim);font-size:.9rem}}
+.card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin-bottom:1rem}}
+.card h2{{color:var(--accent);margin-bottom:.8rem;font-size:1.1rem}}
+table{{width:100%;border-collapse:collapse}}td{{padding:.4rem .6rem;border-top:1px solid var(--border);font-size:.9rem}}
+td:first-child{{color:#8be9fd;width:160px}}
+.risk{{font-size:2rem;font-weight:bold;color:{level_color}}}
+.bar{{height:12px;background:var(--border);border-radius:6px;overflow:hidden;margin:.5rem 0}}
+.bar-fill{{height:100%;background:{level_color};width:{score}%}}
+ul{{list-style:none;padding:0}}li{{padding:.3rem 0;font-size:.9rem}}li:before{{content:"- ";color:var(--accent)}}
+.ft{{text-align:center;color:var(--dim);font-size:.8rem;margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)}}
+</style></head><body><div class="c">
+<div class="hdr"><h1>DeepChainTK Investigation Report</h1>
+<div class="m">Target: <strong>{target}</strong> | Chain: <strong>{addr.get('chain','N/A')}</strong> | {datetime.now().strftime('%Y-%m-%d %H:%M')}</div></div>
+<div class="card"><h2>Address Overview</h2><table>
+<tr><td>Address</td><td><code>{addr.get('address','N/A')}</code></td></tr>
+<tr><td>Chain</td><td>{addr.get('chain','N/A')}</td></tr>
+{ens_html}
+{sanc_html}
+<tr><td>Balance</td><td>{addr.get('balance',0)}</td></tr>
+{usd_html}
+{price_html}
+<tr><td>Total Received</td><td>{addr.get('total_received',0)}</td></tr>
+<tr><td>Total Sent</td><td>{addr.get('total_sent',0)}</td></tr>
+<tr><td>TX Count</td><td>{addr.get('tx_count',0)}</td></tr>
+</table></div>
+<div class="card"><h2>Risk Assessment</h2>
+<div class="risk">{level} ({score}/100)</div>
+<div class="bar"><div class="bar-fill"></div></div>
+<ul>{indicators_html if indicators_html else '<li>No significant risk indicators</li>'}</ul></div>
+<div class="card"><h2>Wallet Profile</h2><table>
+<tr><td>Classification</td><td>{profile_data.get('classification','N/A')}</td></tr>
+<tr><td>Tags</td><td>{', '.join(profile_data.get('behavior_tags',[])) or 'None'}</td></tr>
+</table></div>
+{f'<div class="card"><h2>Token Holdings</h2><table>{tokens_html}</table></div>' if tokens_html else ''}
+{f'<div class="card"><h2>Top Senders</h2><table>{senders_html}</table></div>' if senders_html else ''}
+{f'<div class="card"><h2>Top Receivers</h2><table>{receivers_html}</table></div>' if receivers_html else ''}
+{f'<div class="card"><h2>Address Cluster (Common-Input-Ownership)</h2><table>{cluster_html}</table></div>' if cluster_html else ''}
+{f'<div class="card"><h2>Activity Timing (UTC hours)</h2>{hours_html}</div>' if hours_html else ''}
+<div class="ft">DeepChainTK v{VERSION} - emka'thas - Authorized use only</div>
+</div></body></html>"""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
+        return path
+
+
+class AddressInvestigator:
+
+    def __init__(self, http):
+        self.http = http
+        self.api = BlockchainAPI(http)
+        self.risk = RiskAnalyzer()
+        self.profiler = WalletProfiler()
+        self.price = PriceFeed(http)
+        self.sanctions = SanctionsCheck(http)
+        self.ens = ENSResolver(http)
+        self.counterparty = CounterpartyAnalyzer()
+        self.cluster = ClusterAnalyzer()
+        self.timing = TimingAnalyzer()
+
+    def _fetch_txs(self, chain, address):
+        if chain == "BTC":
+            return self.api.get_btc_txs(address)
+        if chain == "XRP":
+            return self.api.get_xrp_txs(address)
+        if chain == "TRX":
+            return self.api.get_trx_txs(address)
+        return []
+
+    def investigate(self, address):
+        Log.header("ADDRESS INTELLIGENCE")
+
+        chain, addr_type = ChainValidator.identify(address)
+        if not chain:
+            Log.error(f"Unrecognized address format: {address}")
+            return None
+
+        Log.info(f"Target : {_c(C.WHITE, address)}")
+        Log.info(f"Chain  : {_c(C.CYAN, CHAIN_NAMES.get(chain, chain))}")
+        Log.info(f"Type   : {_c(C.GRAY, addr_type)}")
+
+        entity = lookup_entity(address)
+        if entity:
+            name, category = entity
+            cat_info = ENTITY_CATEGORIES.get(category, {})
+            Log.warn(f"Known entity: {_c(C.ORANGE, name)} [{cat_info.get('label', category)}]")
+
+        ens_name = None
+        if chain == "ETH":
+            ens_name = self.ens.reverse(address)
+            if ens_name:
+                Log.found("ENS", _c(C.PURPLE, ens_name))
+
+        sanctioned = False
+        try:
+            sanctioned = self.sanctions.is_sanctioned(address)
+        except Exception:
+            sanctioned = False
+        if sanctioned:
+            Log.error(_c(C.RED, "OFAC SANCTIONED ADDRESS - HANDLE WITH CARE"))
+
+        Log.subheader("Balance & Activity")
+        addr_info = self.api.get_address(chain, address)
+        if not addr_info:
+            Log.error("Could not retrieve address data from any API")
+            return None
+
+        unit = chain
+        balance = addr_info.get("balance", 0) or 0
+        total_recv = addr_info.get("total_received", 0) or 0
+        total_sent = addr_info.get("total_sent", 0) or 0
+
+        price_info = None
+        try:
+            price_info = self.price.get_usd(chain)
+        except Exception:
+            price_info = None
+        usd_balance = None
+        if price_info and price_info.get("usd"):
+            usd_balance = balance * price_info["usd"]
+
+        Log.detail("Balance", f"{balance:.8f} {unit}" + (f"  ({_c(C.GREEN, f'${usd_balance:,.2f}')} USD)" if usd_balance is not None else ""))
+        Log.detail("Total Received", f"{total_recv:.8f} {unit}")
+        Log.detail("Total Sent", f"{total_sent:.8f} {unit}")
+        Log.detail("Transactions", str(addr_info.get("tx_count", 0)))
+        if addr_info.get("first_seen"):
+            Log.detail("First Seen", addr_info["first_seen"])
+        if addr_info.get("last_seen"):
+            Log.detail("Last Seen", addr_info["last_seen"])
+        if price_info and price_info.get("usd"):
+            change = price_info.get("change_24h") or 0
+            change_str = f"{change:+.2f}%"
+            color = C.GREEN if change >= 0 else C.RED
+            Log.detail("Market Price", f"${price_info['usd']:,.4f}  ({_c(color, change_str)} 24h)")
+        Log.detail_last("Source", addr_info.get("source", "N/A"))
+
+        if addr_info.get("tokens"):
+            Log.subheader("Token Holdings")
+            for tok in addr_info["tokens"][:15]:
+                if chain == "ETH":
+                    decimals = tok.get("decimals", 18)
+                    raw_bal = tok.get("balance", 0)
+                    try:
+                        bal = float(raw_bal) / (10 ** decimals)
+                    except Exception:
+                        bal = 0
+                else:
+                    bal = tok.get("balance", 0)
+                Log.detail(tok.get("symbol", "???"), f"{bal:.6f} ({tok.get('name', '')})")
+
+        txs = self._fetch_txs(chain, address)
+        if txs:
+            Log.subheader("Recent Transactions")
+            for i, tx in enumerate(txs[:12]):
+                direction = tx.get("direction", "?")
+                d_color = C.GREEN if direction == "incoming" else (C.RED if direction == "outgoing" else C.GRAY)
+                ts_str = tx.get("timestamp") or "unconfirmed"
+                if ts_str and ts_str != "unconfirmed":
+                    try:
+                        ts_str = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        pass
+                Log.detail(
+                    f"TX {i+1}",
+                    f"{_c(d_color, direction):>10s}  "
+                    f"{tx.get('total_output', 0):.8f} {unit}  "
+                    f"fee={tx.get('fee', 0):.8f}  "
+                    f"{ts_str}  "
+                    f"{(tx.get('txid', '') or '')[:16]}..."
+                )
+            if len(txs) > 12:
+                Log.info(f"... and {len(txs) - 12} more transactions")
+
+        token_transfers = []
+        if chain == "ETH":
+            try:
+                token_transfers = self.api.get_eth_token_transfers(address)
+            except Exception:
+                token_transfers = []
+            if token_transfers:
+                Log.subheader("Recent Token Transfers")
+                for i, op in enumerate(token_transfers[:10]):
+                    direction = op.get("direction", "?")
+                    d_color = C.GREEN if direction == "incoming" else C.RED
+                    ts_str = op.get("timestamp") or ""
+                    if ts_str:
+                        try:
+                            ts_str = datetime.fromisoformat(str(ts_str).replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+                        except Exception:
+                            pass
+                    Log.detail(
+                        f"TT {i+1}",
+                        f"{_c(d_color, direction):>10s}  "
+                        f"{op.get('value', 0):.6f} {op.get('symbol', '?')}  "
+                        f"{ts_str}  "
+                        f"{(op.get('txid', '') or '')[:16]}..."
+                    )
+
+        Log.subheader("Risk Assessment")
+        risk_result = self.risk.score_address(addr_info, txs)
+        if sanctioned and "OFAC sanctioned (live feed)" not in risk_result["indicators"]:
+            risk_result["score"] = min(100, risk_result["score"] + 70)
+            risk_result["indicators"].insert(0, "OFAC sanctioned (live feed)")
+            if risk_result["score"] >= 50:
+                risk_result["level"] = "CRITICAL"
+        score = risk_result["score"]
+        level = risk_result["level"]
+
+        level_colors = {"CRITICAL": C.RED, "HIGH": C.ORANGE, "MEDIUM": C.YELLOW, "LOW": C.GREEN}
+        Log.detail("Risk Score", f"{_c(level_colors.get(level, C.WHITE), str(score))}/100")
+        Log.detail("Risk Level", _c(level_colors.get(level, C.WHITE), level))
+        Log.risk_bar(score)
+
+        if risk_result["indicators"]:
+            for ind in risk_result["indicators"]:
+                Log.detail("Indicator", _c(C.YELLOW, ind))
+        else:
+            Log.detail_last("Indicators", "No significant risk indicators detected")
+
+        Log.subheader("Wallet Profile")
+        profile_result = self.profiler.profile(addr_info, txs)
+        Log.detail("Classification", _c(C.CYAN, profile_result["classification"]))
+        if profile_result["behavior_tags"]:
+            Log.detail("Tags", ", ".join(profile_result["behavior_tags"]))
+        summary = profile_result.get("activity_summary", {})
+        if summary.get("first_activity"):
+            Log.detail("First Activity", summary["first_activity"])
+        if summary.get("last_activity"):
+            Log.detail("Last Activity", summary["last_activity"])
+        if summary.get("active_days"):
+            Log.detail("Active Span", f"{summary['active_days']} days")
+        if summary.get("tx_per_day"):
+            Log.detail("TX/Day", f"{summary['tx_per_day']:.4f}")
+        if summary.get("incoming_txs") is not None:
+            Log.detail("Incoming TXs", str(summary["incoming_txs"]))
+            Log.detail_last("Outgoing TXs", str(summary["outgoing_txs"]))
+
+        counterparty_result = self.counterparty.analyze(address, txs or [])
+        if counterparty_result["unique_counterparties"] > 0:
+            Log.subheader("Counterparties")
+            Log.detail("Unique Counterparties", str(counterparty_result["unique_counterparties"]))
+            if counterparty_result["top_senders"]:
+                Log.info("Top Senders (by volume):")
+                for cp in counterparty_result["top_senders"][:6]:
+                    tag = f" [{_c(C.ORANGE, cp['entity'])}]" if cp.get("entity") else ""
+                    Log.detail(cp["address"][:24] + "..." + tag, f"{cp['value']:.6f} {unit}")
+            if counterparty_result["top_receivers"]:
+                Log.info("Top Receivers (by volume):")
+                for cp in counterparty_result["top_receivers"][:6]:
+                    tag = f" [{_c(C.ORANGE, cp['entity'])}]" if cp.get("entity") else ""
+                    Log.detail(cp["address"][:24] + "..." + tag, f"{cp['value']:.6f} {unit}")
+
+        cluster_result = None
+        if chain == "BTC":
+            cluster_result = self.cluster.analyze(address, txs or [])
+            if cluster_result["cluster_size"] > 0:
+                Log.subheader("Address Cluster (Common-Input-Ownership)")
+                Log.detail("Cluster Size", str(cluster_result["cluster_size"]))
+                Log.detail("Evidence TXs", str(cluster_result["evidence_txs"]))
+                for entry in cluster_result["sample"][:8]:
+                    tag = f" [{_c(C.ORANGE, entry['entity'])}]" if entry.get("entity") else ""
+                    Log.detail("Linked", entry["address"][:32] + "..." + tag)
+
+        timing_result = self.timing.analyze(txs or [])
+        if any(timing_result.get("hours", [])):
+            Log.subheader("Activity Timing")
+            hours = timing_result["hours"]
+            mx = max(hours) or 1
+            bars = "".join(
+                C.GREEN + "#" + C.RST if hours[h] == mx else
+                (C.YELLOW + "+" + C.RST if hours[h] > mx * 0.5 else
+                 (C.GRAY + "." + C.RST if hours[h] > 0 else " "))
+                for h in range(24)
+            )
+            Log.detail("Hours (UTC)", f"00 {bars} 23")
+            if timing_result.get("peak_hour_utc") is not None:
+                Log.detail("Peak Hour (UTC)", f"{timing_result['peak_hour_utc']:02d}:00")
+            if timing_result.get("likely_tz_offset") is not None:
+                sign = "+" if timing_result["likely_tz_offset"] >= 0 else ""
+                Log.detail("Inferred TZ", f"UTC{sign}{timing_result['likely_tz_offset']}")
+            Log.detail_last("Burstiness", f"{timing_result['burstiness']}")
+
+        return {
+            "target": address,
+            "chain": chain,
+            "ens": ens_name,
+            "sanctioned": sanctioned,
+            "address_info": addr_info,
+            "price": price_info,
+            "usd_balance": usd_balance,
+            "risk": risk_result,
+            "profile": profile_result,
+            "transactions": txs,
+            "token_transfers": token_transfers,
+            "counterparties": counterparty_result,
+            "cluster": cluster_result,
+            "timing": timing_result,
+        }
+
+
+class TransactionInvestigator:
+
+    def __init__(self, http):
+        self.api = BlockchainAPI(http)
+
+    def investigate(self, txid):
+        Log.header("TRANSACTION TRACE")
+        Log.info(f"TXID: {_c(C.WHITE, txid)}")
+
+        tx = self.api.get_btc_tx(txid)
+        if not tx:
+            Log.error("Could not retrieve transaction data")
+            return None
+
+        status = tx.get("status", {})
+        confirmed = status.get("confirmed", False)
+        block_height = status.get("block_height", 0)
+        block_time = status.get("block_time", 0)
+
+        total_in = sum(v.get("prevout", {}).get("value", 0) for v in tx.get("vin", []))
+        total_out = sum(v.get("value", 0) for v in tx.get("vout", []))
+        fee = total_in - total_out if total_in > 0 else 0
+
+        Log.subheader("Transaction Overview")
+        Log.detail("TXID", txid)
+        Log.detail("Confirmed", str(confirmed))
+        if block_height:
+            Log.detail("Block", str(block_height))
+        if block_time:
+            Log.detail("Time", datetime.fromtimestamp(block_time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
+        Log.detail("Total Input", f"{total_in / SAT_PER_BTC:.8f} BTC")
+        Log.detail("Total Output", f"{total_out / SAT_PER_BTC:.8f} BTC")
+        Log.detail("Fee", f"{fee / SAT_PER_BTC:.8f} BTC ({fee} sat)")
+        Log.detail("Input Count", str(len(tx.get("vin", []))))
+        Log.detail_last("Output Count", str(len(tx.get("vout", []))))
+
+        Log.subheader("Inputs")
+        for i, vin in enumerate(tx.get("vin", [])[:15]):
+            prevout = vin.get("prevout", {})
+            addr = prevout.get("scriptpubkey_address", "coinbase" if vin.get("is_coinbase") else "unknown")
+            val = prevout.get("value", 0) / SAT_PER_BTC
+            entity = lookup_entity(addr)
+            tag = f" [{entity[0]}]" if entity else ""
+            Log.detail(f"IN  {i+1}", f"{addr}{_c(C.ORANGE, tag)}  {val:.8f} BTC")
+
+        Log.subheader("Outputs")
+        outputs = tx.get("vout", [])
+        for i, vout in enumerate(outputs[:15]):
+            addr = vout.get("scriptpubkey_address", "unknown")
+            val = vout.get("value", 0) / SAT_PER_BTC
+            spent = ""
+            entity = lookup_entity(addr)
+            tag = f" [{entity[0]}]" if entity else ""
+            Log.detail(f"OUT {i+1}", f"{addr}{_c(C.ORANGE, tag)}  {val:.8f} BTC")
+
+        Log.subheader("Flow Analysis")
+        n_in = len(tx.get("vin", []))
+        n_out = len(outputs)
+        if n_in > 5 and n_out <= 2:
+            Log.warn("Pattern: UTXO Consolidation (many inputs -> few outputs)")
+        elif n_in <= 2 and n_out > 5:
+            Log.warn("Pattern: Distribution/Payment (few inputs -> many outputs)")
+        elif n_in >= 3 and n_out >= 3:
+            output_vals = [v.get("value", 0) for v in outputs]
+            unique_vals = len(set(output_vals))
+            if unique_vals <= 2:
+                Log.warn("Pattern: Possible CoinJoin/Mixing (equal outputs)")
+            else:
+                Log.info("Pattern: Standard multi-party transaction")
+        else:
+            Log.info("Pattern: Standard transaction")
+
+        if n_out >= 2:
+            vals = [(v.get("scriptpubkey_address", ""), v.get("value", 0)) for v in outputs]
+            vals.sort(key=lambda x: x[1], reverse=True)
+            if len(vals) >= 2:
+                Log.detail("Likely Payment", f"{vals[-1][0]}  ({vals[-1][1] / SAT_PER_BTC:.8f} BTC)")
+                Log.detail_last("Likely Change", f"{vals[0][0]}  ({vals[0][1] / SAT_PER_BTC:.8f} BTC)")
+
+        return {
+            "txid": txid,
+            "confirmed": confirmed,
+            "block_height": block_height,
+            "timestamp": datetime.fromtimestamp(block_time, tz=timezone.utc).isoformat() if block_time else None,
+            "total_input": total_in / SAT_PER_BTC,
+            "total_output": total_out / SAT_PER_BTC,
+            "fee": fee / SAT_PER_BTC,
+            "input_count": n_in,
+            "output_count": n_out,
+        }
+
+
+class MultiAddressAnalyzer:
+
+    def __init__(self, http):
+        self.investigator = AddressInvestigator(http)
+
+    def analyze(self, addresses):
+        Log.header("MULTI-ADDRESS ANALYSIS")
+        Log.info(f"Analyzing {len(addresses)} addresses...")
+
+        results = []
+        for i, addr in enumerate(addresses):
+            Log.info(f"[{i+1}/{len(addresses)}] {addr}")
+            result = self.investigator.investigate(addr)
+            if result:
+                results.append(result)
+            print()
+
+        if len(results) < 2:
+            return results
+
+        Log.header("CROSS-ADDRESS CORRELATION")
+
+        Log.subheader("Risk Comparison")
+        for r in sorted(results, key=lambda x: x["risk"]["score"], reverse=True):
+            addr = r["target"][:20] + "..."
+            score = r["risk"]["score"]
+            level = r["risk"]["level"]
+            chain = r["chain"]
+            level_colors = {"CRITICAL": C.RED, "HIGH": C.ORANGE, "MEDIUM": C.YELLOW, "LOW": C.GREEN}
+            Log.detail(addr, f"{chain} | Score: {_c(level_colors.get(level, C.WHITE), str(score))} | {level}")
+
+        Log.subheader("Common Entity Check")
+        entities_found = {}
+        for r in results:
+            entity = lookup_entity(r["target"])
+            if entity:
+                entities_found[r["target"]] = entity
+        if entities_found:
+            for addr, (name, cat) in entities_found.items():
+                Log.detail(addr[:20] + "...", f"{name} ({cat})")
+        else:
+            Log.info("No addresses matched known entities")
+
+        return results
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="deepchaintk",
+        description=f"DeepChainTK v{VERSION} - Blockchain Forensics & Crypto OSINT",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Examples:
+  deepchaintk -a 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa   Investigate BTC address
+  deepchaintk -a 0x742d35Cc6634C0532925a3b844Bc9e7595f  Investigate ETH address
+  deepchaintk -t <txid>                             Trace BTC transaction
+  deepchaintk -a addr1 addr2 addr3                  Multi-address analysis
+  deepchaintk -a <address> --export all             Export all report formats
+  deepchaintk -g <address>                          Google dork generator
+  deepchaintk -v <address>                          Validate address format
+
+Supported Chains: BTC, ETH, LTC, DOGE, DASH, XRP, TRX, BCH
+
+Intelligence Modules:
+  - Multi-API balance & tx aggregation (Blockstream / mempool.space / blockchain.info / Blockchair / Ethplorer / Tronscan / XRPScan)
+  - OFAC live sanctions check + curated entity database (exchanges, mixers, ransomware, darknet, Lazarus, Tornado Cash)
+  - Counterparty analysis (top senders/receivers by volume, entity tagging)
+  - Common-input-ownership clustering (BTC)
+  - Activity timing fingerprint (hourly heatmap + timezone inference + burstiness)
+  - Risk scoring: mixing, peel-chain, round amounts, rapid movement, consolidation, dust attack, dormancy break
+  - Wallet behavior profiler (HODLer / accumulator / pass-through / service / trader)
+  - Live USD pricing & 24h change (CoinGecko)
+  - ENS reverse resolution for ETH
+  - ERC-20 token holdings + recent token transfers
+  - Google dorks (Reddit, Bitcointalk, Telegram, GitHub, paste sites, breach forums, Wayback, abuse DBs)
+  - JSON / TXT / HTML investigation reports
+
+Developed by emka'thas | For legal and ethical use only.
+        """,
+    )
+    p.add_argument("-a", "--address", nargs="+", help="Address(es) to investigate")
+    p.add_argument("-t", "--transaction", type=str, help="BTC transaction hash to trace")
+    p.add_argument("-g", "--dorks", type=str, help="Generate Google dorks for target")
+    p.add_argument("-v", "--validate", type=str, help="Validate address format")
+    p.add_argument("--export", type=str, choices=["json", "txt", "html", "all"], help="Export report format")
+    p.add_argument("--version", action="version", version=f"DeepChainTK v{VERSION}")
+    return p
+
+
+def cli_main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+        return
+
+    print(BANNER)
+    http = HTTPClient()
+    result = None
+
+    if args.validate:
+        chain, addr_type = ChainValidator.identify(args.validate)
+        if chain:
+            Log.success(f"Valid {CHAIN_NAMES.get(chain, chain)} address ({addr_type})")
+            entity = lookup_entity(args.validate)
+            if entity:
+                Log.detail("Entity", f"{entity[0]} ({entity[1]})")
+        else:
+            Log.error("Unrecognized address format")
+        return
+
+    if args.dorks:
+        chain, _ = ChainValidator.identify(args.dorks)
+        DorkGenerator.generate(args.dorks, chain or "BTC")
+        return
+
+    if args.transaction:
+        inv = TransactionInvestigator(http)
+        result = inv.investigate(args.transaction)
+
+    elif args.address:
+        if len(args.address) == 1:
+            inv = AddressInvestigator(http)
+            result = inv.investigate(args.address[0])
+        else:
+            analyzer = MultiAddressAnalyzer(http)
+            results = analyzer.analyze(args.address)
+            result = {"multi_analysis": True, "results": results, "target": "multi"}
+
+    else:
+        parser.print_help()
+        return
+
+    if result and args.export:
+        target = result.get("target", "output")
+        paths = []
+        if args.export in ("json", "all"):
+            paths.append(ReportExporter.export_json(result, target))
+        if args.export in ("txt", "all"):
+            paths.append(ReportExporter.export_txt(result, target))
+        if args.export in ("html", "all"):
+            paths.append(ReportExporter.export_html(result, target))
+        for p in paths:
+            Log.success(f"Saved: {p}")
+
+
+def main():
+    try:
+        cli_main()
+    except KeyboardInterrupt:
+        print(f"\n  {C.GRAY}Exiting...{C.RST}")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

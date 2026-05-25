@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Protosint
+Comment=ProtonMail OSINT investigation tool
+Comment[tr]=ProtonMail OSINT soruşturma aracı
+Comment[es]=Herramienta de investigación de OSINT para ProtonMail
+Comment[fr]=Outil d'investigation OSINT de ProtonMail
+Comment[de]=ProtonMail OSINT-Untersuchungstool
+Comment[ar]=أداة تحقيق ProtonMail OSINT
+Comment[ru]=Инструмент расследования ProtonMail OSINT
+Comment[zh]=ProtonMail OSINT调查工具
+Comment[ja]=ProtonMail OSINT調査ツール
+Comment[ko]=ProtonMail OSINT 조사 도구
+Comment[pt]=Ferramenta de investigação do ProtonMail OSINT
+Comment[it]=Strumento di indagine ProtonMail OSINT
+Comment[nl]=ProtonMail OSINT-onderzoekstool
+Comment[sv]=ProtonMail OSINT-utredningsverktyg
+Comment[pl]=Narzędzie dochodzeniowe ProtonMail OSINT
+Exec=mate-terminal -- bash -c "protosint; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false

@@ -1,0 +1,87 @@
+[org/gnome/shell]
+enabled-extensions=['dash-to-dock@micxgx.gmail.com', 'apps-menu@gnome-shell-extensions.gcampax.github.com', 'places-menu@gnome-shell-extensions.gcampax.github.com']
+favorite-apps=['firefox-esr.desktop', 'org.gnome.Nautilus.desktop', 'thunderbird.desktop', 'org.kde.kleopatra.desktop', 'org.keepassxc.KeePassXC.desktop', 'update.desktop']
+
+[org/gnome/shell/extensions/dash-to-dock]
+dock-position='LEFT'
+dash-max-icon-size=36
+dock-fixed=true
+extend-height=true
+height-fraction=0.90000000000000002
+intellihide=false
+transparency-mode='FIXED'
+background-opacity=0.85
+background-color='rgb(30,30,30)'
+custom-background-color=true
+apply-custom-theme=false
+show-apps-at-top=false
+show-show-apps-button=true
+show-trash=false
+show-mounts=false
+running-indicator-style='DOTS'
+click-action='focus-minimize-or-previews'
+scroll-action='switch-workspace'
+icon-size-fixed=true
+multi-monitor=false
+
+[org/gnome/desktop/wm/preferences]
+button-layout=':minimize,maximize,close'
+focus-new-windows='smart'
+
+[org/gnome/desktop/interface]
+gtk-theme='Adwaita-dark'
+color-scheme='prefer-dark'
+icon-theme='Adwaita'
+cursor-theme='Adwaita'
+font-name='Cantarell 11'
+document-font-name='Cantarell 11'
+monospace-font-name='Monospace 11'
+clock-show-weekday=true
+
+[org/gnome/settings-daemon/plugins/xsettings]
+antialiasing='rgba'
+hinting='slight'
+
+[org/gnome/desktop/peripherals/touchpad]
+natural-scroll=false
+two-finger-scrolling-enabled=true
+tap-to-click=true
+
+[org/gnome/desktop/background]
+color-shading-type='solid'
+picture-options='zoom'
+picture-uri='file:///usr/share/backgrounds/hardenwing.png'
+picture-uri-dark='file:///usr/share/backgrounds/hardenwing.png'
+primary-color='#1a1a2e'
+secondary-color='#16213e'
+
+[org/gnome/desktop/screensaver]
+picture-uri='file:///usr/share/backgrounds/hardenwing.png'
+lock-enabled=false
+
+[org/gnome/terminal/legacy/profiles:/:b1dcc9dd-5262-4d8d-a863-c897e6d979b9]
+visible-name='Hardenwing Terminal'
+foreground-color='#D3D7CF'
+background-color='#2E3436'
+bold-color='#FFFFFF'
+use-theme-colors=false
+use-transparent-background=false
+scrollbar-policy='never'
+scrollback-unlimited=true
+scrollback-lines=10000
+cursor-shape='block'
+cursor-blink-mode='on'
+
+[org/gnome/system/location]
+enabled=false
+
+[org/gnome/desktop/privacy]
+report-technical-problems=false
+remember-recent-files=false
+
+[org/gnome/desktop/session]
+idle-delay=uint32 0
+
+[org/gnome/desktop/notifications]
+show-banners=true
+show-in-lock-screen=false

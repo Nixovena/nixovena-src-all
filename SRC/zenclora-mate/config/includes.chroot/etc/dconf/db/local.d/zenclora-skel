@@ -1,0 +1,273 @@
+# ═══════════════════════════════════════════════════════════════
+#  ZENCLORA — MATE Desktop Rice Configuration
+# ═══════════════════════════════════════════════════════════════
+
+# ── Desktop Interface ──────────────────────────────────────────
+[org/mate/desktop/interface]
+gtk-decoration-layout='menu:minimize,maximize,close'
+gtk-color-scheme='fg_color:#E0E6ED\nbg_color:#0b111e\ntext_color:#C8D0DA\nbase_color:#111a28\nselected_fg_color:#FFFFFF\nselected_bg_color:#7c3aed\ntooltip_fg_color:#E0E6ED\ntooltip_bg_color:#17212f'
+icon-theme='Numix-Circle'
+gtk-theme='Orchis-Dark-Compact'
+font-name='Sans 10'
+document-font-name='Sans 10'
+monospace-font-name='Monospace 10'
+
+# ── Window Manager (Marco) ────────────────────────────────────
+[org/mate/marco/general]
+titlebar-uses-system-font=true
+center-new-windows=true
+button-layout='menu:minimize,maximize,close'
+side-by-side-tiling=true
+compositing-manager=true
+theme='Orchis-Dark-Compact'
+num-workspaces=4
+reduced-resources=false
+
+[org/mate/marco/global-keybindings]
+run-command-terminal='<Alt>t'
+
+# ── Desktop Background ────────────────────────────────────────
+[org/mate/desktop/background]
+color-shading-type='solid'
+primary-color='#0b111e'
+picture-options='zoom'
+picture-filename='/usr/share/backgrounds/default.png'
+secondary-color='#0b111e'
+
+# ── Window Preferences ────────────────────────────────────────
+[org/mate/desktop/wm/preferences]
+button-layout='appmenu:minimize,maximize,close'
+resize-with-right-button=true
+theme='Orchis-Dark-Compact'
+
+# ── MATE Terminal — Translucent Premium ───────────────────────
+[org/mate/terminal/profiles/default]
+foreground-color='#E0E6ED'
+visible-name='Zenclora'
+palette='#0b111e:#ef4444:#22c55e:#eab308:#7c3aed:#a855f7:#00d2ff:#e0e6ed:#233245:#f87171:#4ade80:#facc15:#8b5cf6:#c084fc:#33e0ff:#f8fafc'
+title='Zenclora Terminal'
+background-darkness=0.72
+use-theme-colors=false
+scrollbar-position='hidden'
+background-type='transparent'
+scrollback-unlimited=true
+bold-color='#f8fafc'
+bold-color-same-as-fg=false
+background-color='#0b111e'
+scrollback-lines=16384
+use-system-font=true
+allow-bold=true
+cursor-blink-mode='on'
+cursor-shape='ibeam'
+default-show-menubar=false
+
+# ── GNOME Terminal fallback ───────────────────────────────────
+[org/gnome/terminal/legacy]
+dark-theme=true
+schema-version=uint32 3
+
+[org/gnome/terminal/legacy/profiles:/:b1dcc9dd-5262-4d8d-a863-c897e6d979b9]
+background-transparency-percent=28
+use-theme-colors=false
+use-transparent-background=true
+
+# ── Panel/Menubar Customization ────────────────────────────────
+[org/mate/panel/menubar]
+icon-name='menubar'
+
+# ── Privacy ───────────────────────────────────────────────────
+[org/gnome/desktop/privacy]
+remove-old-temp-files=true
+remove-old-trash-files=true
+
+# ── Accessibility ─────────────────────────────────────────────
+[org/gnome/desktop/a11y/mouse]
+secondary-click-enabled=false
+dwell-click-enabled=false
+
+# ── Sound ─────────────────────────────────────────────────────
+[org/mate/desktop/sound]
+input-feedback-sounds=true
+enable-esd=true
+theme-name='freedesktop'
+event-sounds=true
+
+[org/gnome/desktop/sound]
+input-feedback-sounds=true
+
+# ── Notification Daemon ───────────────────────────────────────
+[org/mate/notification-daemon]
+popup-location='top_right'
+default-sound=''
+theme='slider'
+
+# ── Eye of MATE ───────────────────────────────────────────────
+[org/mate/eom/ui]
+image-collection=false
+statusbar=true
+sidebar=false
+toolbar=true
+
+# ── Engrampa Archive Manager ─────────────────────────────────
+[org/mate/engrampa/general]
+encrypt-header=true
+
+[org/mate/engrampa/listing]
+sort-method='name'
+name-column-width=250
+sort-type='ascending'
+list-mode='as-folder'
+show-path=false
+
+[org/mate/engrampa/dialogs/batch-add]
+default-extension='.zip'
+
+[org/mate/engrampa/dialogs/extract]
+skip-newer=false
+overwrite=true
+recreate-folders=true
+
+[org/mate/engrampa/ui]
+view-folders=true
+
+# ── Power Manager ─────────────────────────────────────────────
+[org/mate/power-manager]
+button-power='interactive'
+sleep-display-battery=300
+lock-keyring-suspend=true
+button-lid-ac='blank'
+button-lid-battery='suspend'
+network-sleep=true
+button-suspend='suspend'
+brightness-dim-battery=70
+idle-dim-battery=false
+lock-blank-screen=true
+lock-suspend=true
+lock-use-screensaver=true
+
+# ── Screensaver ───────────────────────────────────────────────
+[org/mate/screensaver]
+idle-activation-enabled=false
+lock-enabled=true
+lock-delay=0
+mode='single'
+themes=['screensavers-popsquares']
+
+# ── Keyboard Shortcuts ────────────────────────────────────────
+[org/mate/desktop/keybindings/custom5]
+action='mate-terminal -x vim'
+binding='<Mod4>v'
+name='vim'
+
+[org/mate/desktop/keybindings/custom0]
+action='epiphany'
+binding='<Mod4>b'
+name='browser'
+
+# ── Media Handling ────────────────────────────────────────────
+[org/mate/desktop/media-handling]
+automount-open=false
+automount=false
+autorun-x-content-start-app=['x-content/software']
+autorun-never=true
+
+[org/gnome/desktop/media-handling]
+automount-open=false
+automount=false
+autorun-never=true
+
+# ── Touchpad ──────────────────────────────────────────────────
+[org/mate/desktop/peripherals/touchpad]
+scroll-method=2
+horiz-scroll-enabled=true
+tap-to-click=true
+touchpad-enabled=true
+horizontal-edge-scrolling=true
+horizontal-two-finger-scrolling=true
+natural-scroll=true
+tap-button-one-finger=1
+tap-button-two-finger=3
+tap-button-three-finger=2
+three-finger-click=2
+two-finger-click=3
+vertical-edge-scrolling=true
+vertical-two-finger-scrolling=true
+
+# ── Keyboard ──────────────────────────────────────────────────
+[org/mate/desktop/peripherals/keyboard/general]
+duplicate-leds=false
+handle-indicators=false
+load-extra-items=true
+group-per-window=false
+
+[org/mate/desktop/peripherals/keyboard]
+numlock-state='off'
+
+# ── Mouse ─────────────────────────────────────────────────────
+[org/mate/desktop/peripherals/mouse]
+cursor-size=18
+middle-button-enabled=true
+cursor-theme='mate-black'
+
+# ── Bluetooth ─────────────────────────────────────────────────
+[org/mate/desktop/file-sharing]
+bluetooth-notify=true
+
+# ── Accessibility Keyboard ────────────────────────────────────
+[org/mate/desktop/accessibility/keyboard]
+enable=false
+bouncekeys-enable=false
+stickykeys-enable=false
+slowkeys-enable=false
+mousekeys-enable=false
+togglekeys-enable=false
+timeout-enable=false
+
+# ── Pluma Editor ──────────────────────────────────────────────
+[org/mate/pluma]
+highlight-current-line=true
+bracket-matching=true
+color-scheme='solarized-dark'
+display-line-numbers=true
+auto-indent=true
+bottom-panel-visible=false
+active-plugins=['changecase', 'sort', 'time', 'docinfo', 'taglist', 'filebrowser', 'spell', 'modelines']
+statusbar-visible=true
+
+[org/mate/pluma/plugins/time]
+prompt-type='prompt-selected-format'
+
+# ── Caja File Manager ─────────────────────────────────────────
+[org/mate/caja/preferences]
+show-hidden-files=false
+show-advanced-permissions=true
+enable-delete=true
+
+[org/mate/caja/window-state]
+start-with-sidebar=true
+start-with-status-bar=true
+maximized=false
+start-with-location-bar=true
+start-with-toolbar=true
+
+[org/mate/caja/desktop]
+computer-icon-visible=false
+home-icon-visible=false
+network-icon-visible=false
+trash-icon-visible=false
+volumes-visible=false
+
+# ── Atril Document Viewer ─────────────────────────────────────
+[org/mate/atril/default]
+show-sidebar=true
+dual-page=false
+inverted-colors=false
+
+# ── File Chooser ──────────────────────────────────────────────
+[org/gtk/settings/file-chooser]
+sort-column='name'
+show-hidden=false
+sort-order='ascending'
+location-mode='path-bar'
+sort-directories-first=true
+

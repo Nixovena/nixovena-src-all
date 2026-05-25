@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Dnsenum
+Comment=Tool to enumerate DNS information of a domain
+Comment[tr]=Bir alan adının DNS bilgilerini numaralandırmak için araç
+Comment[es]=Herramienta para enumerar información de DNS de un dominio
+Comment[fr]=Outil pour énumérer les informations DNS d'un domaine
+Comment[de]=Tool zur Aufzählung von DNS-Informationen einer Domäne
+Comment[ar]=أداة لسرد معلومات DNS للنطاق
+Comment[ru]=Инструмент для перечисления информации DNS домена
+Comment[zh]=枚举域名DNS信息的工具
+Comment[ja]=ドメインのDNS情報を列挙するツール
+Comment[ko]=도메인의 DNS 정보를 열거하는 도구
+Comment[pt]=Ferramenta para enumerar informações DNS de um domínio
+Comment[it]=Strumento per enumerare le informazioni DNS di un dominio
+Comment[nl]=Hulpmiddel voor het opsommen van DNS-informatie van een domein
+Comment[sv]=Verktyg för att räkna upp DNS-information för en domän
+Comment[pl]=Narzędzie do wyliczania informacji DNS domeny
+Exec=mate-terminal -- bash -c "dnsenum -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+ "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
+<Menu>
+  <Name>Applications</Name>
+
+  <Menu>
+    <Name>LengToolkit</Name>
+    <Directory>mate-lengtoolkit.directory</Directory>
+    <Include>
+      <And>
+        <Category>LengToolkit</Category>
+      </And>
+    </Include>
+  </Menu> 
+
+</Menu>

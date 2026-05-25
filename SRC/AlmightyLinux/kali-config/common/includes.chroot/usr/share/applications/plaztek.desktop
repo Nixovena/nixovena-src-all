@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Plaztek
+Comment=User-based lightweight sandbox system
+Comment[tr]=Kullanıcı tabanlı hafif korumalı alan sistemi
+Comment[es]=Sistema sandbox ligero basado en el usuario
+Comment[fr]=Système de bac à sable léger basé sur l'utilisateur
+Comment[de]=Benutzerbasiertes, leichtgewichtiges Sandbox-System
+Comment[ar]=نظام وضع الحماية الخفيف القائم على المستخدم
+Comment[ru]=Легкая система песочницы на основе пользователя
+Comment[zh]=基于用户的轻量级沙箱系统
+Comment[ja]=ユーザーベースの軽量サンドボックスシステム
+Comment[ko]=사용자 기반의 가벼운 샌드박스 시스템
+Comment[pt]=Sistema sandbox leve baseado no utilizador
+Comment[it]=Sistema sandbox leggero basato sull'utente
+Comment[nl]=Gebruikersgebaseerd lichtgewicht sandbox-systeem
+Comment[sv]=Användarbaserat lättviktssandlådesystem
+Comment[pl]=Lekki system piaskownicy oparty na użytkowniku
+Exec=mate-terminal -- bash -c "plaztek --help; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/plaztek.png
+Categories=Analysis;
+StartupNotify=false

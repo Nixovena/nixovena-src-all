@@ -1,0 +1,198 @@
+{
+    "policies": {
+        "DisableTelemetry": true,
+        "DisableFirefoxStudies": true,
+        "DisableFeedbackCommands": true,
+        "DisableFirefoxAccounts": true,
+        "DisableFormHistory": true,
+        "DisablePasswordReveal": true,
+        "DisablePocket": true,
+        "DisableSetDesktopBackground": true,
+        "DisableSystemAddonUpdate": true,
+        "DisableProfileImport": true,
+        "DisableProfileRefresh": true,
+        "BlockAboutConfig": false,
+        "BlockAboutAddons": false,
+        "DNSOverHTTPS": {
+            "Enabled": true,
+            "ProviderURL": "https://dns.quad9.net/dns-query",
+            "Locked": false
+        },
+        "Cookies": {
+            "Behavior": "reject-tracker-and-partition-foreign",
+            "BehaviorPrivateBrowsing": "reject-tracker-and-partition-foreign"
+        },
+        "EnableTrackingProtection": {
+            "Value": true,
+            "Locked": true,
+            "Cryptomining": true,
+            "Fingerprinting": true,
+            "EmailTracking": true
+        },
+        "SanitizeOnShutdown": {
+            "Cache": true,
+            "Cookies": false,
+            "Downloads": false,
+            "FormData": true,
+            "History": false,
+            "Sessions": false,
+            "SiteSettings": false,
+            "OfflineApps": true,
+            "Locked": false
+        },
+        "HttpsOnlyMode": "force_enabled",
+        "NetworkPrediction": false,
+        "CaptivePortal": false,
+        "PopupBlocking": {
+            "Default": true,
+            "Locked": false
+        },
+        "Permissions": {
+            "Camera": {
+                "BlockNewRequests": true,
+                "Locked": false
+            },
+            "Microphone": {
+                "BlockNewRequests": true,
+                "Locked": false
+            },
+            "Location": {
+                "BlockNewRequests": true,
+                "Locked": false
+            },
+            "Notifications": {
+                "BlockNewRequests": true,
+                "Locked": false
+            },
+            "Autoplay": {
+                "Default": "block-audio-video",
+                "Locked": false
+            }
+        },
+        "PasswordManagerEnabled": false,
+        "OfferToSaveLogins": false,
+        "OfferToSaveLoginsDefault": false,
+        "SearchEngines": {
+            "PreventInstalls": false,
+            "Default": "DuckDuckGo"
+        },
+        "SearchSuggestEnabled": false,
+        "FirefoxHome": {
+            "Search": true,
+            "TopSites": false,
+            "SponsoredTopSites": false,
+            "Highlights": false,
+            "Pocket": false,
+            "SponsoredPocket": false,
+            "Snippets": false,
+            "Locked": true
+        },
+        "UserMessaging": {
+            "WhatsNew": false,
+            "ExtensionRecommendations": false,
+            "FeatureRecommendations": false,
+            "UrlbarInterventions": false,
+            "SkipOnboarding": true,
+            "MoreFromMozilla": false,
+            "Locked": true
+        },
+        "NoDefaultBookmarks": true,
+        "DontCheckDefaultBrowser": true,
+        "OverrideFirstRunPage": "",
+        "OverridePostUpdatePage": "",
+        "DisableAppUpdate": false,
+        "BackgroundAppUpdate": true,
+        "InstallAddonsPermission": {
+            "Default": false
+        },
+        "ManagedBookmarks": [
+            {
+                "toplevel_name": "OSINT Tools"
+            },
+            {
+                "name": "Search Engines & Dorking",
+                "children": [
+                    { "name": "Shodan", "url": "https://www.shodan.io/" },
+                    { "name": "Censys", "url": "https://search.censys.io/" },
+                    { "name": "Google Hacking Database (Exploit-DB)", "url": "https://www.exploit-db.com/google-hacking-database" },
+                    { "name": "Intelx.io", "url": "https://intelx.io/" },
+                    { "name": "Ahmia (Tor Arama)", "url": "https://ahmia.fi/" }
+                ]
+            },
+            {
+                "name": "Domain, IP & DNS",
+                "children": [
+                    { "name": "DNSDumpster", "url": "https://dnsdumpster.com/" },
+                    { "name": "SecurityTrails", "url": "https://securitytrails.com/" },
+                    { "name": "VirusTotal", "url": "https://www.virustotal.com/" },
+                    { "name": "ViewDNS.info", "url": "https://viewdns.info/" },
+                    { "name": "BGPView", "url": "https://bgpview.io/" }
+                ]
+            },
+            {
+                "name": "People & Identity (People OSINT)",
+                "children": [
+                    { "name": "WhatsMyName", "url": "https://whatsmyname.app/" },
+                    { "name": "Epieos (Email/Google OSINT)", "url": "https://epieos.com/" },
+                    { "name": "Namechk", "url": "https://namechk.com/" },
+                    { "name": "Sherlock Repository", "url": "https://github.com/sherlock-project/sherlock" }
+                ]
+            },
+            {
+                "name": "Breach Data",
+                "children": [
+                    { "name": "Have I Been Pwned", "url": "https://haveibeenpwned.com/" },
+                    { "name": "DeHashed", "url": "https://dehashed.com/" },
+                    { "name": "Leak-Lookup", "url": "https://leak-lookup.com/" }
+                ]
+            },
+            {
+                "name": "Archives & Cache",
+                "children": [
+                    { "name": "Wayback Machine", "url": "https://archive.org/web/" },
+                    { "name": "Archive.ph", "url": "https://archive.ph/" },
+                    { "name": "Google Cache Search", "url": "https://cachedview.com/" }
+                ]
+            },
+            {
+                "name": "Companies & Organizations",
+                "children": [
+                    { "name": "OpenCorporates", "url": "https://opencorporates.com/" },
+                    { "name": "Offshore Leaks (ICIJ)", "url": "https://offshoreleaks.icij.org/" },
+                    { "name": "Crunchbase", "url": "https://www.crunchbase.com/" }
+                ]
+            }
+        ],
+        "Extensions": {
+            "Install": [
+                "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
+            ],
+            "Locked": [],
+            "Uninstall": []
+        },
+        "3rdparty": {
+            "Extensions": {
+                "uBlock0@raymondhill.net": {
+                    "toOverwrite": {
+                        "filterLists": [
+                            "ublock-filters",
+                            "ublock-badware",
+                            "ublock-privacy",
+                            "ublock-unbreak",
+                            "ublock-quick-fixes",
+                            "easylist",
+                            "easyprivacy",
+                            "urlhaus-1",
+                            "curben-phishing",
+                            "adguard-annoyance",
+                            "fanboy-annoyance"
+                        ],
+                        "advancedSettings": {
+                            "filterAuthorMode": false
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=OpenOSINT
+Comment=Open source AI intelligence and reconnaissance framework
+Comment[tr]=Açık kaynak AI istihbarat ve keşif çerçevesi
+Comment[es]=Marco de reconocimiento e inteligencia de AI de código abierto
+Comment[fr]=Cadre de reconnaissance et d'intelligence AI open source
+Comment[de]=Open-Source-AI-Intelligence- und Reconnaissance-Framework
+Comment[ar]=إطار عمل مفتوح المصدر للاستخبارات والاستطلاع بالذكاء الاصطناعي
+Comment[ru]=Фреймворк для разведки и сбора информации с использованием ИИ с открытым исходным кодом
+Comment[zh]=开源AI情报和侦察框架
+Comment[ja]=オープンソースのAIインテリジェンスおよび偵察フレームワーク
+Comment[ko]=오픈 소스 AI 인텔리전스 및 정찰 프레임워크
+Comment[pt]=Estrutura de reconhecimento e inteligência de AI de código aberto
+Comment[it]=Framework di ricognizione e intelligence AI open source
+Comment[nl]=Open source AI-intelligence- en verkenningskader
+Comment[sv]=Ramverk för AI-underrättelser och rekognosering med öppen källkod
+Comment[pl]=Narzędzie open source do zbierania informacji i rekonesansu oparte na SI
+Exec=mate-terminal -- bash -c "openosint --help; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Frameworks;
+StartupNotify=false

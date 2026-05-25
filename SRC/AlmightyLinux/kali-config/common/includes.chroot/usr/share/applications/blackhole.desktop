@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=blackhole
+Comment=Dark web search engine and intelligence tool
+Comment[tr]=Dark web arama motoru ve istihbarat aracı
+Comment[es]=Motor de búsqueda en la dark web y herramienta de inteligencia
+Comment[fr]=Moteur de recherche du dark web et outil de renseignement
+Comment[de]=Darkweb-Suchmaschine und Geheimdienst-Tool
+Comment[ar]=محرك بحث الويب المظلم وأداة الاستخبارات
+Comment[ru]=Поисковая система в даркнете и инструмент разведки
+Comment[zh]=暗网搜索引擎和情报工具
+Comment[ja]=ダークウェブ検索エンジンとインテリジェンスツール
+Comment[ko]=다크 웹 검색 엔진 및 인텔리전스 도구
+Comment[pt]=Motor de busca da dark web e ferramenta de inteligência
+Comment[it]=Motore di ricerca del dark web e strumento di intelligence
+Comment[nl]=Dark web zoekmachine en inlichtingen tool
+Comment[sv]=Dark web-sökmotor och underrättelseverktyg
+Comment[pl]=Wyszukiwarka w dark webie i narzędzie wywiadowcze
+Exec=mate-terminal -- bash -c "blackhole; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/blackhole.png
+Categories=Darknet;
+StartupNotify=false

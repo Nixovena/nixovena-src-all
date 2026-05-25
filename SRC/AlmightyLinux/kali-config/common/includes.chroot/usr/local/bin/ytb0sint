@@ -1,0 +1,1282 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import re
+import os
+import sys
+import html
+import hashlib
+import time
+import urllib.parse
+from datetime import datetime
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+except ImportError:
+    sys.exit("[!] Missing: requests")
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    sys.exit("[!] Missing: bs4")
+
+DEFAULT_OUTPUT_DIR = "ytb0sint_results"
+VERSION = "2.0"
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+]
+
+CHANNEL_ID_RE = re.compile(r'^UC[a-zA-Z0-9_-]{22}$')
+VIDEO_ID_RE = re.compile(r'[a-zA-Z0-9_-]{11}')
+EMAIL_RE = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+PHONE_RE = re.compile(r'(?:\+?[\d\s\-\(\)]{7,20})')
+
+
+class YouTubeOSINT:
+    def __init__(self, channel_identifier, api_key=None, scrape_limit=10, output_dir=None, retries=3, delay=1.0):
+        self.channel_identifier = channel_identifier
+        self.api_key = api_key
+        self.scrape_limit = scrape_limit
+        self.output_dir = output_dir or DEFAULT_OUTPUT_DIR
+        self.delay = delay
+        self.session = self._build_session(retries)
+        self.results = {
+            'channel_identifier': channel_identifier,
+            'timestamp': datetime.now().isoformat(),
+            'method': 'passive' if api_key is None else 'api',
+            'channel_info': {},
+            'videos': [],
+            'shorts': [],
+            'livestreams': [],
+            'statistics': {},
+            'playlists': [],
+            'community_posts': [],
+            'social_links': [],
+            'related_channels': [],
+            'extracted_emails': [],
+            'keywords': [],
+            'metadata_fingerprint': {},
+        }
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def _build_session(self, retries):
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=retries,
+            backoff_factor=1.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        import random
+        session.headers.update({
+            'User-Agent': random.choice(USER_AGENTS),
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        })
+        return session
+
+    def _throttle(self):
+        time.sleep(self.delay)
+
+    def _fetch(self, url, timeout=20):
+        self._throttle()
+        try:
+            resp = self.session.get(url, timeout=timeout)
+            if resp.status_code == 200:
+                return resp
+        except requests.exceptions.RequestException as e:
+            print(f"[-] Request failed for {url}: {e}")
+        return None
+
+    def _extract_initial_data(self, page_text):
+        patterns = [
+            r'var\s+ytInitialData\s*=\s*(\{.+?\});\s*</script>',
+            r'window\["ytInitialData"\]\s*=\s*(\{.+?\});\s*',
+            r'ytInitialData\s*=\s*(\{.+?\});\s*',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, page_text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    continue
+        return None
+
+    def _extract_initial_player(self, page_text):
+        patterns = [
+            r'var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*</script>',
+            r'ytInitialPlayerResponse\s*=\s*(\{.+?\});\s*',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, page_text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    continue
+        return None
+
+    def _deep_search(self, obj, key):
+        results = []
+        if isinstance(obj, dict):
+            if key in obj:
+                results.append(obj[key])
+            for v in obj.values():
+                results.extend(self._deep_search(v, key))
+        elif isinstance(obj, list):
+            for item in obj:
+                results.extend(self._deep_search(item, key))
+        return results
+
+    def _get_text(self, obj):
+        if isinstance(obj, str):
+            return obj
+        if isinstance(obj, dict):
+            if 'simpleText' in obj:
+                return obj['simpleText']
+            if 'runs' in obj:
+                return ''.join(r.get('text', '') for r in obj['runs'])
+            if 'text' in obj:
+                return self._get_text(obj['text'])
+            if 'content' in obj:
+                return obj['content']
+        return ''
+
+    def get_channel_id(self):
+        identifier = self.channel_identifier.strip()
+
+        if CHANNEL_ID_RE.match(identifier):
+            return identifier
+
+        if identifier.startswith('http'):
+            parsed = urllib.parse.urlparse(identifier)
+            path = parsed.path.rstrip('/')
+            if '/channel/' in path:
+                channel_id = path.split('/channel/')[-1].split('/')[0]
+                if CHANNEL_ID_RE.match(channel_id):
+                    return channel_id
+            if '/c/' in path:
+                return self._resolve_channel_id_from_page(identifier)
+            if '/user/' in path:
+                username = path.split('/user/')[-1].split('/')[0]
+                return self.get_channel_id_from_username(username)
+            if '/@' in path:
+                handle = path.split('/@')[-1].split('/')[0]
+                return self.get_channel_id_from_handle(handle)
+            return self._resolve_channel_id_from_page(identifier)
+
+        if identifier.startswith('@'):
+            return self.get_channel_id_from_handle(identifier.lstrip('@'))
+
+        return self.get_channel_id_from_username(identifier)
+
+    def _resolve_channel_id_from_page(self, url):
+        resp = self._fetch(url)
+        if resp:
+            for pattern in [
+                r'"channelId":"(UC[a-zA-Z0-9_-]{22})"',
+                r'youtube\.com/channel/(UC[a-zA-Z0-9_-]{22})',
+                r'"externalChannelId":"(UC[a-zA-Z0-9_-]{22})"',
+                r'<meta\s+itemprop="channelId"\s+content="(UC[a-zA-Z0-9_-]{22})"',
+            ]:
+                match = re.search(pattern, resp.text)
+                if match:
+                    return match.group(1)
+        print(f"[-] Could not resolve channel ID from URL: {url}")
+        return None
+
+    def get_channel_id_from_username(self, username):
+        resp = self._fetch(f"https://www.youtube.com/user/{username}")
+        if resp:
+            for pattern in [
+                r'"channelId":"(UC[a-zA-Z0-9_-]{22})"',
+                r'youtube\.com/channel/(UC[a-zA-Z0-9_-]{22})',
+                r'"externalChannelId":"(UC[a-zA-Z0-9_-]{22})"',
+            ]:
+                match = re.search(pattern, resp.text)
+                if match:
+                    return match.group(1)
+        print(f"[-] Could not extract channel ID for username '{username}'")
+        return None
+
+    def get_channel_id_from_handle(self, handle):
+        resp = self._fetch(f"https://www.youtube.com/@{handle}")
+        if resp:
+            for pattern in [
+                r'"channelId":"(UC[a-zA-Z0-9_-]{22})"',
+                r'youtube\.com/channel/(UC[a-zA-Z0-9_-]{22})',
+                r'"externalChannelId":"(UC[a-zA-Z0-9_-]{22})"',
+            ]:
+                match = re.search(pattern, resp.text)
+                if match:
+                    return match.group(1)
+        print(f"[-] Could not extract channel ID for handle '@{handle}'")
+        return None
+
+    def get_channel_info(self):
+        if self.api_key:
+            return self.get_channel_info_api()
+        return self.get_channel_info_passive()
+
+    def get_channel_info_api(self):
+        print(f"[*] Gathering channel information using YouTube Data API for: {self.channel_identifier}")
+        channel_id = self.get_channel_id()
+        if not channel_id:
+            print("[-] Could not resolve channel ID for API usage")
+            return self.get_channel_info_passive()
+
+        api_url = (
+            f"https://www.googleapis.com/youtube/v3/channels?"
+            f"part=snippet,statistics,status,brandingSettings,topicDetails,contentDetails"
+            f"&id={channel_id}&key={self.api_key}"
+        )
+        resp = self._fetch(api_url)
+        if not resp:
+            return self.get_channel_info_passive()
+
+        data = resp.json()
+        if 'items' not in data or len(data['items']) == 0:
+            print("[-] No channel data found in API response")
+            return self.get_channel_info_passive()
+
+        if resp.status_code == 403:
+            print("[-] API quota exceeded or invalid API key")
+            return self.get_channel_info_passive()
+
+        item = data['items'][0]
+        snippet = item.get('snippet', {})
+        statistics = item.get('statistics', {})
+        status = item.get('status', {})
+        branding = item.get('brandingSettings', {}).get('channel', {})
+        topic_details = item.get('topicDetails', {})
+        content_details = item.get('contentDetails', {})
+
+        topic_categories = topic_details.get('topicCategories', [])
+        topic_ids = topic_details.get('topicIds', [])
+
+        related_playlists = content_details.get('relatedPlaylists', {})
+
+        channel_info = {
+            'identifier_used': self.channel_identifier,
+            'channel_id': channel_id,
+            'channel_url': f"https://www.youtube.com/channel/{channel_id}",
+            'method': 'YouTube Data API v3',
+            'channel_name': snippet.get('title', ''),
+            'description': snippet.get('description', ''),
+            'published_at': snippet.get('publishedAt', ''),
+            'thumbnails': snippet.get('thumbnails', {}),
+            'country': snippet.get('country', ''),
+            'default_language': snippet.get('defaultLanguage', ''),
+            'view_count': statistics.get('viewCount', '0'),
+            'subscriber_count': statistics.get('subscriberCount', '0'),
+            'video_count': statistics.get('videoCount', '0'),
+            'hidden_subscriber_count': statistics.get('hiddenSubscriberCount', False),
+            'custom_url': snippet.get('customUrl', ''),
+            'is_linked': status.get('isLinked', False),
+            'privacy_status': status.get('privacyStatus', ''),
+            'is_made_for_kids': status.get('madeForKids', False),
+            'keywords': branding.get('keywords', ''),
+            'unsubscribed_trailer': branding.get('unsubscribedTrailer', ''),
+            'topic_categories': topic_categories,
+            'topic_ids': topic_ids,
+            'uploads_playlist': related_playlists.get('uploads', ''),
+            'likes_playlist': related_playlists.get('likes', ''),
+        }
+
+        emails_in_desc = EMAIL_RE.findall(channel_info.get('description', ''))
+        if emails_in_desc:
+            self.results['extracted_emails'] = list(set(emails_in_desc))
+
+        if channel_info.get('keywords'):
+            raw_kw = channel_info['keywords']
+            self.results['keywords'] = [k.strip('"') for k in re.findall(r'"[^"]+"|[^\s]+', raw_kw)]
+
+        print(f"[+] Channel Name: {channel_info['channel_name']}")
+        print(f"[+] Channel ID: {channel_id}")
+        print(f"[+] Subscriber Count: {channel_info['subscriber_count']}")
+        print(f"[+] Video Count: {channel_info['video_count']}")
+        print(f"[+] View Count: {channel_info['view_count']}")
+        if channel_info['country']:
+            print(f"[+] Country: {channel_info['country']}")
+        if channel_info['custom_url']:
+            print(f"[+] Custom URL: {channel_info['custom_url']}")
+        if channel_info['default_language']:
+            print(f"[+] Default Language: {channel_info['default_language']}")
+        if topic_categories:
+            print(f"[+] Topics: {', '.join(topic_categories)}")
+        if channel_info['is_made_for_kids']:
+            print(f"[+] Made For Kids: Yes")
+
+        self.results['channel_info'] = channel_info
+
+        self._fetch_social_links_passive(channel_id)
+        self._fetch_related_channels_passive(channel_id)
+
+        return channel_info
+
+    def get_channel_info_passive(self):
+        print(f"[*] Gathering channel information for: {self.channel_identifier}")
+        channel_id = self.get_channel_id()
+
+        channel_info = {
+            'identifier_used': self.channel_identifier,
+            'channel_id': channel_id,
+            'discovered_at': datetime.now().isoformat(),
+            'method': 'Passive scraping',
+        }
+
+        if self.channel_identifier.startswith('http'):
+            channel_url = self.channel_identifier
+        elif self.channel_identifier.startswith('@'):
+            channel_url = f"https://www.youtube.com/{self.channel_identifier}"
+        elif channel_id and CHANNEL_ID_RE.match(channel_id):
+            channel_url = f"https://www.youtube.com/channel/{channel_id}"
+        else:
+            channel_url = f"https://www.youtube.com/c/{self.channel_identifier}"
+
+        channel_info['channel_url'] = channel_url
+        resp = self._fetch(channel_url)
+        if not resp or resp.status_code != 200:
+            print(f"[-] Channel page returned status {resp.status_code if resp else 'N/A'}")
+            self.results['channel_info'] = channel_info
+            return channel_info
+
+        page_text = resp.text
+        initial_data = self._extract_initial_data(page_text)
+
+        name_extractors = [
+            (r'"title"\s*:\s*"([^"]+)"', page_text),
+            (r'<meta\s+property="og:title"\s+content="([^"]+)"', page_text),
+            (r'"channelName"\s*:\s*"([^"]+)"', page_text),
+        ]
+        for pattern, source in name_extractors:
+            match = re.search(pattern, source)
+            if match:
+                channel_info['channel_name'] = html.unescape(match.group(1))
+                break
+
+        desc_extractors = [
+            r'"description"\s*:\s*"((?:[^"\\]|\\.)*)"',
+            r'<meta\s+property="og:description"\s+content="([^"]*)"',
+            r'"channelDescription"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        ]
+        for pattern in desc_extractors:
+            match = re.search(pattern, page_text)
+            if match:
+                try:
+                    channel_info['description'] = html.unescape(
+                        match.group(1).encode().decode('unicode_escape', errors='replace')
+                    )
+                except (UnicodeDecodeError, ValueError):
+                    channel_info['description'] = html.unescape(match.group(1))
+                break
+
+        sub_patterns = [
+            r'"subscriberCountText".*?"simpleText"\s*:\s*"([^"]+)"',
+            r'"subscriberCountText".*?"content"\s*:\s*"([^"]+)"',
+            r'"subscriberCountText".*?"text"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in sub_patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                channel_info['subscriber_count_text'] = match.group(1)
+                break
+
+        video_patterns = [
+            r'"videoCountText".*?"simpleText"\s*:\s*"([^"]+)"',
+            r'"videoCountText".*?"text"\s*:\s*"([^"]+)"',
+            r'"videosCountText".*?"simpleText"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in video_patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                channel_info['video_count_text'] = match.group(1)
+                break
+
+        join_patterns = [
+            r'"joinedDateText".*?"text"\s*:\s*"([\w\s,]+)"',
+            r'"joinedDateText".*?"simpleText"\s*:\s*"([^"]+)"',
+            r'"Joined\s+([\w\s,]+)"',
+        ]
+        for pattern in join_patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                channel_info['joined_date'] = match.group(1).strip()
+                break
+
+        vanity_match = re.search(r'"vanityChannelUrl"\s*:\s*"([^"]+)"', page_text)
+        if vanity_match:
+            channel_info['vanity_url'] = vanity_match.group(1)
+
+        canonical_match = re.search(r'"canonicalBaseUrl"\s*:\s*"([^"]+)"', page_text)
+        if canonical_match:
+            channel_info['canonical_url'] = canonical_match.group(1)
+
+        avatar_match = re.search(r'"avatar".*?"url"\s*:\s*"([^"]+)"', page_text)
+        if avatar_match:
+            channel_info['avatar_url'] = avatar_match.group(1)
+
+        banner_match = re.search(r'"banner".*?"url"\s*:\s*"([^"]+)"', page_text)
+        if banner_match:
+            channel_info['banner_url'] = banner_match.group(1)
+
+        tv_banner = re.search(r'"tvBanner".*?"url"\s*:\s*"([^"]+)"', page_text)
+        if tv_banner:
+            channel_info['tv_banner_url'] = tv_banner.group(1)
+
+        country_patterns = [
+            r'"country"\s*:\s*"([A-Z]{2})"',
+            r'"countryText".*?"simpleText"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in country_patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                channel_info['country'] = match.group(1)
+                break
+
+        keywords_match = re.search(r'"keywords"\s*:\s*"((?:[^"\\]|\\.)*)"', page_text)
+        if keywords_match:
+            raw_kw = keywords_match.group(1)
+            channel_info['keywords'] = raw_kw
+            self.results['keywords'] = [k.strip('"') for k in re.findall(r'"[^"]+"|[^\s]+', raw_kw)]
+
+        verified = re.search(r'"isVerified"\s*:\s*(true|false)', page_text)
+        if verified:
+            channel_info['is_verified'] = verified.group(1) == 'true'
+
+        family_safe = re.search(r'"isFamilySafe"\s*:\s*(true|false)', page_text)
+        if family_safe:
+            channel_info['is_family_safe'] = family_safe.group(1) == 'true'
+
+        view_count_patterns = [
+            r'"viewCountText".*?"simpleText"\s*:\s*"([^"]+)"',
+            r'"viewCountText".*?"content"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in view_count_patterns:
+            match = re.search(pattern, page_text)
+            if match:
+                channel_info['total_view_count_text'] = match.group(1)
+                break
+
+        if channel_info.get('description'):
+            emails_found = EMAIL_RE.findall(channel_info['description'])
+            if emails_found:
+                self.results['extracted_emails'] = list(set(emails_found))
+
+        social_links = self._extract_social_links(page_text)
+        if social_links:
+            self.results['social_links'] = social_links
+
+        featured = self._extract_featured_channels(page_text, initial_data)
+        if featured:
+            self.results['related_channels'] = featured
+
+        self.results['metadata_fingerprint'] = self._build_fingerprint(page_text, channel_id)
+
+        print(f"[+] Channel Name: {channel_info.get('channel_name', 'N/A')}")
+        print(f"[+] Channel ID: {channel_id or 'N/A'}")
+        print(f"[+] Subscriber Count: {channel_info.get('subscriber_count_text', 'N/A')}")
+        print(f"[+] Video Count: {channel_info.get('video_count_text', 'N/A')}")
+        if channel_info.get('joined_date'):
+            print(f"[+] Joined: {channel_info['joined_date']}")
+        if channel_info.get('country'):
+            print(f"[+] Country: {channel_info['country']}")
+        if channel_info.get('is_verified'):
+            print(f"[+] Verified: Yes")
+        if channel_info.get('total_view_count_text'):
+            print(f"[+] Total Views: {channel_info['total_view_count_text']}")
+        if social_links:
+            print(f"[+] Social Links: {len(social_links)} found")
+            for link in social_links[:10]:
+                print(f"    - {link.get('title', 'N/A')}: {link.get('url', 'N/A')}")
+        if featured:
+            print(f"[+] Featured/Related Channels: {len(featured)} found")
+        if self.results['extracted_emails']:
+            print(f"[+] Emails Found: {', '.join(self.results['extracted_emails'])}")
+
+        self.results['channel_info'] = channel_info
+        return channel_info
+
+    def _extract_social_links(self, page_text):
+        social_links = []
+        link_pattern = re.findall(
+            r'"channelExternalLinkViewModel".*?"title".*?"content"\s*:\s*"([^"]+)".*?"link".*?"content"\s*:\s*"([^"]+)"',
+            page_text
+        )
+        for title, url in link_pattern:
+            social_links.append({'title': html.unescape(title), 'url': html.unescape(url)})
+
+        if not social_links:
+            header_links = re.findall(
+                r'"headerLinks".*?"title"\s*:\s*\{"simpleText"\s*:\s*"([^"]+)"\}.*?"url"\s*:\s*"([^"]+)"',
+                page_text
+            )
+            for title, url in header_links:
+                if 'redirect' in url and 'q=' in url:
+                    actual_url = urllib.parse.unquote(url.split('q=')[-1].split('&')[0])
+                else:
+                    actual_url = url
+                social_links.append({'title': html.unescape(title), 'url': actual_url})
+
+        if not social_links:
+            primary_links = re.findall(
+                r'"primaryLinks".*?"title".*?"simpleText"\s*:\s*"([^"]+)".*?"navigationEndpoint".*?"url"\s*:\s*"([^"]+)"',
+                page_text
+            )
+            for title, url in primary_links:
+                if 'redirect' in url and 'q=' in url:
+                    actual_url = urllib.parse.unquote(url.split('q=')[-1].split('&')[0])
+                else:
+                    actual_url = url
+                social_links.append({'title': html.unescape(title), 'url': actual_url})
+
+        return social_links
+
+    def _extract_featured_channels(self, page_text, initial_data):
+        featured = []
+        if initial_data:
+            channel_renderers = self._deep_search(initial_data, 'channelRenderer')
+            for cr in channel_renderers:
+                if isinstance(cr, dict):
+                    cid = cr.get('channelId', '')
+                    title = self._get_text(cr.get('title', ''))
+                    sub_text = self._get_text(cr.get('subscriberCountText', ''))
+                    thumb = ''
+                    thumbs = cr.get('thumbnail', {}).get('thumbnails', [])
+                    if thumbs:
+                        thumb = thumbs[-1].get('url', '')
+                    if cid:
+                        featured.append({
+                            'channel_id': cid,
+                            'name': title,
+                            'subscriber_count_text': sub_text,
+                            'thumbnail': thumb,
+                            'url': f"https://www.youtube.com/channel/{cid}",
+                        })
+
+            mini_renderers = self._deep_search(initial_data, 'gridChannelRenderer')
+            for gcr in mini_renderers:
+                if isinstance(gcr, dict):
+                    cid = gcr.get('channelId', '')
+                    title = self._get_text(gcr.get('title', ''))
+                    sub_text = self._get_text(gcr.get('subscriberCountText', ''))
+                    if cid and not any(f['channel_id'] == cid for f in featured):
+                        featured.append({
+                            'channel_id': cid,
+                            'name': title,
+                            'subscriber_count_text': sub_text,
+                            'url': f"https://www.youtube.com/channel/{cid}",
+                        })
+
+        if not featured:
+            feat_pattern = re.findall(
+                r'"channelId"\s*:\s*"(UC[a-zA-Z0-9_-]{22})".*?"title".*?"simpleText"\s*:\s*"([^"]+)"',
+                page_text
+            )
+            seen = set()
+            channel_id = self.results.get('channel_info', {}).get('channel_id', '')
+            for cid, title in feat_pattern:
+                if cid != channel_id and cid not in seen:
+                    seen.add(cid)
+                    featured.append({
+                        'channel_id': cid,
+                        'name': html.unescape(title),
+                        'url': f"https://www.youtube.com/channel/{cid}",
+                    })
+
+        return featured[:50]
+
+    def _build_fingerprint(self, page_text, channel_id):
+        fingerprint = {}
+        locale_match = re.search(r'"hl"\s*:\s*"([^"]+)"', page_text)
+        if locale_match:
+            fingerprint['detected_locale'] = locale_match.group(1)
+        gl_match = re.search(r'"gl"\s*:\s*"([^"]+)"', page_text)
+        if gl_match:
+            fingerprint['detected_geo'] = gl_match.group(1)
+        page_hash = hashlib.sha256(page_text.encode('utf-8', errors='replace')).hexdigest()[:16]
+        fingerprint['page_hash'] = page_hash
+        fingerprint['scan_timestamp'] = datetime.now().isoformat()
+        if channel_id:
+            fingerprint['rss_feed'] = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+        return fingerprint
+
+    def _fetch_social_links_passive(self, channel_id):
+        if self.results['social_links']:
+            return
+        about_url = f"https://www.youtube.com/channel/{channel_id}/about"
+        resp = self._fetch(about_url)
+        if resp and resp.status_code == 200:
+            links = self._extract_social_links(resp.text)
+            if links:
+                self.results['social_links'] = links
+
+    def _fetch_related_channels_passive(self, channel_id):
+        if self.results['related_channels']:
+            return
+        channels_url = f"https://www.youtube.com/channel/{channel_id}/channels"
+        resp = self._fetch(channels_url)
+        if resp and resp.status_code == 200:
+            initial_data = self._extract_initial_data(resp.text)
+            featured = self._extract_featured_channels(resp.text, initial_data)
+            if featured:
+                self.results['related_channels'] = featured
+
+    def get_channel_statistics(self):
+        if self.api_key:
+            channel_info = self.results.get('channel_info', {})
+            stats = {
+                'view_count': channel_info.get('view_count', 'N/A'),
+                'subscriber_count': channel_info.get('subscriber_count', 'N/A'),
+                'video_count': channel_info.get('video_count', 'N/A'),
+                'hidden_subscriber_count': channel_info.get('hidden_subscriber_count', False),
+                'last_updated': datetime.now().isoformat(),
+                'methodology': 'YouTube Data API v3',
+            }
+            self.results['statistics'] = stats
+            return stats
+        return self.get_channel_statistics_passive()
+
+    def get_channel_statistics_passive(self):
+        print(f"[*] Gathering channel statistics...")
+        stats = {
+            'last_updated': datetime.now().isoformat(),
+            'methodology': 'Passive OSINT',
+        }
+        channel_info = self.results.get('channel_info', {})
+        if 'subscriber_count_text' in channel_info:
+            stats['subscriber_count_text'] = channel_info['subscriber_count_text']
+        if 'video_count_text' in channel_info:
+            stats['video_count_text'] = channel_info['video_count_text']
+        if 'total_view_count_text' in channel_info:
+            stats['view_count_text'] = channel_info['total_view_count_text']
+        else:
+            channel_id = channel_info.get('channel_id')
+            if channel_id:
+                about_url = f"https://www.youtube.com/channel/{channel_id}/about"
+                resp = self._fetch(about_url)
+                if resp and resp.status_code == 200:
+                    for pattern in [
+                        r'"viewCountText".*?"simpleText"\s*:\s*"([^"]+)"',
+                        r'"viewCountText".*?"content"\s*:\s*"([^"]+)"',
+                    ]:
+                        match = re.search(pattern, resp.text)
+                        if match:
+                            stats['view_count_text'] = match.group(1)
+                            break
+
+        self.results['statistics'] = stats
+        return stats
+
+    def get_recent_videos(self):
+        if self.api_key:
+            return self.get_recent_videos_api()
+        return self.get_recent_videos_passive()
+
+    def get_recent_videos_api(self):
+        print(f"[*] Gathering recent videos using YouTube Data API...")
+        channel_id = self.results['channel_info'].get('channel_id')
+        if not channel_id:
+            print("[-] Could not get channel ID for API usage")
+            return self.get_recent_videos_passive()
+
+        api_url = (
+            f"https://www.googleapis.com/youtube/v3/search?"
+            f"part=snippet&channelId={channel_id}&maxResults={self.scrape_limit}"
+            f"&order=date&type=video&key={self.api_key}"
+        )
+        resp = self._fetch(api_url)
+        if not resp or resp.status_code != 200:
+            if resp and resp.status_code == 403:
+                print("[-] API quota exceeded or invalid API key for videos search")
+            return self.get_recent_videos_passive()
+
+        data = resp.json()
+        video_list = []
+        video_ids = []
+        if 'items' in data:
+            for item in data['items']:
+                video_id = item['id'].get('videoId', '')
+                if video_id:
+                    video_ids.append(video_id)
+                video_info = {
+                    'id': video_id,
+                    'url': f"https://www.youtube.com/watch?v={video_id}" if video_id else '',
+                    'title': item['snippet'].get('title', ''),
+                    'description': item['snippet'].get('description', ''),
+                    'published_at': item['snippet'].get('publishedAt', ''),
+                    'thumbnails': item['snippet'].get('thumbnails', {}),
+                    'channel_id': item['snippet'].get('channelId', ''),
+                    'channel_title': item['snippet'].get('channelTitle', ''),
+                }
+                video_list.append(video_info)
+
+        if video_ids:
+            details = self._get_video_details_api(video_ids)
+            for v in video_list:
+                vid = v.get('id', '')
+                if vid in details:
+                    v.update(details[vid])
+
+        videos = {'methodology': 'YouTube Data API v3', 'video_list': video_list}
+        self.results['videos'] = videos
+        if video_list:
+            print(f"[+] Found {len(video_list)} recent videos via API")
+            for video in video_list[:10]:
+                print(f"    - {video.get('title', 'N/A')} (Published: {video.get('published_at', 'N/A')})")
+        return videos
+
+    def _get_video_details_api(self, video_ids):
+        details = {}
+        batch_size = 50
+        for i in range(0, len(video_ids), batch_size):
+            batch = video_ids[i:i+batch_size]
+            ids_str = ','.join(batch)
+            api_url = (
+                f"https://www.googleapis.com/youtube/v3/videos?"
+                f"part=statistics,contentDetails,topicDetails"
+                f"&id={ids_str}&key={self.api_key}"
+            )
+            resp = self._fetch(api_url)
+            if resp and resp.status_code == 200:
+                data = resp.json()
+                for item in data.get('items', []):
+                    vid = item['id']
+                    stats = item.get('statistics', {})
+                    content = item.get('contentDetails', {})
+                    topics = item.get('topicDetails', {})
+                    details[vid] = {
+                        'view_count': stats.get('viewCount', ''),
+                        'like_count': stats.get('likeCount', ''),
+                        'comment_count': stats.get('commentCount', ''),
+                        'duration': content.get('duration', ''),
+                        'definition': content.get('definition', ''),
+                        'caption': content.get('caption', ''),
+                        'licensed_content': content.get('licensedContent', False),
+                        'topic_categories': topics.get('topicCategories', []),
+                    }
+        return details
+
+    def get_recent_videos_passive(self):
+        print(f"[*] Gathering recent video information...")
+        videos = {'methodology': 'Passive OSINT', 'video_list': []}
+        channel_url = self.results['channel_info'].get('channel_url')
+        if not channel_url:
+            self.results['videos'] = videos
+            return videos
+
+        videos_url = f"{channel_url.rstrip('/')}/videos"
+        resp = self._fetch(videos_url)
+        if not resp or resp.status_code != 200:
+            self.results['videos'] = videos
+            return videos
+
+        video_list = []
+        initial_data = self._extract_initial_data(resp.text)
+
+        if initial_data:
+            video_renderers = self._deep_search(initial_data, 'videoRenderer')
+            for vr in video_renderers:
+                if not isinstance(vr, dict):
+                    continue
+                if len(video_list) >= self.scrape_limit:
+                    break
+                vid_id = vr.get('videoId', '')
+                if not vid_id:
+                    continue
+                video_info = {
+                    'id': vid_id,
+                    'url': f"https://www.youtube.com/watch?v={vid_id}",
+                    'title': self._get_text(vr.get('title', '')),
+                    'view_count': self._get_text(vr.get('viewCountText', '')),
+                    'published_time': self._get_text(vr.get('publishedTimeText', '')),
+                    'duration': self._get_text(vr.get('lengthText', '')),
+                }
+                desc_snippet = vr.get('descriptionSnippet', {})
+                if desc_snippet:
+                    video_info['description_snippet'] = self._get_text(desc_snippet)
+                thumbs = vr.get('thumbnail', {}).get('thumbnails', [])
+                if thumbs:
+                    video_info['thumbnail'] = thumbs[-1].get('url', '')
+                badges = vr.get('badges', [])
+                for badge in badges:
+                    if isinstance(badge, dict):
+                        badge_renderer = badge.get('metadataBadgeRenderer', {})
+                        if badge_renderer:
+                            video_info.setdefault('badges', []).append(
+                                badge_renderer.get('label', badge_renderer.get('style', ''))
+                            )
+                video_list.append(video_info)
+
+        if not video_list:
+            video_ids = re.findall(r'"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"', resp.text)
+            seen_ids = set()
+            for vid_id in video_ids:
+                if vid_id in seen_ids:
+                    continue
+                seen_ids.add(vid_id)
+                if len(video_list) >= self.scrape_limit:
+                    break
+                video_info = {'id': vid_id, 'url': f"https://www.youtube.com/watch?v={vid_id}"}
+                title_pattern = rf'"videoId"\s*:\s*"{vid_id}".*?"title"\s*:\s*\{{"runs"\s*:\s*\[\{{"text"\s*:\s*"([^"]+)"'
+                title_match = re.search(title_pattern, resp.text)
+                if title_match:
+                    video_info['title'] = html.unescape(title_match.group(1))
+                view_pattern = rf'"videoId"\s*:\s*"{vid_id}".*?"viewCountText"\s*:\s*\{{"simpleText"\s*:\s*"([^"]+)"'
+                view_match = re.search(view_pattern, resp.text)
+                if view_match:
+                    video_info['view_count'] = view_match.group(1)
+                time_pattern = rf'"videoId"\s*:\s*"{vid_id}".*?"publishedTimeText"\s*:\s*\{{"simpleText"\s*:\s*"([^"]+)"'
+                time_match = re.search(time_pattern, resp.text)
+                if time_match:
+                    video_info['published_time'] = time_match.group(1)
+                dur_pattern = rf'"videoId"\s*:\s*"{vid_id}".*?"lengthText".*?"label"\s*:\s*"([^"]+)"'
+                dur_match = re.search(dur_pattern, resp.text)
+                if dur_match:
+                    video_info['duration'] = dur_match.group(1)
+                video_list.append(video_info)
+
+        videos['video_list'] = video_list
+        if video_list:
+            print(f"[+] Found {len(video_list)} recent videos")
+            for video in video_list[:10]:
+                title = video.get('title', 'N/A')
+                views = video.get('view_count', 'N/A')
+                print(f"    - {title} ({views})")
+        else:
+            print("[-] No videos could be extracted from page")
+
+        self.results['videos'] = videos
+        return videos
+
+    def get_shorts(self):
+        print(f"[*] Gathering Shorts...")
+        shorts = {'methodology': 'Passive OSINT', 'shorts_list': []}
+        channel_url = self.results['channel_info'].get('channel_url')
+        if not channel_url:
+            self.results['shorts'] = shorts
+            return shorts
+
+        shorts_url = f"{channel_url.rstrip('/')}/shorts"
+        resp = self._fetch(shorts_url)
+        if not resp or resp.status_code != 200:
+            self.results['shorts'] = shorts
+            return shorts
+
+        initial_data = self._extract_initial_data(resp.text)
+        shorts_list = []
+
+        if initial_data:
+            reel_renderers = self._deep_search(initial_data, 'reelItemRenderer')
+            for rr in reel_renderers:
+                if not isinstance(rr, dict):
+                    continue
+                if len(shorts_list) >= self.scrape_limit:
+                    break
+                vid_id = rr.get('videoId', '')
+                if not vid_id:
+                    continue
+                short_info = {
+                    'id': vid_id,
+                    'url': f"https://www.youtube.com/shorts/{vid_id}",
+                    'title': self._get_text(rr.get('headline', '')),
+                    'view_count': self._get_text(rr.get('viewCountText', '')),
+                }
+                thumbs = rr.get('thumbnail', {}).get('thumbnails', [])
+                if thumbs:
+                    short_info['thumbnail'] = thumbs[-1].get('url', '')
+                shorts_list.append(short_info)
+
+        if not shorts_list:
+            rich_renderers = self._deep_search(initial_data, 'richItemRenderer') if initial_data else []
+            for rr in rich_renderers:
+                if not isinstance(rr, dict):
+                    continue
+                content = rr.get('content', {})
+                vr = content.get('reelItemRenderer', content.get('videoRenderer', {}))
+                if not vr:
+                    continue
+                vid_id = vr.get('videoId', '')
+                if not vid_id or len(shorts_list) >= self.scrape_limit:
+                    break
+                shorts_list.append({
+                    'id': vid_id,
+                    'url': f"https://www.youtube.com/shorts/{vid_id}",
+                    'title': self._get_text(vr.get('headline', vr.get('title', ''))),
+                    'view_count': self._get_text(vr.get('viewCountText', '')),
+                })
+
+        shorts['shorts_list'] = shorts_list
+        if shorts_list:
+            print(f"[+] Found {len(shorts_list)} Shorts")
+        self.results['shorts'] = shorts
+        return shorts
+
+    def get_livestreams(self):
+        print(f"[*] Gathering livestreams...")
+        streams = {'methodology': 'Passive OSINT', 'stream_list': []}
+        channel_url = self.results['channel_info'].get('channel_url')
+        if not channel_url:
+            self.results['livestreams'] = streams
+            return streams
+
+        streams_url = f"{channel_url.rstrip('/')}/streams"
+        resp = self._fetch(streams_url)
+        if not resp or resp.status_code != 200:
+            self.results['livestreams'] = streams
+            return streams
+
+        initial_data = self._extract_initial_data(resp.text)
+        stream_list = []
+
+        if initial_data:
+            video_renderers = self._deep_search(initial_data, 'videoRenderer')
+            for vr in video_renderers:
+                if not isinstance(vr, dict):
+                    continue
+                if len(stream_list) >= self.scrape_limit:
+                    break
+                vid_id = vr.get('videoId', '')
+                if not vid_id:
+                    continue
+                stream_info = {
+                    'id': vid_id,
+                    'url': f"https://www.youtube.com/watch?v={vid_id}",
+                    'title': self._get_text(vr.get('title', '')),
+                    'view_count': self._get_text(vr.get('viewCountText', '')),
+                    'published_time': self._get_text(vr.get('publishedTimeText', '')),
+                    'duration': self._get_text(vr.get('lengthText', '')),
+                }
+                badges = vr.get('badges', [])
+                for badge in badges:
+                    if isinstance(badge, dict):
+                        br = badge.get('metadataBadgeRenderer', {})
+                        if br.get('style') == 'BADGE_STYLE_TYPE_LIVE_NOW':
+                            stream_info['is_live_now'] = True
+                stream_list.append(stream_info)
+
+        streams['stream_list'] = stream_list
+        if stream_list:
+            print(f"[+] Found {len(stream_list)} livestream recordings")
+        self.results['livestreams'] = streams
+        return streams
+
+    def get_community_posts(self):
+        print(f"[*] Gathering community posts...")
+        community = {'methodology': 'Passive OSINT', 'post_list': []}
+        channel_url = self.results['channel_info'].get('channel_url')
+        if not channel_url:
+            self.results['community_posts'] = community
+            return community
+
+        community_url = f"{channel_url.rstrip('/')}/community"
+        resp = self._fetch(community_url)
+        if not resp or resp.status_code != 200:
+            self.results['community_posts'] = community
+            return community
+
+        initial_data = self._extract_initial_data(resp.text)
+        post_list = []
+
+        if initial_data:
+            post_renderers = self._deep_search(initial_data, 'backstagePostRenderer')
+            for pr in post_renderers:
+                if not isinstance(pr, dict):
+                    continue
+                if len(post_list) >= self.scrape_limit:
+                    break
+                post_id = pr.get('postId', '')
+                content_text = self._get_text(pr.get('contentText', ''))
+                published = self._get_text(pr.get('publishedTimeText', ''))
+                vote_count = self._get_text(pr.get('voteCount', ''))
+                post_info = {
+                    'post_id': post_id,
+                    'content': content_text,
+                    'published_time': published,
+                    'vote_count': vote_count,
+                }
+                images = self._deep_search(pr, 'backstageImageRenderer')
+                if images:
+                    post_info['has_image'] = True
+                poll = pr.get('backstagePollRenderer', {})
+                if poll:
+                    post_info['has_poll'] = True
+                post_list.append(post_info)
+
+        community['post_list'] = post_list
+        if post_list:
+            print(f"[+] Found {len(post_list)} community posts")
+            for post in post_list[:5]:
+                content_preview = post.get('content', '')[:80]
+                print(f"    - [{post.get('published_time', 'N/A')}] {content_preview}...")
+        self.results['community_posts'] = community
+        return community
+
+    def get_channel_playlists(self):
+        if self.api_key:
+            return self._get_playlists_api()
+        return self._get_playlists_passive()
+
+    def _get_playlists_api(self):
+        print(f"[*] Gathering channel playlists using YouTube Data API...")
+        channel_id = self.results['channel_info'].get('channel_id')
+        if not channel_id:
+            print("[-] Could not get channel ID for API usage")
+            return self._get_playlists_passive()
+
+        api_url = (
+            f"https://www.googleapis.com/youtube/v3/playlists?"
+            f"part=snippet,contentDetails&channelId={channel_id}"
+            f"&maxResults={self.scrape_limit}&key={self.api_key}"
+        )
+        resp = self._fetch(api_url)
+        if not resp or resp.status_code != 200:
+            if resp and resp.status_code == 403:
+                print("[-] API quota exceeded or invalid API key")
+            self.results['playlists'] = {'methodology': 'Failed - API error'}
+            return self.results['playlists']
+
+        data = resp.json()
+        playlist_list = []
+        for item in data.get('items', []):
+            playlist_info = {
+                'id': item['id'],
+                'title': item['snippet'].get('title', ''),
+                'description': item['snippet'].get('description', ''),
+                'published_at': item['snippet'].get('publishedAt', ''),
+                'thumbnails': item['snippet'].get('thumbnails', {}),
+                'item_count': item.get('contentDetails', {}).get('itemCount', 0),
+                'url': f"https://www.youtube.com/playlist?list={item['id']}",
+            }
+            playlist_list.append(playlist_info)
+
+        playlists = {'methodology': 'YouTube Data API v3', 'playlist_list': playlist_list}
+        self.results['playlists'] = playlists
+        if playlist_list:
+            print(f"[+] Found {len(playlist_list)} playlists")
+            for pl in playlist_list:
+                print(f"    - {pl.get('title', 'N/A')} ({pl.get('item_count', 0)} items)")
+        return playlists
+
+    def _get_playlists_passive(self):
+        print(f"[*] Gathering channel playlists...")
+        playlists = {'methodology': 'Passive OSINT', 'playlist_list': []}
+        channel_url = self.results['channel_info'].get('channel_url')
+        if not channel_url:
+            self.results['playlists'] = playlists
+            return playlists
+
+        playlists_url = f"{channel_url.rstrip('/')}/playlists"
+        resp = self._fetch(playlists_url)
+        if not resp or resp.status_code != 200:
+            self.results['playlists'] = playlists
+            return playlists
+
+        initial_data = self._extract_initial_data(resp.text)
+        playlist_list = []
+
+        if initial_data:
+            grid_renderers = self._deep_search(initial_data, 'gridPlaylistRenderer')
+            for gpr in grid_renderers:
+                if not isinstance(gpr, dict):
+                    continue
+                if len(playlist_list) >= self.scrape_limit:
+                    break
+                pl_id = gpr.get('playlistId', '')
+                title = self._get_text(gpr.get('title', ''))
+                video_count = self._get_text(gpr.get('videoCountText', ''))
+                if pl_id:
+                    playlist_list.append({
+                        'id': pl_id,
+                        'title': title,
+                        'video_count_text': video_count,
+                        'url': f"https://www.youtube.com/playlist?list={pl_id}",
+                    })
+
+            if not playlist_list:
+                show_renderers = self._deep_search(initial_data, 'playlistRenderer')
+                for pr in show_renderers:
+                    if not isinstance(pr, dict):
+                        continue
+                    if len(playlist_list) >= self.scrape_limit:
+                        break
+                    pl_id = pr.get('playlistId', '')
+                    title = self._get_text(pr.get('title', ''))
+                    video_count = self._get_text(pr.get('videoCount', ''))
+                    if pl_id:
+                        playlist_list.append({
+                            'id': pl_id,
+                            'title': title,
+                            'video_count_text': video_count,
+                            'url': f"https://www.youtube.com/playlist?list={pl_id}",
+                        })
+
+        playlists['playlist_list'] = playlist_list
+        if playlist_list:
+            print(f"[+] Found {len(playlist_list)} playlists")
+            for pl in playlist_list:
+                print(f"    - {pl.get('title', 'N/A')} ({pl.get('video_count_text', '?')})")
+        self.results['playlists'] = playlists
+        return playlists
+
+    def analyze_channel(self):
+        method = "YouTube Data API v3" if self.api_key else "Passive OSINT"
+        print(f"[*] Starting YouTube channel analysis using {method}: {self.channel_identifier}")
+        print("=" * 60)
+
+        self.get_channel_info()
+        self.get_channel_statistics()
+        self.get_recent_videos()
+        self.get_shorts()
+        self.get_livestreams()
+        self.get_community_posts()
+        self.get_channel_playlists()
+
+        return self.results
+
+    def save_results(self, output_file=None):
+        if output_file:
+            filepath = output_file
+        else:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            safe_identifier = re.sub(r'[^\w\-_\.]', '_', self.channel_identifier)
+            filepath = os.path.join(self.output_dir, f"ytb0sint_{safe_identifier}_{timestamp}.json")
+
+        try:
+            os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.results, f, indent=2, ensure_ascii=False)
+            print(f"[+] Results saved to: {filepath}")
+            return filepath
+        except OSError as e:
+            print(f"[-] Could not save results to file: {e}")
+            return None
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="ytb0sint - YouTube Channel Intelligence Gathering Tool",
+        epilog="""\
+Examples:
+  ytb0sint @channelname
+  ytb0sint UCchannelID
+  ytb0sint https://www.youtube.com/@channel
+  ytb0sint @channelname --api-key YOUR_API_KEY
+  ytb0sint @channelname --limit 20 --output results.json
+  ytb0sint @channelname --delay 2.5""",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('channel', help='YouTube channel identifier (@handle, channel ID, or URL)')
+    parser.add_argument('-o', '--output', help='Custom output file name')
+    parser.add_argument('-a', '--api-key', help='YouTube Data API v3 key for enhanced data retrieval')
+    parser.add_argument('-l', '--limit', type=int, default=10, help='Limit for number of items to retrieve (default: 10)')
+    parser.add_argument('-d', '--output-dir', help=f'Output directory (default: {DEFAULT_OUTPUT_DIR})')
+    parser.add_argument('--delay', type=float, default=1.0, help='Delay between requests in seconds (default: 1.0)')
+    parser.add_argument('--retries', type=int, default=3, help='Number of retries for failed requests (default: 3)')
+    parser.add_argument('--no-scrape', action='store_true', help='Disable passive scraping (API only)')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('--version', action='version', version=f'ytb0sint v{VERSION}')
+
+    args = parser.parse_args()
+
+    print(f"ytb0sint v{VERSION} - YouTube Channel OSINT Tool")
+    print("=" * 40)
+
+    api_key = args.api_key or os.environ.get('YOUTUBE_API_KEY')
+
+    if api_key:
+        print(f"[+] Using YouTube Data API v3 (limit: {args.limit} items)")
+    else:
+        print(f"[+] Using passive OSINT methods (limit: {args.limit} items)")
+        print("[!] For more detailed information, provide a YouTube Data API key")
+        print("[!] Get your API key at: https://console.developers.google.com/")
+
+    osint = YouTubeOSINT(
+        args.channel,
+        api_key=api_key,
+        scrape_limit=args.limit,
+        output_dir=args.output_dir or DEFAULT_OUTPUT_DIR,
+        retries=args.retries,
+        delay=args.delay,
+    )
+    results = osint.analyze_channel()
+
+    print("\n" + "=" * 60)
+    print("[*] Analysis Summary:")
+    print("=" * 60)
+    channel_info = results.get('channel_info', {})
+    stats = results.get('statistics', {})
+    videos = results.get('videos', {}).get('video_list', [])
+    shorts = results.get('shorts', {}).get('shorts_list', [])
+    streams = results.get('livestreams', {}).get('stream_list', [])
+    playlists = results.get('playlists', {}).get('playlist_list', [])
+    social_links = results.get('social_links', [])
+    related = results.get('related_channels', [])
+    emails = results.get('extracted_emails', [])
+    keywords = results.get('keywords', [])
+    community = results.get('community_posts', {}).get('post_list', [])
+
+    print(f"Channel Name: {channel_info.get('channel_name', 'N/A')}")
+    print(f"Channel ID: {channel_info.get('channel_id', 'N/A')}")
+    print(f"Method: {results.get('method', 'N/A')}")
+
+    if api_key:
+        print(f"Subscriber Count: {stats.get('subscriber_count', 'N/A')}")
+        print(f"Video Count: {stats.get('video_count', 'N/A')}")
+        print(f"View Count: {stats.get('view_count', 'N/A')}")
+    else:
+        print(f"Subscriber Count: {stats.get('subscriber_count_text', channel_info.get('subscriber_count_text', 'N/A'))}")
+        print(f"Video Count: {stats.get('video_count_text', channel_info.get('video_count_text', 'N/A'))}")
+        if stats.get('view_count_text'):
+            print(f"View Count: {stats['view_count_text']}")
+
+    print(f"Recent Videos: {len(videos)} found")
+    if shorts:
+        print(f"Shorts: {len(shorts)} found")
+    if streams:
+        print(f"Livestreams: {len(streams)} found")
+    if community:
+        print(f"Community Posts: {len(community)} found")
+    if playlists:
+        print(f"Playlists: {len(playlists)} found")
+    if social_links:
+        print(f"Social Links: {len(social_links)} found")
+    if related:
+        print(f"Related Channels: {len(related)} found")
+    if emails:
+        print(f"Emails: {', '.join(emails)}")
+    if keywords:
+        print(f"Keywords: {len(keywords)} found")
+    if channel_info.get('joined_date'):
+        print(f"Joined: {channel_info['joined_date']}")
+    if channel_info.get('country'):
+        print(f"Country: {channel_info['country']}")
+    if channel_info.get('is_verified'):
+        print(f"Verified: Yes")
+
+    fingerprint = results.get('metadata_fingerprint', {})
+    if fingerprint.get('rss_feed'):
+        print(f"RSS Feed: {fingerprint['rss_feed']}")
+
+    print("=" * 60)
+
+    osint.save_results(output_file=args.output)
+
+    if args.verbose:
+        print("\n[*] Full results:")
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+
+if __name__ == "__main__":
+    main()

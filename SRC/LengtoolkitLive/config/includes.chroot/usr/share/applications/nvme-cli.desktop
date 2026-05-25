@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=NVMe-CLI
+Comment=LengToolkit - nvme-cli (NVMe Management and Secure Erase)
+Exec=mate-terminal -- bash -c "nvme-cli; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

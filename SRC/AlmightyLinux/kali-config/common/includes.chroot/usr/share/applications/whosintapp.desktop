@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=whosintapp
+Comment=WhatsApp intelligence via rapid API
+Comment[tr]=Rapid api ile whatsapp istihbaratı
+Comment[es]=Inteligencia de WhatsApp a través de API rápida
+Comment[fr]=Intelligence WhatsApp via API rapide
+Comment[de]=WhatsApp-Intelligenz über schnelle API
+Comment[ar]=استخبارات واتساب عبر واجهة برمجة التطبيقات السريعة
+Comment[ru]=Интеллект WhatsApp через быстрый API
+Comment[zh]=通过快速API的WhatsApp情报
+Comment[ja]=高速APIによるWhatsAppインテリジェンス
+Comment[ko]=빠른 API를 통한 WhatsApp 인텔리전스
+Comment[pt]=Inteligência do WhatsApp via API rápida
+Comment[it]=Intelligenza WhatsApp tramite API rapida
+Comment[nl]=WhatsApp-intelligentie via snelle API
+Comment[sv]=WhatsApp-intelligens via snabb API
+Comment[pl]=Inteligencja WhatsApp przez szybki API
+Exec=mate-terminal -- bash -c "whosintapp; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/whosintapp.png
+Categories=Phone;
+StartupNotify=false

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Fix execute AND read permissions for scripts
+# chmod 755 /usr/local/bin/*
+# chmod 755 /usr/bin/*
+
+chmod +x /usr/local/bin/*
+chmod +x /usr/bin/*
+
+# Fix read permissions for desktop files so the menu can see them
+# chmod 644 /usr/share/applications/*.desktop

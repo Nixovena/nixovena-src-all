@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Maltego
+Comment=Graphical link analysis tool for OSINT investigations
+Comment[tr]=OSINT araştırmaları için grafiksel bağlantı analiz aracı
+Comment[es]=Herramienta gráfica de análisis de enlaces para investigaciones OSINT
+Comment[fr]=Outil graphique d'analyse de liens pour enquêtes OSINT
+Comment[de]=Grafisches Link-Analyse-Tool für OSINT-Untersuchungen
+Comment[ar]=أداة تحليل روابط رسومية لتحقيقات OSINT
+Comment[ru]=Графический инструмент анализа связей для OSINT-расследований
+Comment[zh]=用于 OSINT 调查的图形化关联分析工具
+Comment[ja]=OSINT 調査向けのグラフ型リンク解析ツール
+Comment[ko]=OSINT 조사용 그래픽 링크 분석 도구
+Comment[pt]=Ferramenta gráfica de análise de ligações para investigações OSINT
+Comment[it]=Strumento grafico di analisi dei collegamenti per investigazioni OSINT
+Comment[nl]=Grafische link-analysetool voor OSINT-onderzoeken
+Comment[sv]=Grafiskt länk-analysverktyg för OSINT-undersökningar
+Comment[pl]=Graficzne narzędzie analizy powiązań do śledztw OSINT
+Exec=maltego
+Terminal=false
+Type=Application
+Icon=/usr/share/icons/almighty/maltego.png
+Categories=Frameworks;
+StartupNotify=false

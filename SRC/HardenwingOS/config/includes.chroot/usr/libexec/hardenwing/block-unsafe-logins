@@ -1,0 +1,73 @@
+#!/bin/bash
+# =============================================================================
+# Hardenwing — Block Unsafe Logins (Standalone)
+# 
+# This script is called by PAM (pam_exec) during authentication.
+# Its purpose is to prevent attackers from laterally moving or escalating 
+# privileges by abusing passwordless/locked sensitive accounts (like root) 
+# through secondary authenticators (like su, pkexec) in non-standard login 
+# environments.
+# =============================================================================
+
+# NOTE: Do NOT use 'set -e' here!
+# pam_exec treats any non-zero exit as authentication failure.
+# We must handle errors explicitly to avoid locking users out.
+
+# If required PAM environment variables are not set, allow and exit
+if [ -z "${PAM_USER:-}" ] || [ -z "${PAM_SERVICE:-}" ]; then
+    exit 0
+fi
+
+# 1. Define "Safe" Login Services
+# These services are considered the primary, secure entry points to the system.
+# We allow them to proceed normally (they will enforce their own auth rules).
+safe_services=("login" "greetd" "sshd" "swaylock" "gdm-password" "gdm" "gdm-autologin" "gdm-launch-environment" "gdm-fingerprint" "gdm-smartcard" "lightdm" "sddm" "xscreensaver")
+
+for s in "${safe_services[@]}"; do
+    if [ "$PAM_SERVICE" = "$s" ]; then
+        exit 0 # Safe service, allowed
+    fi
+done
+
+# If we get here, the service is considered "potentially unsafe"
+# (e.g., su, sudo from a background shell, pkexec, etc.)
+
+# 2. Check if the user trying to authenticate is in a sensitive group
+is_sensitive=false
+sensitive_groups=("sudo" "root" "adm" "wheel")
+
+# Fetch user groups
+user_groups=$(id -Gn "$PAM_USER" 2>/dev/null || echo "")
+
+for group in $user_groups; do
+    for s_group in "${sensitive_groups[@]}"; do
+        if [ "$group" = "$s_group" ]; then
+            is_sensitive=true
+            break 2
+        fi
+    done
+done
+
+# If the user is NOT sensitive, we don't care, let PAM proceed
+if [ "$is_sensitive" = false ]; then
+    exit 0
+fi
+
+# 3. Check if the sensitive user is passwordless or locked
+# We read /etc/shadow directly (pam_exec runs as root).
+if [ "$(id -u)" -eq 0 ] && [ -r /etc/shadow ]; then
+    shadow_pwd=$(awk -F: -v u="$PAM_USER" '$1==u {print $2}' /etc/shadow 2>/dev/null || echo "")
+    
+    # An empty password, or one starting with "!" or "*" means the account 
+    # has no usable password (or is locked).
+    # Typical Debian root has "*".
+    if [ -z "$shadow_pwd" ] || [[ "$shadow_pwd" == "!"* ]] || [[ "$shadow_pwd" == "*" ]]; then
+        # REJECT: Sensitive user with no password on an unsafe service!
+        echo "ERROR: Rejecting passwordless/locked sensitive account '$PAM_USER' on unsafe service '$PAM_SERVICE'"
+        # By exiting with 1, pam_exec (requisite) will instantly deny authentication.
+        exit 1
+    fi
+fi
+
+# If all checks pass (e.g., user is sensitive but HAS a password), let PAM handle it
+exit 0

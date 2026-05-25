@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Gparted
+Comment=LengToolkit - gparted
+Exec=/usr/sbin/gparted %f
+Icon=/usr/share/icons/lengtoolkit/gparted.png
+Terminal=false
+Type=Application
+Categories=LengToolkit;

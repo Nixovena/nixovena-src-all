@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Dmitry
+Comment=Deepmagic Information Gathering Tool
+Comment[tr]=Deepmagic Bilgi Toplama Aracı
+Comment[es]=Herramienta de recopilación de información Deepmagic
+Comment[fr]=Outil de collecte d'informations Deepmagic
+Comment[de]=Deepmagic Information Gathering Tool
+Comment[ar]=أداة جمع المعلومات Deepmagic
+Comment[ru]=Инструмент сбора информации Deepmagic
+Comment[zh]=Deepmagic信息收集工具
+Comment[ja]=Deepmagic情報収集ツール
+Comment[ko]=Deepmagic 정보 수집 도구
+Comment[pt]=Ferramenta de coleta de informações Deepmagic
+Comment[it]=Strumento di raccolta delle informazioni Deepmagic
+Comment[nl]=Deepmagic informatieverzamelingshulpmiddel
+Comment[sv]=Deepmagic informationsinsamlingsverktyg
+Comment[pl]=Narzędzie do zbierania informacji Deepmagic
+Exec=mate-terminal -- bash -c "dmitry -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

@@ -1,0 +1,82 @@
+#!/bin/bash
+
+# Keyboard Layout Switcher
+# Simple tool to change keyboard layout using setxkbmap
+
+# Check if zenity is available
+if ! command -v zenity &> /dev/null; then
+    echo "Error: zenity is required but not installed."
+    exit 1
+fi
+
+# Define available layouts
+LAYOUTS=(
+    "us|English (US)"
+    "tr|Turkish"
+    "de|German"
+    "fr|French"
+    "es|Spanish"
+    "it|Italian"
+    "ru|Russian"
+    "ar|Arabic"
+    "jp|Japanese"
+    "cn|Chinese"
+    "gb|English (UK)"
+    "pt|Portuguese"
+    "nl|Dutch"
+    "se|Swedish"
+    "no|Norwegian"
+    "dk|Danish"
+    "fi|Finnish"
+    "pl|Polish"
+    "cz|Czech"
+    "hu|Hungarian"
+    "ro|Romanian"
+    "gr|Greek"
+    "il|Hebrew"
+    "kr|Korean"
+)
+
+# Get current layout
+CURRENT=$(setxkbmap -query | grep layout | awk '{print $2}')
+
+# Build zenity list
+ZENITY_LIST=()
+for layout in "${LAYOUTS[@]}"; do
+    IFS='|' read -r code name <<< "$layout"
+    if [ "$code" = "$CURRENT" ]; then
+        ZENITY_LIST+=("TRUE" "$code" "$name")
+    else
+        ZENITY_LIST+=("FALSE" "$code" "$name")
+    fi
+done
+
+# Show selection dialog
+SELECTION=$(zenity --list \
+    --title="Keyboard Layout Switcher" \
+    --text="Select keyboard layout:" \
+    --radiolist \
+    --column="" \
+    --column="Code" \
+    --column="Language" \
+    --width=400 \
+    --height=500 \
+    "${ZENITY_LIST[@]}")
+
+# Apply selected layout
+if [ -n "$SELECTION" ]; then
+    setxkbmap "$SELECTION"
+    
+    if [ $? -eq 0 ]; then
+        zenity --info \
+            --title="Layout Changed" \
+            --text="Keyboard layout changed to: $SELECTION" \
+            --width=300 \
+            --timeout=2
+    else
+        zenity --error \
+            --title="Error" \
+            --text="Failed to change keyboard layout" \
+            --width=300
+    fi
+fi

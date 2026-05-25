@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - nvme-cli Helper"
+echo "--------------------------------------------------------"
+echo "Commonly used NVMe commands:"
+echo ""
+echo "  sudo nvme list                : List all NVMe devices"
+echo "  sudo nvme smart-log /dev/nvme0: Show SMART log"
+echo "  sudo nvme format /dev/nvme0n1 : Securely erase NVMe"
+echo "--------------------------------------------------------"

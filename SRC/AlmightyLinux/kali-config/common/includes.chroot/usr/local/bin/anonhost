@@ -1,0 +1,347 @@
+#!/bin/bash
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Check if running as root
+check_root() {
+    if [ "$EUID" -ne 0 ]; then 
+        echo -e "${RED}This script must be run as root. Please use sudo.${NC}"
+        exit 1
+    fi
+}
+
+# Print banner
+print_banner() {
+    clear
+    echo -e "${CYAN}"
+    echo "welcome to anonhost!"
+    echo
+}
+
+# Generate random hostname
+generate_random_hostname() {
+    local type="$1"
+    local hostname=""
+    
+    case $type in
+        "animal")
+            animals=("wolf" "eagle" "tiger" "falcon" "dragon" "phoenix" "panther" "raven" "cobra" "shark" "hawk" "lynx" "viper" "fox" "bear" "lion")
+            adjectives=("dark" "shadow" "stealth" "silent" "swift" "fierce" "cyber" "ghost" "phantom" "digital" "secure" "private" "hidden" "encrypted")
+            animal=${animals[$RANDOM % ${#animals[@]}]}
+            adj=${adjectives[$RANDOM % ${#adjectives[@]}]}
+            number=$(printf "%03d" $((RANDOM % 1000)))
+            hostname="${adj}-${animal}-${number}"
+            ;;
+        "anime")
+            characters=("obito" "kurosaki" "gin" "ken" "zaraki" "aizen" "madara" "itachi" "naruto" "johan" "arrancar" "shinigami" "light" "teru" "kira" "zangetsu" "furuta" "yhwach")
+            adjectives=("uchiha" "ichigo" "ichimaru" "kaneki" "kenpachi" "sosuke" "bankai" "behelit" "uzumaki" "guts" "liebert" "yagami" "mikami" "espada")
+            character=${characters[$RANDOM % ${#characters[@]}]}
+            adj=${adjectives[$RANDOM % ${#adjectives[@]}]}
+            number=$(printf "%03d" $((RANDOM % 1000)))
+            hostname="${adj}-${character}-${number}"
+            ;;
+        "game")
+            characters=("aatrox" "pugna" "illidan" "kassadin" "lichking" "pikachu")
+            adjectives=("ghost" "draven" "stormrage" "diablo" "mario" "sonic")
+            character=${characters[$RANDOM % ${#characters[@]}]}
+            adj=${adjectives[$RANDOM % ${#adjectives[@]}]}
+            number=$(printf "%03d" $((RANDOM % 1000)))
+            hostname="${adj}-${character}-${number}"
+            ;;
+        "tech")
+            prefixes=("cyber" "nano" "quantum" "matrix" "neural" "crypto" "data" "binary" "digital" "virtual" "meta" "pixel" "tech" "net")
+            suffixes=("node" "core" "hub" "link" "gate" "port" "base" "box" "station" "terminal" "unit" "system" "device" "machine")
+            prefix=${prefixes[$RANDOM % ${#prefixes[@]}]}
+            suffix=${suffixes[$RANDOM % ${#suffixes[@]}]}
+            number=$(printf "%02d" $((RANDOM % 100)))
+            hostname="${prefix}-${suffix}-${number}"
+            ;;
+        "random")
+            chars="abcdefghijklmnopqrstuvwxyz0123456789"
+            hostname="host-"
+            for i in {1..8}; do
+                hostname+="${chars:RANDOM%${#chars}:1}"
+            done
+            ;;
+        "codename")
+            operations=("ghost" "shadow" "vortex" "matrix" "cipher" "phoenix" "storm" "blade" "venom" "titan" "nova" "zero" "omega" "alpha")
+            colors=("black" "red" "blue" "green" "silver" "gold" "dark" "white" "grey" "cyan")
+            operation=${operations[$RANDOM % ${#operations[@]}]}
+            color=${colors[$RANDOM % ${#colors[@]}]}
+            number=$(printf "%02d" $((RANDOM % 100)))
+            hostname="${operation}-${color}-${number}"
+            ;;
+    esac
+    
+    echo "$hostname"
+}
+
+# Validate hostname format
+validate_hostname() {
+    local hostname="$1"
+    if [[ ! $hostname =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]$ ]] && [[ ! $hostname =~ ^[a-zA-Z0-9]$ ]]; then
+        return 1
+    fi
+    return 0
+}
+
+# Get current hostname info
+show_current_hostname() {
+    echo -e "${YELLOW}Current Hostname Information:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "Hostname: ${GREEN}$(hostname)${NC}"
+    echo -e "FQDN: ${GREEN}$(hostname -f 2>/dev/null || echo "Not available")${NC}"
+    echo -e "Domain: ${GREEN}$(hostname -d 2>/dev/null || echo "Not set")${NC}"
+    echo -e "IP Address: ${GREEN}$(hostname -I 2>/dev/null | awk '{print $1}' || echo "Not available")${NC}"
+    echo
+}
+
+# Change hostname function
+change_hostname() {
+    local new_hostname="$1"
+    local current_hostname=$(hostname)
+    
+    echo -e "${YELLOW}Changing hostname from '${current_hostname}' to '${new_hostname}'...${NC}"
+    
+    # Set hostname using hostnamectl (systemd)
+    if command -v hostnamectl &> /dev/null; then
+        hostnamectl set-hostname "$new_hostname"
+        echo -e "${GREEN}✓ Hostname set using hostnamectl${NC}"
+    else
+        # Fallback for non-systemd systems
+        echo "$new_hostname" > /etc/hostname
+        hostname "$new_hostname"
+        echo -e "${GREEN}✓ Hostname set using traditional method${NC}"
+    fi
+    
+    # Update /etc/hosts
+    if grep -q "$current_hostname" /etc/hosts; then
+        sed -i "s/$current_hostname/$new_hostname/g" /etc/hosts
+        echo -e "${GREEN}✓ Updated /etc/hosts${NC}"
+    else
+        # Add entry if not exists
+        echo "127.0.1.1    $new_hostname" >> /etc/hosts
+        echo -e "${GREEN}✓ Added entry to /etc/hosts${NC}"
+    fi
+    
+    echo -e "\n${GREEN}Hostname successfully changed to: ${new_hostname}${NC}"
+    echo -e "${YELLOW}Note: Some applications may require a system restart to recognize the new hostname.${NC}"
+}
+
+# Manual hostname entry
+manual_hostname() {
+    echo -e "${YELLOW}Enter new hostname manually:${NC}"
+    echo "Rules:"
+    echo "  - Must start and end with alphanumeric character"
+    echo "  - Can contain hyphens (-) in the middle"
+    echo "  - Maximum 63 characters"
+    echo "  - No spaces or special characters"
+    echo
+    
+    while true; do
+        read -p "Enter new hostname: " new_hostname
+        
+        if [ -z "$new_hostname" ]; then
+            echo -e "${RED}Hostname cannot be empty!${NC}"
+            continue
+        fi
+        
+        if validate_hostname "$new_hostname"; then
+            echo -e "${GREEN}✓ Hostname format is valid${NC}"
+            break
+        else
+            echo -e "${RED}✗ Invalid hostname format!${NC}"
+        fi
+    done
+    
+    echo -e "\n${CYAN}Confirm hostname change:${NC}"
+    echo -e "Current: ${RED}$(hostname)${NC}"
+    echo -e "New:     ${GREEN}$new_hostname${NC}"
+    echo
+    read -p "Proceed with hostname change? (y/N): " confirm
+    
+    if [[ $confirm =~ ^[Yy]$ ]]; then
+        change_hostname "$new_hostname"
+    else
+        echo -e "${YELLOW}Hostname change cancelled${NC}"
+    fi
+}
+
+# Random hostname generation menu
+random_hostname() {
+    echo -e "${YELLOW}Select random hostname type:${NC}"
+    echo
+    echo -e "${GREEN}1.${NC} Animal-based (e.g., dark-wolf-042)"
+    echo -e "${GREEN}2.${NC} Tech-themed (e.g., cyber-node-15)"
+    echo -e "${GREEN}3.${NC} Game-themed (e.g., aatrox-diablo-37)"
+    echo -e "${GREEN}4.${NC} Anime-themed (e.g., zaraki-kenpachi-042)"
+    echo -e "${GREEN}5.${NC} Pure random (e.g., host-a7b9c3d2)"
+    echo -e "${GREEN}6.${NC} Codename style (e.g., ghost-black-07)"
+    echo -e "${GREEN}7.${NC} Generate multiple options"
+    echo -e "${GREEN}0.${NC} Back to main menu"
+    echo
+    
+    read -p "Select option: " choice
+    
+    case $choice in
+        1) hostname_type="animal" ;;
+        2) hostname_type="tech" ;;
+        3) hostname_type="game" ;;
+        4) hostname_type="anime" ;;
+        5) hostname_type="random" ;;
+        6) hostname_type="codename" ;;
+        7)
+            echo -e "\n${YELLOW}Generated hostname options:${NC}"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo -e "${GREEN}1.${NC} $(generate_random_hostname "animal")"
+            echo -e "${GREEN}2.${NC} $(generate_random_hostname "tech")"
+            echo -e "${GREEN}3.${NC} $(generate_random_hostname "game")"
+            echo -e "${GREEN}4.${NC} $(generate_random_hostname "anime")"
+            echo -e "${GREEN}5.${NC} $(generate_random_hostname "random")"
+            echo -e "${GREEN}6.${NC} $(generate_random_hostname "codename")"
+            echo
+            read -p "Select a hostname (1-5) or 0 to generate new ones: " selection
+            
+            case $selection in
+                1) new_hostname=$(generate_random_hostname "animal") ;;
+                2) new_hostname=$(generate_random_hostname "tech") ;;
+                3) new_hostname=$(generate_random_hostname "game") ;;
+                4) new_hostname=$(generate_random_hostname "anime") ;;
+                5) new_hostname=$(generate_random_hostname "random") ;;
+                6) new_hostname=$(generate_random_hostname "codename") ;;
+                0) random_hostname; return ;;
+                *) echo -e "${RED}Invalid selection${NC}"; read -p "Press Enter to continue..."; return ;;
+            esac
+            ;;
+        0) return ;;
+        *) echo -e "${RED}Invalid option${NC}"; read -p "Press Enter to continue..."; return ;;
+    esac
+    
+    if [ "$choice" != "5" ]; then
+        new_hostname=$(generate_random_hostname "$hostname_type")
+    fi
+    
+    echo -e "\n${CYAN}Generated hostname: ${GREEN}$new_hostname${NC}"
+    echo -e "\n${CYAN}Confirm hostname change:${NC}"
+    echo -e "Current: ${RED}$(hostname)${NC}"
+    echo -e "New:     ${GREEN}$new_hostname${NC}"
+    echo
+    read -p "Proceed with hostname change? (y/N): " confirm
+    
+    if [[ $confirm =~ ^[Yy]$ ]]; then
+        change_hostname "$new_hostname"
+    else
+        echo -e "${YELLOW}Hostname change cancelled${NC}"
+    fi
+}
+
+# Restore hostname from backup
+restore_hostname() {
+    local backup_file="/etc/hostname.backup"
+    
+    if [ -f "$backup_file" ]; then
+        local backup_hostname=$(cat "$backup_file")
+        echo -e "${YELLOW}Found backup hostname: ${GREEN}$backup_hostname${NC}"
+        echo -e "Current hostname: ${RED}$(hostname)${NC}"
+        echo
+        read -p "Restore from backup? (y/N): " confirm
+        
+        if [[ $confirm =~ ^[Yy]$ ]]; then
+            change_hostname "$backup_hostname"
+            rm -f "$backup_file"
+            echo -e "${GREEN}Backup file removed${NC}"
+        fi
+    else
+        echo -e "${RED}No backup file found at $backup_file${NC}"
+    fi
+}
+
+# Create hostname backup
+create_backup() {
+    local backup_file="/etc/hostname.backup"
+    local current_hostname=$(hostname)
+    
+    echo "$current_hostname" > "$backup_file"
+    echo -e "${GREEN}Current hostname backed up to $backup_file${NC}"
+}
+
+# Main menu
+main_menu() {
+    while true; do
+        print_banner
+        show_current_hostname
+        
+        echo -e "${YELLOW}Hostname Management Options:${NC}"
+        echo
+        echo -e "${GREEN}1.${NC} Change hostname manually"
+        echo -e "${GREEN}2.${NC} Generate random hostname"
+        echo -e "${GREEN}3.${NC} Show current hostname info"
+        echo -e "${GREEN}4.${NC} Create hostname backup"
+        echo -e "${GREEN}5.${NC} Restore hostname from backup"
+        echo -e "${GREEN}6.${NC} Hostname history"
+        echo -e "${GREEN}0.${NC} Exit"
+        echo
+        
+        read -p "Select option: " choice
+        
+        case $choice in
+            1)
+                manual_hostname
+                read -p "Press Enter to continue..."
+                ;;
+            2)
+                random_hostname
+                read -p "Press Enter to continue..."
+                ;;
+            3)
+                echo # Just refresh the display
+                read -p "Press Enter to continue..."
+                ;;
+            4)
+                create_backup
+                read -p "Press Enter to continue..."
+                ;;
+            5)
+                restore_hostname
+                read -p "Press Enter to continue..."
+                ;;
+            6)
+                echo -e "${YELLOW}Hostname History:${NC}"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                if [ -f "/var/log/hostname.log" ]; then
+                    tail -10 "/var/log/hostname.log"
+                else
+                    echo "No hostname history available"
+                fi
+                read -p "Press Enter to continue..."
+                ;;
+            0)
+                echo -e "${GREEN}Goodbye!${NC}"
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Invalid option${NC}"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+# Log hostname changes
+log_hostname_change() {
+    local old_hostname="$1"
+    local new_hostname="$2"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    echo "[$timestamp] Changed from '$old_hostname' to '$new_hostname'" >> /var/log/hostname.log
+}
+
+# Main execution
+check_root
+main_menu

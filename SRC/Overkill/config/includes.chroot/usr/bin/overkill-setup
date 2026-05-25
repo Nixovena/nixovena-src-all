@@ -1,0 +1,1046 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Overkill Linux — System Manager (PyQt6 GUI)
+"""
+
+import os
+import re
+import sys
+import shutil
+import subprocess
+from pathlib import Path
+
+try:
+    from PyQt6.QtCore import Qt, QProcess, QProcessEnvironment, pyqtSignal
+    from PyQt6.QtGui import QIcon, QFont, QPixmap, QTextCursor, QPalette, QColor
+    from PyQt6.QtWidgets import (
+        QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+        QLabel, QPushButton, QPlainTextEdit, QStackedWidget, QListWidget,
+        QListWidgetItem, QFrame, QMessageBox, QInputDialog, QLineEdit,
+        QGridLayout, QScrollArea, QFileDialog, QStyleFactory, QDialog,
+        QDialogButtonBox, QFormLayout, QComboBox, QSizePolicy,
+    )
+except ImportError:
+    sys.stderr.write(
+        "PyQt6 is required. Install it with:\n"
+        "    sudo apt install python3-pyqt6\n"
+    )
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+APP_TITLE = "Overkill Linux — System Manager"
+ICON_PATH = "/usr/share/icons/over2.png"
+CLI_PATH = "/usr/bin/overkill-setup-cli"
+
+EDITIONS = [
+    (1,  "Development Edition",                          "Docker, IDEs, compilers, languages and dev tooling."),
+    (2,  "AI Edition",                                   "AI desktop apps + PyTorch/XGBoost/Pandas + AI tuning."),
+    (3,  "Education Edition",                            "Office, math, science & learning suites."),
+    (4,  "Engineer Edition",                             "CAD, CAM, EDA, simulation & 3D tools."),
+    (5,  "Gaming Edition",                               "Wine, Steam stack, drivers + gaming kernel tuning."),
+    (6,  "Hardened Edition",                             "KeePassXC, Kleopatra, Cryptomator + nftables firewall."),
+    (7,  "Cryptocurrency Edition",                       "Wallets, Cryptomator, Picocrypt and crypto apps."),
+    (8,  "Cryptocurrency Edition Hardened",              "Crypto apps + full hardening (no firewall)."),
+    (9,  "Scientific Edition",                           "TeX, Octave, R, Python stack, sim & plotting."),
+    (10, "Office Edition",                               "Office suite, mail, finance & PDF tools."),
+    (11, "Multimedia Edition",                           "DAW, NLE, GFX, photo + multimedia tuning."),
+    (12, "Development + Gaming Mix",                     "Dev stack + gaming stack with gaming tuning."),
+    (13, "Development + Gaming + Multimedia Mix",        "Everything for power users."),
+    (14, "Development + AI Mix",                         "Dev stack + AI apps + ML libs + AI tuning."),
+    (15, "Development + Cryptocurrency Mix",             "Dev stack + crypto wallets/apps."),
+    (16, "Development + Cryptocurrency Hardened Mix",    "Dev + crypto + full hardening."),
+    (17, "Gaming Lite Edition",                          "Steam, Heroic, Lutris, Discord + gaming tuning."),
+    (18, "Development Lite Edition",                     "VS Code + GitHub Desktop — lightweight dev setup."),
+    (19, "Development + Gaming Lite Mix",                "Dev Lite + Gaming Lite combined."),
+    (20, "Gamebox Edition",                              "Mindustry, OpenTTD, 0 A.D. and more + gaming tuning."),
+]
+
+DNS_PRESETS = [
+    ("cloudflare", "Cloudflare", "1.1.1.1 / 1.0.0.1"),
+    ("google",     "Google",     "8.8.8.8 / 8.8.4.4"),
+    ("quad9",      "Quad9",      "9.9.9.9 / 149.112.112.112"),
+]
+
+BROWSERS = [
+    (1,  "Firefox ESR",     "APT"),
+    (2,  "Brave",           "Flatpak"),
+    (3,  "Tor Browser",     "Flatpak"),
+    (4,  "Mullvad Browser", "Flatpak"),
+    (5,  "FireDragon",      "Flatpak"),
+    (6,  "Zen Browser",     "Flatpak"),
+    (7,  "Floorp",          "Flatpak"),
+    (8,  "Waterfox",        "Flatpak"),
+    (9,  "Opera GX",        "Flatpak"),
+    (10, "Vivaldi",         "Flatpak"),
+    (11, "Chromium",        "APT"),
+    (12, "Falkon",          "APT"),
+]
+
+
+LOG_KINDS = [
+    ("system", "System (journalctl)"),
+    ("boot",   "Current boot (journalctl -b)"),
+    ("kernel", "Kernel (dmesg)"),
+    ("xorg",   "Xorg / Display server"),
+    ("apt",    "APT history"),
+    ("dpkg",   "dpkg actions"),
+]
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+# ---------------------------------------------------------------------------
+# Cyber / neon blue palette
+# ---------------------------------------------------------------------------
+NEON     = "#00e7ff"
+NEON_DIM = "#0094a8"
+BG       = "#05070d"
+BG_PANEL = "#0a0f1a"
+BG_INPUT = "#0d1422"
+BORDER   = "#15324a"
+TEXT     = "#cfefff"
+TEXT_DIM = "#7faec6"
+DANGER   = "#ff3860"
+OK       = "#33ffaa"
+WARN     = "#ffb648"
+
+
+STYLESHEET = f"""
+* {{
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Mono", "Ubuntu Mono", monospace;
+    color: {TEXT};
+}}
+
+QMainWindow, QDialog, QWidget {{
+    background-color: {BG};
+}}
+
+QWidget#Sidebar {{
+    background-color: {BG_PANEL};
+    border-right: 1px solid {BORDER};
+}}
+
+QLabel#BrandTitle {{ color: {NEON}; font-size: 18px; font-weight: bold; letter-spacing: 2px; }}
+QLabel#BrandSubtitle {{ color: {TEXT_DIM}; font-size: 10px; letter-spacing: 3px; }}
+QLabel#SectionTitle {{ color: {NEON}; font-size: 13px; font-weight: bold; letter-spacing: 1px; padding: 6px 0; border-bottom: 1px solid {BORDER}; }}
+QLabel#StatusKey {{ color: {TEXT_DIM}; font-size: 11px; }}
+QLabel#StatusVal {{ color: {NEON}; font-size: 12px; font-weight: bold; }}
+QLabel#BannerWarn {{ color: {WARN}; font-size: 11px; font-weight: bold; padding: 6px 10px; border: 1px solid {WARN}; background: rgba(255, 182, 72, 0.06); }}
+
+QListWidget {{ background: transparent; border: none; outline: 0; }}
+QListWidget::item {{ padding: 10px 14px; color: {TEXT_DIM}; border-left: 2px solid transparent; }}
+QListWidget::item:hover {{ color: {NEON}; background: rgba(0, 231, 255, 0.05); }}
+QListWidget::item:selected {{ color: {NEON}; background: rgba(0, 231, 255, 0.10); border-left: 2px solid {NEON}; }}
+
+QPushButton {{
+    background-color: {BG_PANEL};
+    color: {NEON};
+    border: 1px solid {BORDER};
+    padding: 9px 16px;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}}
+QPushButton:hover {{ border: 1px solid {NEON}; background-color: rgba(0, 231, 255, 0.08); }}
+QPushButton:pressed {{ background-color: rgba(0, 231, 255, 0.15); }}
+QPushButton:disabled {{ color: {TEXT_DIM}; border-color: {BORDER}; }}
+QPushButton#Danger {{ color: {DANGER}; }}
+QPushButton#Danger:hover {{ border-color: {DANGER}; background-color: rgba(255, 56, 96, 0.08); }}
+QPushButton#Primary {{ color: {BG}; background-color: {NEON}; border: 1px solid {NEON}; }}
+QPushButton#Primary:hover {{ background-color: {NEON_DIM}; border-color: {NEON_DIM}; }}
+
+QFrame#Card {{ background-color: {BG_PANEL}; border: 1px solid {BORDER}; }}
+QLabel#CardTitle {{ color: {NEON}; font-size: 13px; font-weight: bold; }}
+QLabel#CardDesc {{ color: {TEXT_DIM}; font-size: 11px; }}
+
+QPlainTextEdit, QLineEdit, QComboBox, QAbstractItemView {{
+    background-color: {BG_INPUT};
+    border: 1px solid {BORDER};
+    color: {TEXT};
+    selection-background-color: {NEON_DIM};
+    padding: 6px;
+    font-size: 11px;
+}}
+QPlainTextEdit:focus, QLineEdit:focus, QComboBox:focus {{ border-color: {NEON}; }}
+
+QComboBox::drop-down {{ border: none; }}
+QComboBox QAbstractItemView {{ background-color: {BG_INPUT}; selection-background-color: {NEON_DIM}; }}
+
+QScrollArea {{ background-color: {BG}; border: none; }}
+QScrollBar:vertical, QScrollBar:horizontal {{ background: {BG}; width: 10px; height: 10px; margin: 0; }}
+QScrollBar::handle {{ background: {BORDER}; min-height: 24px; min-width: 24px; }}
+QScrollBar::handle:hover {{ background: {NEON_DIM}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height: 0px; width: 0px; }}
+
+QMessageBox, QInputDialog, QFileDialog {{ background-color: {BG_PANEL}; }}
+QMessageBox QLabel, QInputDialog QLabel, QFileDialog QLabel {{ color: {TEXT}; }}
+
+QToolTip {{ background-color: {BG_PANEL}; color: {NEON}; border: 1px solid {NEON}; padding: 4px; }}
+"""
+
+
+def apply_dark_palette(app: QApplication):
+    app.setStyle(QStyleFactory.create("Fusion"))
+    pal = QPalette()
+    bg = QColor(BG)
+    bg_panel = QColor(BG_PANEL)
+    bg_input = QColor(BG_INPUT)
+    text = QColor(TEXT)
+    text_dim = QColor(TEXT_DIM)
+    neon = QColor(NEON)
+    border = QColor(BORDER)
+
+    pal.setColor(QPalette.ColorRole.Window, bg)
+    pal.setColor(QPalette.ColorRole.WindowText, text)
+    pal.setColor(QPalette.ColorRole.Base, bg_input)
+    pal.setColor(QPalette.ColorRole.AlternateBase, bg_panel)
+    pal.setColor(QPalette.ColorRole.ToolTipBase, bg_panel)
+    pal.setColor(QPalette.ColorRole.ToolTipText, neon)
+    pal.setColor(QPalette.ColorRole.Text, text)
+    pal.setColor(QPalette.ColorRole.Button, bg_panel)
+    pal.setColor(QPalette.ColorRole.ButtonText, text)
+    pal.setColor(QPalette.ColorRole.BrightText, QColor(DANGER))
+    pal.setColor(QPalette.ColorRole.Link, neon)
+    pal.setColor(QPalette.ColorRole.Highlight, neon)
+    pal.setColor(QPalette.ColorRole.HighlightedText, bg)
+    pal.setColor(QPalette.ColorRole.PlaceholderText, text_dim)
+    pal.setColor(QPalette.ColorRole.Mid, border)
+    pal.setColor(QPalette.ColorRole.Dark, bg)
+    pal.setColor(QPalette.ColorRole.Light, bg_panel)
+    pal.setColor(QPalette.ColorRole.Shadow, bg)
+
+    # Disabled state
+    disabled = text_dim
+    for role in (
+        QPalette.ColorRole.WindowText, QPalette.ColorRole.Text,
+        QPalette.ColorRole.ButtonText, QPalette.ColorRole.HighlightedText,
+    ):
+        pal.setColor(QPalette.ColorGroup.Disabled, role, disabled)
+
+    app.setPalette(pal)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def read_edition_conf():
+    path = Path("/usr/share/edition/edition.conf")
+    data = {"EDITION": "", "DATE": "", "TUNING": ""}
+    if path.is_file():
+        try:
+            for line in path.read_text().splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    data[k.strip()] = v.strip().strip('"')
+        except Exception:
+            pass
+    return data
+
+
+def gather_system_info() -> dict:
+    info = {}
+    # OS
+    os_name = "Unknown"
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    os_name = line.split("=", 1)[1].strip().strip('"')
+                    break
+    except Exception:
+        pass
+    info["OS"] = os_name
+    # Kernel
+    try:
+        info["Kernel"] = subprocess.check_output(["uname", "-r"], text=True).strip()
+    except Exception:
+        info["Kernel"] = "Unknown"
+    # Architecture
+    try:
+        info["Architecture"] = subprocess.check_output(["uname", "-m"], text=True).strip()
+    except Exception:
+        info["Architecture"] = "Unknown"
+    # Hostname
+    try:
+        info["Hostname"] = Path("/etc/hostname").read_text().strip()
+    except Exception:
+        info["Hostname"] = "Unknown"
+    # Uptime
+    try:
+        with open("/proc/uptime") as f:
+            up_s = float(f.read().split()[0])
+            h, rem = divmod(up_s, 3600)
+            m, _ = divmod(rem, 60)
+            info["Uptime"] = f"{int(h)}h {int(m)}m"
+    except Exception:
+        info["Uptime"] = "Unknown"
+    # CPU
+    cpu = "Unknown"
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    cpu = line.split(":", 1)[1].strip()
+                    break
+    except Exception:
+        pass
+    info["CPU"] = cpu
+    # RAM
+    try:
+        total = avail = 0
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    total = int(line.split()[1]) // 1024
+                elif line.startswith("MemAvailable:"):
+                    avail = int(line.split()[1]) // 1024
+        info["RAM"] = f"{avail} MB free / {total} MB total"
+    except Exception:
+        info["RAM"] = "Unknown"
+    # Disk
+    try:
+        st = os.statvfs("/")
+        total = (st.f_blocks * st.f_frsize) / (1024 ** 3)
+        free  = (st.f_bavail * st.f_frsize) / (1024 ** 3)
+        used  = total - free
+        info["Disk (/)"] = f"{used:.1f} GB used / {total:.1f} GB total"
+    except Exception:
+        info["Disk (/)"] = "Unknown"
+    # Session
+    info["Session"] = os.environ.get("XDG_SESSION_TYPE", "?") or "?"
+    info["Desktop"] = os.environ.get("XDG_CURRENT_DESKTOP", "?") or "?"
+    return info
+
+
+# ---------------------------------------------------------------------------
+# Action card widget
+# ---------------------------------------------------------------------------
+class ActionCard(QFrame):
+    triggered = pyqtSignal(object)
+
+    def __init__(self, title, description, button_label, payload, danger=False, primary=True):
+        super().__init__()
+        self.setObjectName("Card")
+        self.payload = payload
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(6)
+
+        t = QLabel(title)
+        t.setObjectName("CardTitle")
+        t.setWordWrap(True)
+        d = QLabel(description)
+        d.setObjectName("CardDesc")
+        d.setWordWrap(True)
+
+        btn = QPushButton(button_label)
+        if danger:
+            btn.setObjectName("Danger")
+        elif primary:
+            btn.setObjectName("Primary")
+        btn.clicked.connect(lambda: self.triggered.emit(self.payload))
+
+        lay.addWidget(t)
+        lay.addWidget(d)
+        lay.addStretch(1)
+        lay.addWidget(btn)
+
+
+# ---------------------------------------------------------------------------
+# Main Window
+# ---------------------------------------------------------------------------
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(APP_TITLE)
+        self.resize(1240, 800)
+        if os.path.isfile(ICON_PATH):
+            self.setWindowIcon(QIcon(ICON_PATH))
+
+        self.process = None
+        self._success_msg = None
+        self._on_success_cb = None
+        self._post_install_reboot_id = None
+
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QHBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ---- Sidebar ----
+        sidebar = QWidget()
+        sidebar.setObjectName("Sidebar")
+        sidebar.setFixedWidth(240)
+        sb = QVBoxLayout(sidebar)
+        sb.setContentsMargins(18, 20, 18, 20)
+        sb.setSpacing(14)
+
+        brand = QHBoxLayout()
+        brand.setSpacing(10)
+        if os.path.isfile(ICON_PATH):
+            ic = QLabel()
+            ic.setPixmap(QPixmap(ICON_PATH).scaled(
+                40, 40, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+            brand.addWidget(ic)
+        bt = QVBoxLayout(); bt.setSpacing(0)
+        t1 = QLabel("OVERKILL"); t1.setObjectName("BrandTitle")
+        t2 = QLabel("LINUX");     t2.setObjectName("BrandSubtitle")
+        bt.addWidget(t1); bt.addWidget(t2)
+        brand.addLayout(bt); brand.addStretch(1)
+        sb.addLayout(brand)
+
+        nav_title = QLabel("// MODULES")
+        nav_title.setObjectName("SectionTitle")
+        sb.addWidget(nav_title)
+
+        self.nav = QListWidget()
+        self.nav_labels = [
+            "Editions", "System", "Packages", "Installers", "Drivers",
+            "ZRAM", "Network", "Browsers", "Logs", "System Info",
+        ]
+        for label in self.nav_labels:
+            QListWidgetItem(label, self.nav)
+        self.nav.currentRowChanged.connect(self.pages_set_index)
+        sb.addWidget(self.nav, 1)
+
+        root.addWidget(sidebar)
+
+        # ---- Main area ----
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(20, 20, 20, 20)
+        rl.setSpacing(14)
+
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self._build_editions_page())     # 0
+        self.pages.addWidget(self._build_system_page())       # 1
+        self.pages.addWidget(self._build_packages_page())     # 2
+        self.pages.addWidget(self._build_installers_page())   # 3
+        self.pages.addWidget(self._build_drivers_page())      # 4
+        self.pages.addWidget(self._build_zram_page())         # 5
+        self.pages.addWidget(self._build_network_page())      # 6
+        self.pages.addWidget(self._build_browsers_page())     # 7
+        self.pages.addWidget(self._build_logs_page())         # 8
+        self.pages.addWidget(self._build_sysinfo_page())      # 9
+
+        rl.addWidget(self.pages, 1)
+
+        console_label = QLabel("// CONSOLE OUTPUT")
+        console_label.setObjectName("SectionTitle")
+        rl.addWidget(console_label)
+
+        self.console = QPlainTextEdit()
+        self.console.setReadOnly(True)
+        self.console.setMinimumHeight(200)
+        rl.addWidget(self.console)
+
+        btn_row = QHBoxLayout()
+        self.btn_stop = QPushButton("STOP")
+        self.btn_stop.setObjectName("Danger")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.stop_process)
+        self.btn_clear = QPushButton("CLEAR CONSOLE")
+        self.btn_clear.clicked.connect(self.console.clear)
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.btn_clear)
+        btn_row.addWidget(self.btn_stop)
+        rl.addLayout(btn_row)
+
+        root.addWidget(right, 1)
+        self.nav.setCurrentRow(0)
+
+        if os.geteuid() != 0:
+            QMessageBox.warning(
+                self, "Root required",
+                "This application performs system-wide changes and must be run as root.\n\n"
+                "Launch it via:\n    pkexec overkill-setup\nor:\n    sudo overkill-setup",
+            )
+
+    # ------------------------------------------------------------------
+    # Page builders
+    # ------------------------------------------------------------------
+    def _scrolled(self, inner):
+        s = QScrollArea()
+        s.setWidgetResizable(True)
+        s.setFrameShape(QFrame.Shape.NoFrame)
+        s.setWidget(inner)
+        return s
+
+    def _build_editions_page(self):
+        page = QWidget()
+        v = QVBoxLayout(page); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(10)
+        h = QLabel("// EDITIONS"); h.setObjectName("SectionTitle"); v.addWidget(h)
+
+        row = QHBoxLayout()
+        info = QLabel("Install one edition at a time. Tuning profiles may require a reboot.")
+        info.setObjectName("CardDesc")
+        info.setWordWrap(True)
+        row.addWidget(info, 1)
+        btn = QPushButton("UNINSTALL CURRENT EDITION")
+        btn.setObjectName("Danger")
+        btn.clicked.connect(self.action_uninstall_edition)
+        row.addWidget(btn)
+        v.addLayout(row)
+
+        inner = QWidget()
+        grid = QGridLayout(inner)
+        grid.setSpacing(12); grid.setContentsMargins(0, 0, 0, 0)
+        cols = 2
+        for idx, (eid, name, desc) in enumerate(EDITIONS):
+            card = ActionCard(name, desc, "INSTALL", eid)
+            card.triggered.connect(self.action_install_edition)
+            grid.addWidget(card, idx // cols, idx % cols)
+
+        v.addWidget(self._scrolled(inner), 1)
+        return page
+
+    def _grid_page(self, title, cards):
+        page = QWidget()
+        v = QVBoxLayout(page); v.setContentsMargins(0, 0, 0, 0)
+        h = QLabel(title); h.setObjectName("SectionTitle"); v.addWidget(h)
+        inner = QWidget()
+        g = QGridLayout(inner); g.setSpacing(12)
+        for i, card in enumerate(cards):
+            g.addWidget(card, i // 2, i % 2)
+        v.addWidget(self._scrolled(inner), 1)
+        return page
+
+    def _build_system_page(self):
+        c1 = ActionCard("Update System", "Refresh APT databases and dist-upgrade all packages.", "RUN UPDATE", "sys-update")
+        c1.triggered.connect(lambda _: self._run_cli(["sys-update"], "System update finished."))
+        c2 = ActionCard("Clean System", "Clean APT caches, vacuum journals, clear /tmp & /var/tmp.", "RUN CLEAN", "sys-clean")
+        c2.triggered.connect(lambda _: self._run_cli(["sys-clean"], "System cleanup finished."))
+        c3 = ActionCard("Change Hostname", "Update /etc/hostname and /etc/hosts using hostnamectl.", "CHANGE", "hostname")
+        c3.triggered.connect(lambda _: self.action_change_hostname())
+        return self._grid_page("// SYSTEM", [c1, c2, c3])
+
+    def _build_packages_page(self):
+        c1 = ActionCard("Install APT Packages", "Install one or more APT packages (space-separated).", "INSTALL", "install")
+        c1.triggered.connect(lambda _: self.action_pkg_io("install"))
+        c2 = ActionCard("Remove APT Packages", "Purge one or more APT packages and autoremove leftovers.", "REMOVE", "remove", danger=True, primary=False)
+        c2.triggered.connect(lambda _: self.action_pkg_io("remove"))
+        c3 = ActionCard("Installed APT Packages", "List user-installed packages and uninstall any.", "BROWSE", "list-apt")
+        c3.triggered.connect(lambda _: self.action_list_apt())
+        return self._grid_page("// PACKAGES", [c1, c2, c3])
+
+    def _build_installers_page(self):
+        c1 = ActionCard(".deb Installer", "Pick a local .deb file and install it with dpkg.", "PICK .deb", "deb")
+        c1.triggered.connect(lambda _: self.action_install_deb())
+        c2 = ActionCard("Flatpak Installer", "Install a Flatpak application from Flathub by its ID.", "INSTALL FLATPAK", "flat")
+        c2.triggered.connect(lambda _: self.action_install_flatpak())
+        c3 = ActionCard("Remove Flatpak", "Uninstall a Flatpak application by its ID.", "REMOVE FLATPAK", "flat-rm", danger=True, primary=False)
+        c3.triggered.connect(lambda _: self.action_remove_flatpak())
+        c4 = ActionCard("List Installed Flatpaks", "Browse the currently installed Flatpak applications.", "LIST", "flat-list")
+        c4.triggered.connect(lambda _: self._run_cli(["list-flatpak"]))
+        return self._grid_page("// INSTALLERS", [c1, c2, c3, c4])
+
+    def _build_drivers_page(self):
+        c1 = ActionCard(
+            "NVIDIA Drivers",
+            "Detects an NVIDIA GPU and installs nvidia-driver, nvidia-smi and matching kernel headers. A reboot is required afterwards.",
+            "INSTALL NVIDIA", "nvidia",
+        )
+        c1.triggered.connect(lambda _: self.action_install_nvidia())
+        return self._grid_page("// DRIVERS", [c1])
+
+    def _build_zram_page(self):
+        c1 = ActionCard("Install ZRAM Tools", "Installs the zram-tools package (provides zramswap).", "INSTALL", "zram-install")
+        c1.triggered.connect(lambda _: self._run_cli(["zram", "install"], "ZRAM tools installed."))
+        c2 = ActionCard("Enable ZRAM", "Enable and start the zramswap systemd service.", "ENABLE", "zram-enable")
+        c2.triggered.connect(lambda _: self._run_cli(["zram", "enable"], "ZRAM enabled."))
+        c3 = ActionCard("Disable ZRAM", "Stop and disable the zramswap systemd service.", "DISABLE", "zram-disable", danger=True, primary=False)
+        c3.triggered.connect(lambda _: self._run_cli(["zram", "disable"], "ZRAM disabled."))
+        c4 = ActionCard("ZRAM Status", "Show current ZRAM device(s) and swap usage.", "STATUS", "zram-status")
+        c4.triggered.connect(lambda _: self._run_cli(["zram", "status"]))
+        return self._grid_page("// ZRAM", [c1, c2, c3, c4])
+
+    def _build_network_page(self):
+        cards = []
+        for key, name, servers in DNS_PRESETS:
+            c = ActionCard(name, f"DNS: {servers}", "APPLY", key)
+            c.triggered.connect(lambda payload: self._run_cli(["set-dns", payload], "DNS preset applied."))
+            cards.append(c)
+        cc = ActionCard("Custom DNS", "Provide your own primary and optional secondary DNS server.", "CONFIGURE", "custom")
+        cc.triggered.connect(lambda _: self.action_custom_dns())
+        cards.append(cc)
+        return self._grid_page("// NETWORK / DNS", cards)
+
+    def _build_browsers_page(self):
+        page = QWidget()
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(10)
+
+        h = QLabel("// BROWSERS")
+        h.setObjectName("SectionTitle")
+        outer.addWidget(h)
+
+        inner = QWidget()
+        grid = QGridLayout(inner)
+        grid.setSpacing(10)
+        grid.setContentsMargins(0, 0, 0, 0)
+
+        for i, (bid, name, src) in enumerate(BROWSERS):
+            card = QFrame()
+            card.setObjectName("Card")
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(14, 12, 14, 12)
+            cl.setSpacing(6)
+
+            t = QLabel(name)
+            t.setObjectName("CardTitle")
+            d = QLabel(f"Source: {src}")
+            d.setObjectName("CardDesc")
+            cl.addWidget(t)
+            cl.addWidget(d)
+            cl.addStretch(1)
+
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(6)
+
+            btn_install = QPushButton("INSTALL")
+            btn_install.setObjectName("Primary")
+            _bid = bid
+            btn_install.clicked.connect(
+                lambda _checked=False, b=_bid: self._run_cli(
+                    ["install-browser", str(b)], "Browser installed."
+                )
+            )
+
+            btn_remove = QPushButton("REMOVE")
+            btn_remove.setObjectName("Danger")
+            btn_remove.clicked.connect(
+                lambda _checked=False, b=_bid, n=name: self._confirm_remove_browser(b, n)
+            )
+
+            btn_row.addWidget(btn_install)
+            btn_row.addWidget(btn_remove)
+            cl.addLayout(btn_row)
+
+            grid.addWidget(card, i // 3, i % 3)
+
+        s = QScrollArea()
+        s.setWidgetResizable(True)
+        s.setFrameShape(QFrame.Shape.NoFrame)
+        s.setWidget(inner)
+        outer.addWidget(s, 1)
+        return page
+
+    def _confirm_remove_browser(self, bid, name):
+        if QMessageBox.question(self, "Confirm removal",
+                f"Remove <b>{name}</b>?") != QMessageBox.StandardButton.Yes:
+            return
+        self._run_cli(["remove-browser", str(bid)], f"{name} removed.")
+
+    def _build_logs_page(self):
+        page = QWidget()
+        v = QVBoxLayout(page); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(10)
+        h = QLabel("// LOGS"); h.setObjectName("SectionTitle"); v.addWidget(h)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Log source:"))
+        self.log_combo = QComboBox()
+        for key, label in LOG_KINDS:
+            self.log_combo.addItem(label, key)
+        row.addWidget(self.log_combo, 1)
+
+        row.addWidget(QLabel("Lines:"))
+        self.log_lines = QLineEdit("300")
+        self.log_lines.setFixedWidth(80)
+        row.addWidget(self.log_lines)
+
+        btn = QPushButton("VIEW LOG")
+        btn.setObjectName("Primary")
+        btn.clicked.connect(self.action_view_log)
+        row.addWidget(btn)
+        v.addLayout(row)
+
+        info = QLabel("The selected log will be streamed into the console panel below.")
+        info.setObjectName("CardDesc")
+        v.addWidget(info)
+        v.addStretch(1)
+        return page
+
+    def _build_sysinfo_page(self):
+        page = QWidget()
+        v = QVBoxLayout(page); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(10)
+        h = QLabel("// SYSTEM INFORMATION"); h.setObjectName("SectionTitle"); v.addWidget(h)
+
+        self.sysinfo_box = QPlainTextEdit()
+        self.sysinfo_box.setReadOnly(True)
+        v.addWidget(self.sysinfo_box, 1)
+
+        row = QHBoxLayout()
+        refresh = QPushButton("↻  REFRESH")
+        refresh.clicked.connect(self.refresh_sysinfo)
+        row.addStretch(1)
+        row.addWidget(refresh)
+        v.addLayout(row)
+
+        self.refresh_sysinfo()
+        return page
+
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+    def pages_set_index(self, row):
+        self.pages.setCurrentIndex(row)
+        if self.nav_labels[row] == "System Info":
+            self.refresh_sysinfo()
+
+    def refresh_sysinfo(self):
+        if not hasattr(self, "sysinfo_box"):
+            return
+        ed = read_edition_conf()
+        sys = gather_system_info()
+
+        edition = ed.get("EDITION") or "Not installed"
+        date    = ed.get("DATE") or "—"
+        tuning  = (ed.get("TUNING") or "none").upper()
+
+        rows = [
+            ("EDITION",     edition),
+            ("INSTALL DATE", date),
+            ("TUNING",       tuning),
+            ("",            ""),
+        ]
+        for k, v in sys.items():
+            rows.append((k.upper(), v))
+
+        # Pretty layout
+        key_w = max(len(k) for k, _ in rows if k) + 2
+        lines = []
+        for k, v in rows:
+            if not k:
+                lines.append("")
+            else:
+                lines.append(f"{k:<{key_w}} : {v}")
+        self.sysinfo_box.setPlainText("\n".join(lines))
+
+    # ------------------------------------------------------------------
+    # Subprocess management
+    # ------------------------------------------------------------------
+    def _is_running(self):
+        return self.process is not None and self.process.state() != QProcess.ProcessState.NotRunning
+
+    def _run_cli(self, args, success_msg=None, on_success=None):
+        if self._is_running():
+            QMessageBox.information(self, "Busy",
+                "Another operation is currently running. Please wait for it to finish.")
+            return
+
+        if not os.path.isfile(CLI_PATH):
+            QMessageBox.critical(self, "Missing backend",
+                f"The backend script was not found at:\n{CLI_PATH}")
+            return
+
+        self.console.appendPlainText(f"\n$ {CLI_PATH} {' '.join(args)}\n")
+        self._success_msg = success_msg
+        self._on_success_cb = on_success
+
+        self.process = QProcess(self)
+        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("NONINTERACTIVE", "1")
+        env.insert("DEBIAN_FRONTEND", "noninteractive")
+        self.process.setProcessEnvironment(env)
+        self.process.readyReadStandardOutput.connect(self._on_proc_output)
+        self.process.finished.connect(self._on_proc_finished)
+        self.btn_stop.setEnabled(True)
+        self.process.start(CLI_PATH, args)
+
+    def _on_proc_output(self):
+        if not self.process:
+            return
+        data = bytes(self.process.readAllStandardOutput()).decode(errors="replace")
+        clean = ANSI_RE.sub("", data)
+        self.console.moveCursor(QTextCursor.MoveOperation.End)
+        self.console.insertPlainText(clean)
+        self.console.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _on_proc_finished(self, exit_code, _status):
+        self.btn_stop.setEnabled(False)
+        ok = (exit_code == 0)
+        self.console.appendPlainText(f"\n[exit code: {exit_code}] {'OK' if ok else 'FAILED'}\n")
+        self.refresh_sysinfo()
+        if ok and self._success_msg:
+            self.console.appendPlainText(f">>> {self._success_msg}\n")
+        if ok and self._on_success_cb:
+            try:
+                self._on_success_cb()
+            except Exception as e:
+                self.console.appendPlainText(f"[post-action error] {e}")
+        self._success_msg = None
+        self._on_success_cb = None
+        self.process = None
+
+    def stop_process(self):
+        if self._is_running():
+            self.process.terminate()
+            if not self.process.waitForFinished(2000):
+                self.process.kill()
+
+    # ------------------------------------------------------------------
+    # Actions — editions
+    # ------------------------------------------------------------------
+    def action_install_edition(self, edition_id):
+        name = next((n for i, n, _ in EDITIONS if i == edition_id), f"Edition {edition_id}")
+        current = read_edition_conf().get("EDITION")
+        if current:
+            QMessageBox.warning(self, "Already installed",
+                f"'{current}' is already installed. Please uninstall it first.")
+            return
+        if QMessageBox.question(self, "Confirm installation",
+            f"Install <b>{name}</b>?\n\n"
+            "This will install APT packages, Flatpaks and apply tuning if applicable. "
+            "It may take a while.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        self._post_install_reboot_id = edition_id
+        self._run_cli(["install-edition", str(edition_id)],
+                      success_msg=f"{name} installed.",
+                      on_success=self._post_install_prompt)
+
+    def _post_install_prompt(self):
+        self._post_install_reboot_id = None
+        box = QMessageBox(self)
+        box.setWindowTitle("Reboot required")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(
+            "<b>Installation complete.</b><br><br>"
+            "A reboot is required to fully apply all changes.<br><br>Reboot now?"
+        )
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.Yes)
+        if box.exec() == QMessageBox.StandardButton.Yes:
+            self._reboot_now()
+
+    def _reboot_now(self):
+        self.console.appendPlainText("\n>>> Rebooting system...\n")
+        QApplication.processEvents()
+        cmd = ["systemctl", "reboot"] if shutil.which("systemctl") else ["reboot"]
+        try:
+            subprocess.Popen(cmd)
+        except Exception as e:
+            QMessageBox.critical(self, "Reboot failed",
+                f"Could not trigger reboot:\n{e}\n\nPlease reboot manually with 'sudo reboot'.")
+
+    def action_uninstall_edition(self):
+        current = read_edition_conf().get("EDITION")
+        if not current:
+            QMessageBox.information(self, "Nothing to do",
+                "No installed edition was detected on this system.")
+            return
+        if QMessageBox.question(self, "Confirm uninstall",
+            f"Uninstall <b>{current}</b>?\n\nThis will purge all APT packages and Flatpaks "
+            "associated with the edition and revert any tuning that was applied.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._run_cli(["uninstall-edition"], "Edition uninstalled.")
+
+    # ------------------------------------------------------------------
+    # Actions — system / packages / installers
+    # ------------------------------------------------------------------
+    def action_pkg_io(self, mode):
+        verb = "install" if mode == "install" else "remove"
+        text, ok = QInputDialog.getText(self, f"{verb.capitalize()} packages",
+                                        f"Enter package names to {verb} (space-separated):",
+                                        QLineEdit.EchoMode.Normal, "")
+        if not ok:
+            return
+        pkgs = text.strip().split()
+        if not pkgs:
+            QMessageBox.warning(self, "No input", "No packages specified.")
+            return
+        sub = "pkg-install" if mode == "install" else "pkg-remove"
+        self._run_cli([sub, *pkgs], f"Packages {verb}d.")
+
+    def action_list_apt(self):
+        try:
+            out = subprocess.check_output(
+                ["dpkg-query", "-W", "-f=${binary:Package}\t${Version}\t${Status}\n"],
+                text=True, stderr=subprocess.STDOUT, timeout=30,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "dpkg-query failed", str(e))
+            return
+
+        # Keep only installed packages
+        pkgs = []
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            name, ver, status = parts[0], parts[1], parts[2]
+            if "installed" in status and "deinstall" not in status:
+                pkgs.append((name, ver))
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Installed packages ({len(pkgs)})")
+        dialog.resize(640, 520)
+        dl = QVBoxLayout(dialog)
+
+        search = QLineEdit()
+        search.setPlaceholderText("Filter packages…")
+        dl.addWidget(search)
+
+        listw = QListWidget()
+        for name, ver in pkgs:
+            QListWidgetItem(f"{name}  ({ver})", listw)
+        dl.addWidget(listw, 1)
+
+        def on_filter(text):
+            text = text.lower()
+            for i in range(listw.count()):
+                item = listw.item(i)
+                item.setHidden(text not in item.text().lower())
+        search.textChanged.connect(on_filter)
+
+        btns = QDialogButtonBox()
+        remove_btn = btns.addButton("REMOVE SELECTED", QDialogButtonBox.ButtonRole.DestructiveRole)
+        remove_btn.setObjectName("Danger")
+        close_btn = btns.addButton(QDialogButtonBox.StandardButton.Close)
+        dl.addWidget(btns)
+
+        def on_remove():
+            item = listw.currentItem()
+            if not item:
+                QMessageBox.information(dialog, "Pick one", "Please select a package first.")
+                return
+            name = item.text().split()[0]
+            if QMessageBox.question(dialog, "Confirm removal",
+                f"Purge <b>{name}</b>?") != QMessageBox.StandardButton.Yes:
+                return
+            dialog.accept()
+            self._run_cli(["pkg-remove", name], f"{name} removed.")
+        remove_btn.clicked.connect(on_remove)
+        close_btn.clicked.connect(dialog.reject)
+        dialog.exec()
+
+    def action_install_deb(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select .deb package", os.path.expanduser("~"),
+            "Debian packages (*.deb)",
+        )
+        if not path:
+            return
+        if QMessageBox.question(self, "Confirm install",
+            f"Install <b>{os.path.basename(path)}</b>?") != QMessageBox.StandardButton.Yes:
+            return
+        self._run_cli(["install-deb", path], "Package installed.")
+
+    def action_install_flatpak(self):
+        text, ok = QInputDialog.getText(
+            self, "Install Flatpak",
+            "Flatpak application id (e.g. com.spotify.Client):",
+            QLineEdit.EchoMode.Normal, "",
+        )
+        if not ok:
+            return
+        appid = text.strip()
+        if not appid:
+            return
+        self._run_cli(["install-flatpak", appid], f"{appid} installed.")
+
+    def action_remove_flatpak(self):
+        text, ok = QInputDialog.getText(
+            self, "Remove Flatpak",
+            "Flatpak application id to remove:",
+            QLineEdit.EchoMode.Normal, "",
+        )
+        if not ok:
+            return
+        appid = text.strip()
+        if not appid:
+            return
+        if QMessageBox.question(self, "Confirm removal",
+            f"Uninstall <b>{appid}</b>?") != QMessageBox.StandardButton.Yes:
+            return
+        self._run_cli(["remove-flatpak", appid], f"{appid} removed.")
+
+    def action_install_nvidia(self):
+        if QMessageBox.question(self, "Confirm NVIDIA install",
+            "Install NVIDIA drivers (nvidia-driver, nvidia-smi, matching headers)?\n\n"
+            "A reboot is required afterwards.") != QMessageBox.StandardButton.Yes:
+            return
+        self._run_cli(["install-nvidia"], "NVIDIA drivers installed.", on_success=self._offer_reboot)
+
+    def _offer_reboot(self):
+        if QMessageBox.question(self, "Reboot recommended",
+            "Reboot now to load the new drivers?") == QMessageBox.StandardButton.Yes:
+            self._reboot_now()
+
+    # ------------------------------------------------------------------
+    # Actions — network, hostname, logs
+    # ------------------------------------------------------------------
+    def action_change_hostname(self):
+        try:
+            current = Path("/etc/hostname").read_text().strip()
+        except Exception:
+            current = ""
+        text, ok = QInputDialog.getText(self, "Change hostname",
+            f"Current hostname: {current}\nEnter the new hostname:",
+            QLineEdit.EchoMode.Normal, current)
+        if not ok:
+            return
+        new_hn = text.strip()
+        if not new_hn:
+            QMessageBox.warning(self, "Invalid", "Hostname cannot be empty.")
+            return
+        self._run_cli(["set-hostname", new_hn], "Hostname updated.")
+
+    def action_custom_dns(self):
+        primary, ok = QInputDialog.getText(self, "Custom DNS — primary",
+            "Primary DNS server (e.g. 1.1.1.1):")
+        if not ok or not primary.strip():
+            return
+        secondary, _ = QInputDialog.getText(self, "Custom DNS — secondary",
+            "Secondary DNS server (optional, leave empty to skip):")
+        args = ["set-dns", "custom", primary.strip()]
+        if secondary.strip():
+            args.append(secondary.strip())
+        self._run_cli(args, "Custom DNS applied.")
+
+    def action_view_log(self):
+        kind = self.log_combo.currentData()
+        lines = self.log_lines.text().strip() or "300"
+        if not lines.isdigit():
+            QMessageBox.warning(self, "Invalid", "Lines must be a number.")
+            return
+        self._run_cli(["view-log", kind, lines])
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+def main():
+    # Force a sane Qt platform theme so we don't inherit gtk/light themes under pkexec/sudo
+    os.environ.setdefault("QT_QPA_PLATFORMTHEME", "")
+    os.environ.setdefault("QT_STYLE_OVERRIDE", "Fusion")
+
+    app = QApplication(sys.argv)
+    app.setApplicationName(APP_TITLE)
+    if os.path.isfile(ICON_PATH):
+        app.setWindowIcon(QIcon(ICON_PATH))
+
+    apply_dark_palette(app)
+    app.setStyleSheet(STYLESHEET)
+    app.setFont(QFont("JetBrains Mono", 10))
+
+    win = MainWindow()
+    win.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

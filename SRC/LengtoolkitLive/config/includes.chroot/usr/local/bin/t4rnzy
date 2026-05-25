@@ -1,0 +1,337 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+MAGENTA='\033[0;35m'
+NC='\033[0m'
+
+banner() {
+    clear
+    echo -e "${MAGENTA}"
+    echo "  ████████╗██╗  ██╗██████╗ ███╗   ██╗███████╗██╗   ██╗"
+    echo "  ╚══██╔══╝██║  ██║██╔══██╗████╗  ██║╚══███╔╝╚██╗ ██╔╝"
+    echo "     ██║   ███████║██████╔╝██╔██╗ ██║  ███╔╝  ╚████╔╝ "
+    echo "     ██║   ╚════██║██╔══██╗██║╚██╗██║ ███╔╝    ╚██╔╝  "
+    echo "     ██║        ██║██║  ██║██║ ╚████║███████╗   ██║   "
+    echo "     ╚═╝        ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   "
+    echo -e "${NC}"
+    echo ""
+}
+
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${RED}[!] Root privileges required. Run: sudo t4rnzy${NC}"
+        exit 1
+    fi
+}
+
+disk_analysis() {
+    banner
+    echo -e "${YELLOW}[DISK ANALYSIS]${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "\n${GREEN}[+] Block Devices:${NC}"
+    lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL
+    
+    echo -e "\n${GREEN}[+] Disk Usage:${NC}"
+    df -h 2>/dev/null | grep -v tmpfs | head -10
+    
+    echo -e "\n${GREEN}[+] Partition Table (GPT/MBR):${NC}"
+    for disk in $(lsblk -dn -o NAME,TYPE | grep disk | awk '{print $1}'); do
+        table=$(fdisk -l /dev/$disk 2>/dev/null | grep "Disklabel type" | cut -d: -f2)
+        echo "  /dev/$disk: $table"
+    done
+    
+    echo -e "\n${GREEN}[+] SMART Status:${NC}"
+    for disk in $(lsblk -dn -o NAME,TYPE | grep disk | awk '{print $1}'); do
+        health=$(smartctl -H /dev/$disk 2>/dev/null | grep -i "result" | cut -d: -f2)
+        [ -n "$health" ] && echo "  /dev/$disk:$health" || echo "  /dev/$disk: SMART N/A"
+    done
+    
+    read -p $'\n'"Press ENTER to continue..." temp
+}
+
+boot_repair() {
+    banner
+    echo -e "${YELLOW}[BOOT REPAIR WIZARD]${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "\n${GREEN}[+] Boot Mode:${NC}"
+    [ -d /sys/firmware/efi ] && echo "  UEFI Mode" || echo "  Legacy BIOS Mode"
+    
+    echo -e "\n${GREEN}[+] EFI Partitions:${NC}"
+    lsblk -o NAME,SIZE,FSTYPE | grep -E "vfat" || echo "  No EFI partition found"
+    
+    echo -e "\n${GREEN}[+] GRUB Detection:${NC}"
+    for disk in $(lsblk -dn -o NAME | head -4); do
+        sig=$(dd if=/dev/$disk bs=512 count=1 2>/dev/null | strings | grep -i grub)
+        [ -n "$sig" ] && echo -e "  /dev/$disk: ${GREEN}GRUB Found${NC}" || echo "  /dev/$disk: No bootloader"
+    done
+    
+    echo -e "\n${GREEN}[+] OS Detection:${NC}"
+    which os-prober &>/dev/null && os-prober 2>/dev/null || echo "  os-prober not available"
+    
+    echo ""
+    echo -e "${YELLOW}[REPAIR OPTIONS]${NC}"
+    echo "1) Reinstall GRUB (Interactive)"
+    echo "2) Fix EFI Boot Entry"
+    echo "3) Rebuild initramfs"
+    echo "0) Back to main menu"
+    read -p "Select: " choice
+    
+    case $choice in
+        1)
+            echo -e "\n${CYAN}Available root partitions:${NC}"
+            lsblk -o NAME,SIZE,FSTYPE | grep -E "ext4|btrfs|xfs"
+            read -p "Enter root partition (e.g., /dev/sda2): " rootpart
+            read -p "Enter target disk (e.g., /dev/sda): " targetdisk
+            
+            mkdir -p /mnt/rescue
+            mount $rootpart /mnt/rescue
+            mount --bind /dev /mnt/rescue/dev
+            mount --bind /proc /mnt/rescue/proc
+            mount --bind /sys /mnt/rescue/sys
+            
+            if [ -d /sys/firmware/efi ]; then
+                efipart=$(lsblk -o NAME,FSTYPE | grep vfat | awk '{print "/dev/"$1}' | head -1)
+                mount $efipart /mnt/rescue/boot/efi 2>/dev/null
+                chroot /mnt/rescue grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+            else
+                chroot /mnt/rescue grub-install $targetdisk
+            fi
+            chroot /mnt/rescue update-grub
+            
+            umount -R /mnt/rescue
+            echo -e "${GREEN}[+] GRUB reinstalled!${NC}"
+            ;;
+        2)
+            efibootmgr -v 2>/dev/null || echo "efibootmgr not available"
+            ;;
+        3)
+            echo "Mount the target system first with option 1"
+            ;;
+    esac
+    read -p $'\n'"Press ENTER..." temp
+}
+
+password_recovery() {
+    banner
+    echo -e "${YELLOW}[PASSWORD RECOVERY]${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "\n${GREEN}Available partitions:${NC}"
+    lsblk -o NAME,SIZE,FSTYPE | grep -E "ext4|btrfs|xfs"
+    
+    read -p $'\n'"Enter root partition (e.g., /dev/sda2): " rootpart
+    read -p "Enter username to reset [root]: " username
+    username=${username:-root}
+    
+    mkdir -p /mnt/rescue
+    mount $rootpart /mnt/rescue || { echo -e "${RED}Mount failed!${NC}"; return; }
+    
+    echo -e "\n${CYAN}[*] Changing password for '$username'...${NC}"
+    chroot /mnt/rescue passwd $username
+    
+    umount /mnt/rescue
+    echo -e "${GREEN}[+] Password changed!${NC}"
+    read -p $'\n'"Press ENTER..." temp
+}
+
+filesystem_repair() {
+    banner
+    echo -e "${YELLOW}[FILESYSTEM REPAIR]${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "\n${GREEN}[+] Detected Filesystems:${NC}"
+    blkid | while read line; do
+        dev=$(echo $line | cut -d: -f1)
+        fstype=$(blkid -s TYPE -o value $dev 2>/dev/null)
+        label=$(blkid -s LABEL -o value $dev 2>/dev/null)
+        echo "  $dev: $fstype ${label:+($label)}"
+    done
+    
+    echo ""
+    echo -e "${YELLOW}[REPAIR OPTIONS]${NC}"
+    echo "1) Check ext4 filesystem (fsck.ext4)"
+    echo "2) Check NTFS filesystem (ntfsfix)"
+    echo "3) Check XFS filesystem (xfs_repair)"
+    echo "4) Check Btrfs filesystem (btrfs check)"
+    echo "0) Back"
+    read -p "Select: " choice
+    
+    case $choice in
+        1)
+            read -p "Enter partition (e.g., /dev/sda1): " part
+            echo -e "${YELLOW}[*] Running fsck.ext4 -y $part${NC}"
+            fsck.ext4 -y $part
+            ;;
+        2)
+            read -p "Enter partition: " part
+            ntfsfix $part
+            ;;
+        3)
+            read -p "Enter partition: " part
+            xfs_repair $part
+            ;;
+        4)
+            read -p "Enter partition: " part
+            btrfs check $part
+            ;;
+    esac
+    read -p $'\n'"Press ENTER..." temp
+}
+
+data_recovery() {
+    banner
+    echo -e "${YELLOW}[DATA RECOVERY]${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "${GREEN}Available tools:${NC}"
+    echo "1) TestDisk   - Partition recovery"
+    echo "2) PhotoRec   - File recovery"
+    echo "3) Foremost   - Carve files from image"
+    echo "4) Extundelete - Recover deleted ext4 files"
+    echo "5) ddrescue   - Clone failing disk"
+    echo "0) Back"
+    read -p "Select: " choice
+    
+    case $choice in
+        1) testdisk ;;
+        2) photorec ;;
+        3)
+            read -p "Input file/device: " inp
+            read -p "Output directory: " outp
+            foremost -T -i $inp -o $outp
+            ;;
+        4)
+            read -p "Device: " dev
+            read -p "Output dir: " outp
+            extundelete $dev --restore-all --output-dir $outp
+            ;;
+        5)
+            read -p "Source device: " src
+            read -p "Destination image: " dst
+            ddrescue -d -r3 $src $dst ${dst}.log
+            ;;
+    esac
+    read -p $'\n'"Press ENTER..." temp
+}
+
+secure_wipe() {
+    banner
+    echo -e "${YELLOW}[SECURE WIPE]${NC}"
+    echo -e "${RED}WARNING: Data will be PERMANENTLY destroyed!${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "\n${GREEN}[+] Available Disks:${NC}"
+    lsblk -o NAME,SIZE,MODEL,TYPE | grep disk
+    
+    echo ""
+    echo "1) nwipe      - Interactive secure wipe (DoD/Gutmann)"
+    echo "2) hdparm     - SATA Secure Erase (fastest for SSD)"
+    echo "3) nvme       - NVMe Secure Erase"
+    echo "4) shred      - Overwrite file/device"
+    echo "5) scrub      - Overwrite with patterns"
+    echo "0) Back"
+    read -p "Select: " choice
+    
+    case $choice in
+        1) nwipe ;;
+        2)
+            echo -e "\n${YELLOW}SATA Secure Erase Guide:${NC}"
+            echo "1. hdparm -I /dev/sdX | grep -i security"
+            echo "2. hdparm --user-master u --security-set-pass p /dev/sdX"
+            echo "3. hdparm --user-master u --security-erase p /dev/sdX"
+            ;;
+        3)
+            read -p "NVMe device (e.g., /dev/nvme0n1): " dev
+            nvme format $dev --ses=1
+            ;;
+        4)
+            read -p "Device/File: " target
+            shred -vzn 3 $target
+            ;;
+        5)
+            read -p "Device/File: " target
+            scrub -p dod $target
+            ;;
+    esac
+    read -p $'\n'"Press ENTER..." temp
+}
+
+network_diag() {
+    banner
+    echo -e "${YELLOW}[NETWORK DIAGNOSTICS]${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "\n${GREEN}[+] Interfaces:${NC}"
+    ip -br addr
+    
+    echo -e "\n${GREEN}[+] Routing Table:${NC}"
+    ip route | head -5
+    
+    echo -e "\n${GREEN}[+] DNS Servers:${NC}"
+    grep nameserver /etc/resolv.conf
+    
+    echo -e "\n${GREEN}[+] Connectivity Test:${NC}"
+    ping -c 2 8.8.8.8 &>/dev/null && echo -e "  Internet: ${GREEN}OK${NC}" || echo -e "  Internet: ${RED}FAIL${NC}"
+    ping -c 2 google.com &>/dev/null && echo -e "  DNS: ${GREEN}OK${NC}" || echo -e "  DNS: ${RED}FAIL${NC}"
+    
+    read -p $'\n'"Press ENTER..." temp
+}
+
+system_info() {
+    banner
+    echo -e "${YELLOW}[SYSTEM INFORMATION]${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────${NC}"
+    
+    echo -e "\n${GREEN}[+] CPU:${NC}"
+    lscpu | grep "Model name" | cut -d: -f2
+    echo "  Cores: $(nproc)"
+    
+    echo -e "\n${GREEN}[+] Memory:${NC}"
+    free -h | grep Mem | awk '{print "  Total: "$2" | Used: "$3" | Free: "$4}'
+    
+    echo -e "\n${GREEN}[+] GPU:${NC}"
+    lspci | grep -i vga | cut -d: -f3
+    
+    echo -e "\n${GREEN}[+] Kernel:${NC}"
+    uname -r
+    
+    read -p $'\n'"Press ENTER..." temp
+}
+
+main_menu() {
+    while true; do
+        banner
+        echo -e "${GREEN}[1]${NC} Disk Analysis"
+        echo -e "${GREEN}[2]${NC} Boot Repair Wizard"
+        echo -e "${GREEN}[3]${NC} Password Recovery"
+        echo -e "${GREEN}[4]${NC} Filesystem Repair"
+        echo -e "${GREEN}[5]${NC} Data Recovery"
+        echo -e "${GREEN}[6]${NC} Secure Wipe"
+        echo -e "${GREEN}[7]${NC} Network Diagnostics"
+        echo -e "${GREEN}[8]${NC} System Information"
+        echo -e "${RED}[0]${NC} Exit"
+        echo ""
+        read -p "Select option: " opt
+        
+        case $opt in
+            1) disk_analysis ;;
+            2) boot_repair ;;
+            3) password_recovery ;;
+            4) filesystem_repair ;;
+            5) data_recovery ;;
+            6) secure_wipe ;;
+            7) network_diag ;;
+            8) system_info ;;
+            0) clear; exit 0 ;;
+            *) echo "Invalid option" ;;
+        esac
+    done
+}
+
+check_root
+main_menu

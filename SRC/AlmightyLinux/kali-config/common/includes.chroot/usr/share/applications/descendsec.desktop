@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=DescendSec
+Comment=Discord OSINT and intelligence framework
+Comment[tr]=Discord OSINT ve istihbarat çerçevesi
+Comment[es]=Marco de inteligencia y OSINT de Discord
+Comment[fr]=Cadre d'intelligence et OSINT Discord
+Comment[de]=Discord OSINT und Intelligence Framework
+Comment[ar]=إطار استخبارات Discord و OSINT
+Comment[ru]=Инструмент OSINT и разведки Discord
+Comment[zh]=Discord OSINT和情报框架
+Comment[ja]=Discord OSINTおよびインテリジェンスフレームワーク
+Comment[ko]=Discord OSINT 및 인텔리전스 프레임워크
+Comment[pt]=Estrutura de inteligência e OSINT do Discord
+Comment[it]=Strumento OSINT di Discord e framework di intelligence
+Comment[nl]=Discord OSINT en intelligentiekader
+Comment[sv]=Discord OSINT och underrättelseramverk
+Comment[pl]=Narzędzie OSINT i zbierania informacji z Discorda
+Exec=mate-terminal -- bash -c "descendsec; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/dc.png
+Categories=Social;
+StartupNotify=false

@@ -1,0 +1,38 @@
+#!/bin/bash
+set -e
+
+# Slarpx System Settings Hook
+# Enables all security services and sets proper permissions
+
+# Enable core security engines
+systemctl enable haveged 2>/dev/null || true
+systemctl enable xennytsu.service
+systemctl enable poison.service
+systemctl enable silencer.service
+
+# Enable system hardening services
+systemctl enable permission-hardening.service
+systemctl enable slarpx-dns.service
+systemctl enable slarpx-coldboot.service
+systemctl enable remove-system-map.service 2>/dev/null || true
+
+# Enable nftables firewall
+systemctl enable nftables.service
+
+# Set executable permissions on scripts
+chmod +x /usr/bin/permissionhardening
+chmod +x /usr/bin/slarpx-dns
+chmod +x /usr/bin/slarpx-coldboot
+chmod +x /etc/NetworkManager/dispatcher.d/99-slarpx-dns 2>/dev/null || true
+
+# Set correct permissions on security configs
+chmod 600 /etc/sysctl.d/sysctl.conf 2>/dev/null || true
+chmod 440 /etc/sudoers.d/hardening 2>/dev/null || true
+chmod 600 /etc/security/faillock.conf 2>/dev/null || true
+chmod 600 /etc/security/limits.d/hardened.conf 2>/dev/null || true
+
+# Set correct permissions on initramfs hooks
+chmod +x /etc/initramfs-tools/hooks/sysctl-initramfs 2>/dev/null || true
+chmod +x /etc/initramfs-tools/scripts/init-bottom/sysctl-initramfs 2>/dev/null || true
+chmod +x /etc/kernel/postinst.d/30_remove-system-map 2>/dev/null || true
+chmod +x /usr/libexec/security-misc/remove-system.map 2>/dev/null || true

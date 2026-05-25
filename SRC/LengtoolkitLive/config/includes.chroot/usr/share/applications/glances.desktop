@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Glances
+Comment=LengToolkit - glances
+Exec=mate-terminal -- bash -c "glances; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

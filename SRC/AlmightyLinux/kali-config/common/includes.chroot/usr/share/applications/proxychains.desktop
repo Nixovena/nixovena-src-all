@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=ProxyChains
+Comment=Route TCP connections through SOCKS4, SOCKS5, or HTTP proxies
+Comment[tr]=TCP bağlantılarını SOCKS4, SOCKS5 veya HTTP proxy'leri aracılığıyla yönlendir
+Comment[es]=Enruta conexiones TCP a través de proxies SOCKS4, SOCKS5 o HTTP
+Comment[fr]=Achemine les connexions TCP via des proxys SOCKS4, SOCKS5 ou HTTP
+Comment[de]=Leitet TCP-Verbindungen über SOCKS4-, SOCKS5- oder HTTP-Proxys weiter
+Comment[ar]=توجيه اتصالات TCP من خلال وكيل SOCKS4 أو SOCKS5 أو HTTP
+Comment[ru]=Маршрутизация TCP-соединений через SOCKS4, SOCKS5 или HTTP прокси
+Comment[zh]=通过SOCKS4、SOCKS5或HTTP代理路由TCP连接
+Comment[ja]=SOCKS4、SOCKS5、またはHTTPプロキシ経由でTCP接続をルーティング
+Comment[ko]=SOCKS4, SOCKS5 또는 HTTP 프록시를 통해 TCP 연결 라우팅
+Comment[pt]=Roteia conexões TCP através de proxies SOCKS4, SOCKS5 ou HTTP
+Comment[it]=Indirizza le connessioni TCP attraverso proxy SOCKS4, SOCKS5 o HTTP
+Comment[nl]=Routeer TCP-verbindingen via SOCKS4-, SOCKS5- of HTTP-proxies
+Comment[sv]=Dirigera TCP-anslutningar genom SOCKS4-, SOCKS5- eller HTTP-proxyservrar
+Comment[pl]=Kieruj połączenia TCP przez proxy SOCKS4, SOCKS5 lub HTTP
+Exec=mate-terminal -- bash -c "proxychains; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/proxychains.png
+Categories=Privacy;
+StartupNotify=false

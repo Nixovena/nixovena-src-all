@@ -1,0 +1,42 @@
+[Unit]
+Description=Xennytsu - Behavioral Execution Guard
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/xennytsu-engine
+Restart=always
+RestartSec=1
+
+# --- Security Hardening ---
+# We need root to read /proc/*/environ and send SIGKILL to any process
+User=root
+
+# Prevent the service from being modified or bypassed
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_KILL CAP_DAC_READ_SEARCH CAP_SYS_PTRACE
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=none
+IPAddressDeny=any
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+# Resource limits
+Nice=10
+MemoryMax=64M
+TasksMax=4
+
+# Logging
+StandardOutput=null
+StandardError=journal
+SyslogIdentifier=xennytsu
+
+[Install]
+WantedBy=multi-user.target

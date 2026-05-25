@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=anonhost
+Comment=System hostname modification and management utility
+Comment[tr]=Sistem hostname değişikliği ve yönetim aracı
+Comment[es]=Utilidad de modificación y gestión de nombres de host del sistema
+Comment[fr]=Utilitaire de modification et de gestion des noms d'hôte du système
+Comment[de]=System-Hostname-Änderungs- und Verwaltungsprogramm
+Comment[ar]=أداة تعديل وإدارة اسم مضيف النظام
+Comment[ru]=Утилита изменения и управления именем хоста системы
+Comment[zh]=系统主机名修改和管理工具
+Comment[ja]=システムホスト名変更および管理ユーティリティ
+Comment[ko]=시스템 호스트명 변경 및 관리 유틸리티
+Comment[pt]=Utilitário de modificação e gerenciamento de nome de host do sistema
+Comment[it]=Utilità di modifica e gestione dell'hostname del sistema
+Comment[nl]=Systeemhostnaamwijzigings- en beheerhulpprogramma
+Comment[sv]=Systemvärdnamnsändrings- och hanteringsverktyg
+Comment[pl]=Narzędzie do modyfikacji i zarządzania nazwą hosta systemu
+Exec=mate-terminal -- bash -c "sudo anonhost; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

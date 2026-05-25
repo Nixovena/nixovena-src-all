@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+
+# ================================================
+#       Almighty System Update & Cleanup
+# ================================================
+
+import subprocess
+import shutil
+import os
+import sys
+import time
+
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.prompt import Prompt
+    from rich.text import Text
+    from rich.align import Align
+except ImportError:
+    print("[!] python3-rich is required. Install with: sudo apt install python3-rich")
+    sys.exit(1)
+
+console = Console()
+
+ASCII_BANNER = r"""
+⢠⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢸⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠸⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢣⠈⠻⣿⣷⣦⣤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠐⣄⠀
+⢸⣶⣄⡀⠉⡝⣽⣿⣾⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣧⠀
+⢰⠙⢿⣿⣷⣶⣏⣙⡛⠿⢿⣿⣿⣿⣶⣶⣀⣀⣰⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀⠀⠀⠀⣰⣿⢏⡆
+⠈⢷⣤⡈⠙⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣾⣾⣤⣴⣶⣿⠿⢋⡾⠀
+⠀⠀⠻⣿⣷⣦⣤⣤⣈⣩⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀⠀⠀⣀⣼⣿⣿⣿⣿⣿⣿⣿⣧⣦⡷⠁⠀
+⠀⠀⠙⢦⣍⣉⡛⠻⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⡄⠀⠀⠀⠀⠀⣰⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣯⠵⠂⠀⠀
+⠀⠀⠀⠀⠉⠛⠻⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡄⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠋⠉⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⡿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⣶⣾⣿⣿⣿⣿⡿⠿⠿⠿⠿⠟⠋⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢿⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣿⠟⠋⠀⠈⠙⠻⣦⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠈⣷⣿⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣾⣿⣿⣿⣿⣿⣿⠿⠿⣆⡀⠀⠀⠀⠀⠀⠀⠀⢿⢹⡇⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⠙⠲⢄⠀⠉⣳⠦⢤⡠⣤⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡝⣹⣿⣿⣿⣿⣿⣿⡆⠀⢬⡛⡇⠇⠀⠸⠆⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠟⣿⣿⣿⣿⡟⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⢿⣿⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+
+"""
+
+def show_header():
+    os.system("clear")
+    banner_text = Text(ASCII_BANNER, style="bold red")
+    console.print(Align.center(banner_text))
+    subtitle = Text("Almighty System Update", style="bold white")
+    console.print(Align.center(subtitle))
+    console.print()
+
+def press_enter():
+    console.print()
+    Prompt.ask("[dim]Press Enter to exit[/dim]", default="")
+
+def is_root():
+    return os.geteuid() == 0
+
+def require_root():
+    if not is_root():
+        console.print("[red]This operation requires root privileges.[/red]")
+        console.print("[yellow]Please run with sudo.[/yellow]")
+        return False
+    return True
+
+def run_cmd_live(cmd):
+    try:
+        subprocess.run(cmd, shell=True, timeout=1200)
+    except subprocess.TimeoutExpired:
+        console.print("[red]Command timed out.[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+def system_update():
+    show_header()
+    console.print(Panel("[bold]Initializing System Update[/bold]", border_style="red"))
+
+    if not require_root():
+        press_enter()
+        return
+
+    os.environ["DEBIAN_FRONTEND"] = "noninteractive"
+
+    steps = [
+        ("Updating package lists...", "apt-get update"),
+        ("Upgrading packages...", "apt-get upgrade -y"),
+        ("Full system upgrade...", "apt-get full-upgrade -y"),
+        ("Performing distribution upgrade...", "apt-get dist-upgrade -y"),
+        ("Removing unnecessary packages...", "apt-get autoremove --purge -y"),
+        ("Cleaning APT cache...", "apt-get clean"),
+    ]
+
+    for i, (msg, cmd) in enumerate(steps, 1):
+        console.print(f"\n[bold cyan][{i}/{len(steps)}] {msg}[/bold cyan]")
+        run_cmd_live(cmd)
+
+    if shutil.which("flatpak"):
+        console.print("\n[bold cyan]Updating Flatpak applications...[/bold cyan]")
+        run_cmd_live("flatpak update -y")
+        run_cmd_live("flatpak uninstall --unused -y")
+    
+    if shutil.which("fwupdmgr"):
+        console.print("\n[bold cyan]Checking for firmware updates...[/bold cyan]")
+        run_cmd_live("fwupdmgr get-updates")
+        # We don't force 'fwupdmgr update' as it often requires a reboot and manual confirmation
+
+    console.print("\n[bold green]System update and cleanup completed successfully![/bold green]")
+    press_enter()
+
+if __name__ == "__main__":
+    try:
+        system_update()
+    except KeyboardInterrupt:
+        console.print("\n[red]Update cancelled by user.[/red]")
+        sys.exit(0)
+    except Exception as e:
+        console.print(f"\n[red]An unexpected error occurred: {e}[/red]")
+        sys.exit(1)

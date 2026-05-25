@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Almighty OSINT AI
+Comment=Advanced AI-powered OSINT and intelligence framework
+Comment[tr]=Gelişmiş AI destekli OSINT ve istihbarat çerçevesi
+Comment[es]=Marco avanzado de inteligencia y OSINT impulsado por IA
+Comment[fr]=Cadre avancé d'intelligence et d'OSINT alimenté par l'IA
+Comment[de]=Fortgeschrittenes KI-gestütztes OSINT- und Intelligence-Framework
+Comment[ar]=إطار استخبارات متقدم يعتمد على الذكاء الاصطناعي و OSINT
+Comment[ru]=Расширенный фреймворк OSINT и разведки на базе ИИ
+Comment[zh]=先进的人工智能驱动的OSINT和情报框架
+Comment[ja]=高度なAI駆動型OSINTおよびインテリジェンスフレームワーク
+Comment[ko]=고급 AI 기반 OSINT 및 인텔리전스 프레임워크
+Comment[pt]=Estrutura avançada de inteligência e OSINT alimentada por IA
+Comment[it]=Framework avanzato di intelligence e OSINT basato su IA
+Comment[nl]=Geavanceerd AI-gestuurd OSINT- en intelligentiekader
+Comment[sv]=Avancerat AI-drivet OSINT- och underrättelseramverk
+Comment[pl]=Zaawansowane narzędzie OSINT i zbierania informacji oparte na SI
+Exec=mate-terminal -- bash -c "almighty-osint-ai; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/ai.png
+Categories=Frameworks;
+StartupNotify=false

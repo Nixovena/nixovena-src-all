@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE wallpapers SYSTEM "mate-wp-list.dtd">
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>Armored Samurai</name>
+    <filename>/usr/share/backgrounds/armored.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Default</name>
+    <filename>/usr/share/backgrounds/nature.jpg</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Zenny</name>
+    <filename>/usr/share/backgrounds/zenny.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Sky</name>
+    <filename>/usr/share/backgrounds/sky.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Night</name>
+    <filename>/usr/share/backgrounds/night.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Old Logo</name>
+    <filename>/usr/share/backgrounds/zenclora.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Samurai</name>
+    <filename>/usr/share/backgrounds/samurai.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Samurai Zenny</name>
+    <filename>/usr/share/backgrounds/samuzen.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+
+  <wallpaper deleted="false">
+    <name>Default</name>
+    <filename>/usr/share/backgrounds/default.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+
+  <wallpaper deleted="false">
+    <name>Manga</name>
+    <filename>/usr/share/backgrounds/manga.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+</wallpapers>

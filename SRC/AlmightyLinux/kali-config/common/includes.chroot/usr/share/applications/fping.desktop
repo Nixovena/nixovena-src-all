@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=fping
+Comment=Utility to send ICMP echo probes to network hosts
+Comment[tr]=Ağ bilgisayarlarına ICMP yankı probları gönderme aracı
+Comment[es]=Utilidad para enviar sondas de eco ICMP a hosts de red
+Comment[fr]=Utilitaire pour envoyer des sondes d'écho ICMP aux hôtes du réseau
+Comment[de]=Dienstprogramm zum Senden von ICMP-Echosonden an Netzwerkhosts
+Comment[ar]=أداة مساعدة لإرسال تحقيقات صدى ICMP إلى مضيفي الشبكة
+Comment[ru]=Утилита для отправки эхо-зондов ICMP на сетевые хосты
+Comment[zh]=向网络主机发送ICMP回显探测的实用程序
+Comment[ja]=ネットワークホストにICMPエコープロンプトを送信するユーティリティ
+Comment[ko]=네트워크 호스트에 ICMP 에코 프로브를 전송하는 유틸리티
+Comment[pt]=Utilitário para enviar sondas de eco ICMP para hosts de rede
+Comment[it]=Utilità per inviare sonde echo ICMP agli host di rete
+Comment[nl]=Hulpprogramma om ICMP-echoprobes naar netwerkhosts te sturen
+Comment[sv]=Verktyg för att skicka ICMP-ekoprober till nätverksvärdar
+Comment[pl]=Narzędzie do wysyłania sond docelowych ICMP do hostów w sieci
+Exec=mate-terminal -- bash -c "fping -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=NetworkOSINT;
+StartupNotify=false

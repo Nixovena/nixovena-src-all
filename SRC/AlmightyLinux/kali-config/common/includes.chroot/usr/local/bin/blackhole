@@ -1,0 +1,515 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import re
+import json
+import time
+import argparse
+from datetime import datetime, timezone
+from urllib.parse import quote_plus, urljoin
+from typing import Optional, Dict, List
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] Requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+try:
+    import requests
+except ImportError:
+    sys.exit("[!] Missing: requests\n    pip install requests")
+
+sys.dont_write_bytecode = True
+
+VERSION = "1.0.0"
+REPORT_DIR = os.path.expanduser("~/.blackhole/reports")
+
+
+class C:
+    RST = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"
+    RED = "\033[38;2;255;85;85m"; GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"; BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"; PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"; CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"; GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color, text):
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = rf"""
+{C.PINK}
+  ___ _         _   _        _      
+ | _ ) |__ _ __| |_| |_  ___| |___  
+ | _ \ / _` / _| / / ' \/ _ \ / -_) 
+ |___/_\__,_\__|_\_\_||_\___/_\___| 
+{C.RST}
+   {C.GRAY}v{VERSION} Darkweb & Onion Search Engine{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+
+AHMIA_SEARCH = "https://ahmia.fi/search/?q="
+AHMIA_API = "https://ahmia.fi/search/v1/?q="
+DARKWEB_SEARCH_ENGINES = {
+    "Ahmia.fi": "https://ahmia.fi/search/?q=",
+    "Torch (Clearnet)": "https://torchsearch.wordpress.com/?s=",
+    "Onionland": "https://onionlandsearchengine.com/search?q=",
+}
+
+TOR_SEARCH_ENGINES_ONION = {
+    "Ahmia (Tor)": "http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/search/?q=",
+    "Torch (Tor)": "http://torchdeedp3i2jigzjdmfpn5ttjhthh5wbmda2rfl3d5nudber73jzyd.onion/search?query=",
+    "Haystack (Tor)": "http://haystak5njsmn2hqkewecpaxetahtwhsbsa64jom2k22z5afxhnpxfid.onion/?q=",
+    "Recon (Tor)": "http://recon222tttn4ob7ujdhbn3s4gjnpp32u2ovkfjrrccfmchjv2ey2k3ad.onion/search?q=",
+    "DarkSearch (Tor)": "http://darkschn4iw2hxvpv2vy2uoxwkvs2padb56t3h4wqztre6upoc5qwgid.onion/?q=",
+}
+
+STABLE_DIRECTORIES = {
+    "The Hacker News": {
+        "clearnet": "https://thehackernews.com",
+        "description": "Cybersecurity news and analysis",
+    },
+    "Dark.fail": {
+        "clearnet": "https://dark.fail",
+        "description": "Darknet link verification (up/down status)",
+    },
+    "Ahmia Statistics": {
+        "clearnet": "https://ahmia.fi/stats/",
+        "description": "Tor hidden service statistics",
+    },
+    "Onion.live": {
+        "clearnet": "https://onion.live",
+        "description": "Onion link uptime monitor",
+    },
+    "Tor.taxi": {
+        "clearnet": "https://tor.taxi",
+        "description": "Curated darknet directory",
+    },
+}
+
+TOPIC_CATEGORIES = {
+    "security": "cybersecurity vulnerability exploit CVE",
+    "forums": "forum discussion community",
+    "cryptocurrency": "bitcoin cryptocurrency wallet exchange",
+    "whistleblowing": "whistleblower leak documents",
+    "email": "email anonymous secure encrypted",
+    "hosting": "hosting server onion hidden service",
+    "search": "search engine directory index",
+    "news": "news journalism censorship",
+    "social": "social media chat messaging",
+    "tools": "hacking tool software pentest",
+    "privacy": "privacy anonymous vpn tor",
+    "marketplace": "market shop vendor",
+}
+
+
+class Log:
+    @staticmethod
+    def info(msg): print(f"  {C.BLUE}[*]{C.RST} {msg}")
+    @staticmethod
+    def success(msg): print(f"  {C.GREEN}[+]{C.RST} {msg}")
+    @staticmethod
+    def warn(msg): print(f"  {C.YELLOW}[!]{C.RST} {msg}")
+    @staticmethod
+    def error(msg): print(f"  {C.RED}[-]{C.RST} {msg}")
+    @staticmethod
+    def header(title):
+        print(f"\n  {C.PINK}{'=' * 55}{C.RST}")
+        print(f"  {C.PINK}|{C.RST}  {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f"  {C.PINK}{'=' * 55}{C.RST}")
+    @staticmethod
+    def subheader(title): print(f"\n  {C.PURPLE}-- {title} --{C.RST}")
+    @staticmethod
+    def kv(key, value): print(f"  {C.GREEN}[+]{C.RST} {C.BOLD}{key:<28}{C.RST} {C.WHITE}{value}{C.RST}")
+    @staticmethod
+    def detail(key, value):
+        print(f"    {C.GRAY}|-- {C.CYAN}{key}{C.RST}: {value}")
+    @staticmethod
+    def result(num, title, url, snippet=""):
+        print(f"  {C.GREEN}[{num:>3}]{C.RST} {C.BOLD}{C.WHITE}{title[:70]}{C.RST}")
+        print(f"       {C.CYAN}{url}{C.RST}")
+        if snippet:
+            print(f"       {C.GRAY}{snippet[:120]}{C.RST}")
+        print()
+
+
+class HTTPClient:
+    def __init__(self, use_tor=False):
+        self._session = requests.Session()
+        self._session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+        })
+        self.use_tor = use_tor
+        if use_tor:
+            self._session.proxies = {
+                "http": "socks5h://127.0.0.1:9050",
+                "https": "socks5h://127.0.0.1:9050",
+            }
+
+    def get(self, url, params=None, timeout=20):
+        try:
+            time.sleep(1.5)
+            return self._session.get(url, params=params, timeout=timeout)
+        except requests.exceptions.ConnectionError:
+            if self.use_tor:
+                return None
+            return None
+        except Exception:
+            return None
+
+    def get_text(self, url, params=None):
+        resp = self.get(url, params=params)
+        if resp and resp.status_code == 200:
+            return resp.text
+        return None
+
+    def get_json(self, url, params=None):
+        resp = self.get(url, params=params)
+        if resp and resp.status_code == 200:
+            try:
+                return resp.json()
+            except Exception:
+                return None
+        return None
+
+
+class AhmiaSearcher:
+
+    def __init__(self, http):
+        self.http = http
+
+    def search(self, query, max_results=50):
+        Log.header("AHMIA.FI SEARCH")
+        Log.info(f"Query: {_c(C.WHITE, query)}")
+
+        results = []
+
+        html = self.http.get_text(f"https://ahmia.fi/search/?q={quote_plus(query)}")
+        if not html:
+            Log.error("Could not reach ahmia.fi")
+            return results
+
+        result_blocks = re.findall(
+            r'<li class="result">\s*<h4>\s*<a href="([^"]*)"[^>]*>(.*?)</a>\s*</h4>\s*'
+            r'(?:<p class="[^"]*">\s*<cite>(.*?)</cite>\s*</p>)?\s*'
+            r'(?:<p>(.*?)</p>)?',
+            html, re.DOTALL
+        )
+
+        if not result_blocks:
+            cite_pattern = re.findall(
+                r'<a href="(https?://[^"]*\.onion[^"]*)"[^>]*>([^<]*)</a>',
+                html
+            )
+            for url, title in cite_pattern:
+                if ".onion" in url and url not in [r.get("url") for r in results]:
+                    results.append({
+                        "title": title.strip() or url,
+                        "url": url,
+                        "source": "ahmia.fi",
+                    })
+                    if len(results) >= max_results:
+                        break
+
+        for redirect_url, title, cite, snippet in result_blocks:
+            actual_url = redirect_url
+            if "/redirect?" in redirect_url:
+                url_match = re.search(r'redirect_url=([^&]*)', redirect_url)
+                if url_match:
+                    from urllib.parse import unquote
+                    actual_url = unquote(url_match.group(1))
+
+            clean_title = re.sub(r'<[^>]+>', '', title).strip()
+            clean_snippet = re.sub(r'<[^>]+>', '', snippet).strip() if snippet else ""
+
+            results.append({
+                "title": clean_title or actual_url,
+                "url": actual_url,
+                "snippet": clean_snippet,
+                "source": "ahmia.fi",
+            })
+            if len(results) >= max_results:
+                break
+
+        onion_links = re.findall(r'https?://[a-z2-7]{16,56}\.onion[^\s"<>]*', html)
+        seen_urls = {r["url"] for r in results}
+        for link in onion_links:
+            if link not in seen_urls:
+                results.append({"title": link, "url": link, "source": "ahmia.fi"})
+                seen_urls.add(link)
+                if len(results) >= max_results:
+                    break
+
+        if results:
+            Log.success(f"Found {len(results)} results")
+            for i, r in enumerate(results, 1):
+                Log.result(i, r.get("title", ""), r.get("url", ""), r.get("snippet", ""))
+        else:
+            Log.warn("No results found")
+
+        return results
+
+
+class GoogleDorkSearcher:
+
+    @staticmethod
+    def search(query):
+        Log.header("GOOGLE DORKS - DARK WEB OSINT")
+        Log.info(f"Query: {_c(C.WHITE, query)}")
+
+        dorks = [
+            (f'"{query}" site:ahmia.fi', "Ahmia cached results"),
+            (f'"{query}" ".onion"', "Onion domain mentions"),
+            (f'"{query}" "hidden service" OR "dark web" OR "darknet"', "Dark web references"),
+            (f'"{query}" inurl:onion', "Onion URL references"),
+            (f'"{query}" site:reddit.com "onion" OR "tor" OR ".onion"', "Reddit darknet discussions"),
+            (f'"{query}" site:github.com "onion" OR "tor hidden"', "GitHub references"),
+            (f'"{query}" "pastebin" OR "paste" ".onion"', "Paste sites"),
+            (f'"{query}" "tor2web" OR "onion.to" OR "onion.ws"', "Tor2web proxies"),
+            (f'"{query}" dark.fail OR darkfail', "Dark.fail references"),
+            (f'"{query}" "hidden wiki" OR "onion links"', "Wiki/directory mentions"),
+            (f'"{query}" site:tor.taxi', "Tor.taxi directory"),
+            (f'"{query}" site:onion.live', "Onion.live monitor"),
+            (f'"{query}" "dark web" leak OR breach OR dump', "Data breach references"),
+            (f'"{query}" "tor" forum OR market site:*.onion.*', "Forum/market mentions"),
+        ]
+
+        Log.subheader("Search Queries")
+        for query_str, desc in dorks:
+            url = f"https://www.google.com/search?q={quote_plus(query_str)}"
+            Log.detail(desc, url)
+
+        return [{"query": q, "desc": d} for q, d in dorks]
+
+
+class OnionAnalyzer:
+
+    def __init__(self, http):
+        self.http = http
+
+    def analyze(self, onion_url):
+        Log.header("ONION URL ANALYSIS")
+        Log.info(f"URL: {_c(C.WHITE, onion_url)}")
+
+        domain_match = re.search(r'([a-z2-7]{16,56}\.onion)', onion_url)
+        if not domain_match:
+            Log.error("Not a valid .onion address")
+            return None
+
+        domain = domain_match.group(1)
+        is_v3 = len(domain.replace(".onion", "")) == 56
+
+        Log.subheader("Address Details")
+        Log.kv("Domain", domain)
+        Log.kv("Version", "v3 (current)" if is_v3 else "v2 (deprecated)")
+        if not is_v3:
+            Log.warn("v2 onion addresses are deprecated and no longer supported by Tor")
+
+        Log.subheader("Intelligence Sources")
+        intel_urls = {
+            "Ahmia Search": f"https://ahmia.fi/search/?q={quote_plus(domain)}",
+            "Google": f"https://www.google.com/search?q=%22{quote_plus(domain)}%22",
+            "Reddit": f"https://www.google.com/search?q=%22{quote_plus(domain)}%22+site:reddit.com",
+            "Archive.org": f"https://web.archive.org/web/*/{domain}",
+            "Onion.live": f"https://onion.live/search/{quote_plus(domain)}",
+        }
+        for name, url in intel_urls.items():
+            Log.detail(name, url)
+
+        Log.subheader("Tor2Web Mirrors")
+        mirrors = [
+            f"https://{domain.replace('.onion', '')}.onion.ws",
+            f"https://{domain.replace('.onion', '')}.onion.ly",
+            f"https://{domain.replace('.onion', '')}.onion.pet",
+        ]
+        for m in mirrors:
+            Log.detail("Mirror", m)
+
+        return {
+            "domain": domain,
+            "version": "v3" if is_v3 else "v2",
+            "intel_urls": intel_urls,
+            "mirrors": mirrors,
+        }
+
+
+class DirectoryBrowser:
+
+    @staticmethod
+    def show_directories():
+        Log.header("DARKWEB DIRECTORIES & RESOURCES")
+
+        Log.subheader("Verified Clearnet Resources")
+        for name, info in STABLE_DIRECTORIES.items():
+            Log.kv(name, info["clearnet"])
+            print(f"    {C.GRAY}{info['description']}{C.RST}")
+
+        Log.subheader("Clearnet Search Engines")
+        for name, url in DARKWEB_SEARCH_ENGINES.items():
+            Log.detail(name, url)
+
+        Log.subheader("Tor Search Engines (require Tor)")
+        for name, url in TOR_SEARCH_ENGINES_ONION.items():
+            base = url.split("?")[0].split("/search")[0]
+            Log.detail(name, base)
+
+    @staticmethod
+    def show_categories():
+        Log.header("TOPIC-BASED SEARCH")
+        Log.subheader("Available Categories")
+        for i, (cat, keywords) in enumerate(TOPIC_CATEGORIES.items(), 1):
+            print(f"  {C.GREEN}[{i:>2}]{C.RST} {C.BOLD}{cat:<20}{C.RST} {C.GRAY}{keywords}{C.RST}")
+
+
+class TopicSearcher:
+
+    def __init__(self, http):
+        self.http = http
+        self.ahmia = AhmiaSearcher(http)
+
+    def search_topic(self, topic):
+        keywords = TOPIC_CATEGORIES.get(topic)
+        if not keywords:
+            Log.error(f"Unknown topic: {topic}")
+            Log.info(f"Available: {', '.join(TOPIC_CATEGORIES.keys())}")
+            return []
+
+        Log.info(f"Topic: {_c(C.WHITE, topic)}")
+        Log.info(f"Keywords: {keywords}")
+        return self.ahmia.search(keywords)
+
+
+class ReportExporter:
+    @staticmethod
+    def ensure_dir():
+        os.makedirs(REPORT_DIR, exist_ok=True)
+
+    @staticmethod
+    def export_json(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"blackhole_{safe}_{ts}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return path
+
+    @staticmethod
+    def export_txt(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"blackhole_{safe}_{ts}.txt")
+        lines = ["=" * 60, f"  Blackhole v{VERSION} Report", "=" * 60]
+        lines.append(f"  Query: {data.get('query', target)}")
+        lines.append(f"  Time: {datetime.now().isoformat()}")
+        lines.append("")
+        for r in data.get("results", []):
+            lines.append(f"  [{r.get('source','')}] {r.get('title','')}")
+            lines.append(f"    URL: {r.get('url','')}")
+            if r.get("snippet"):
+                lines.append(f"    {r['snippet'][:150]}")
+            lines.append("")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return path
+
+    @staticmethod
+    def export_html(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"blackhole_{safe}_{ts}.html")
+        results_html = ""
+        for i, r in enumerate(data.get("results", []), 1):
+            results_html += f"""<div class="r">
+            <span class="n">{i}</span>
+            <div><strong>{r.get('title','')}</strong><br>
+            <a href="{r.get('url','')}" style="color:#8be9fd;font-size:.85rem">{r.get('url','')}</a><br>
+            <span style="color:#8b949e;font-size:.8rem">{r.get('snippet','')}</span></div></div>"""
+        html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Blackhole Report</title>
+<style>
+:root{{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--accent:#ff79c6}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:2rem;line-height:1.6}}
+.c{{max-width:900px;margin:0 auto}}
+.hdr{{background:linear-gradient(135deg,#1a1e2e,#2d1b3d);border:1px solid var(--border);border-radius:12px;padding:2rem;text-align:center;margin-bottom:2rem}}
+.hdr h1{{color:var(--accent);font-size:1.5rem}}
+.r{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem;margin-bottom:.5rem;display:flex;gap:1rem;align-items:flex-start}}
+.n{{background:var(--accent);color:#0d1117;border-radius:50%;min-width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:.8rem}}
+.ft{{text-align:center;color:#8b949e;font-size:.75rem;margin-top:2rem}}
+</style></head><body><div class="c">
+<div class="hdr"><h1>Blackhole Search Report</h1>
+<div style="color:#8b949e">Query: "{data.get('query',target)}" | {len(data.get('results',[]))} results | {datetime.now().strftime('%Y-%m-%d %H:%M')}</div></div>
+{results_html}
+<div class="ft">Blackhole v{VERSION} - emka'thas - Authorized use only</div></div></body></html>"""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
+        return path
+
+
+def main():
+    try:
+        p = argparse.ArgumentParser(
+            prog="blackhole",
+            description=f'Blackhole v{VERSION} - Darkweb & Onion Intelligence',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            epilog=f"""
+Examples:
+  blackhole -s "search term"          Search Ahmia.fi
+  blackhole -g "search term"          Google dork generator
+  blackhole -a <onion_url>            Analyze .onion address
+  blackhole --topic security          Topic-based search
+  blackhole -s "query" --tor          Search via Tor proxy
+  blackhole -s "query" --export all   Search and export
+
+Developed by emka'thas | Authorized use only.
+            """,
+        )
+        p.add_argument("-s", "--search", help="Search Ahmia.fi")
+        p.add_argument("-g", "--dorks", help="Google dork generator")
+        p.add_argument("-a", "--analyze", help="Analyze .onion URL")
+        p.add_argument("--topic", help="Topic-based search")
+        p.add_argument("--tor", action="store_true", help="Use Tor SOCKS proxy")
+        p.add_argument("--export", choices=["json", "txt", "html", "all"])
+        p.add_argument("--version", action="version", version=f"Blackhole v{VERSION}")
+        args = p.parse_args()
+
+        if len(sys.argv) == 1:
+            p.print_help()
+            sys.exit(1)
+        print(BANNER)
+        http = HTTPClient(use_tor=args.tor)
+        if args.tor:
+            Log.info("Tor proxy enabled")
+
+        result = None
+        if args.search:
+            results = AhmiaSearcher(http).search(args.search)
+            result = {"query": args.search, "results": results}
+        elif args.dorks:
+            dorks = GoogleDorkSearcher.search(args.dorks)
+            result = {"query": args.dorks, "dorks": dorks}
+        elif args.analyze:
+            result = OnionAnalyzer(http).analyze(args.analyze)
+        elif args.topic:
+            results = TopicSearcher(http).search_topic(args.topic)
+            result = {"query": args.topic, "results": results}
+
+        if result and args.export:
+            t = result.get("query", "output")
+            if args.export in ("json", "all"): Log.success(f"Saved: {ReportExporter.export_json(result, t)}")
+            if args.export in ("txt", "all"): Log.success(f"Saved: {ReportExporter.export_txt(result, t)}")
+            if args.export in ("html", "all"): Log.success(f"Saved: {ReportExporter.export_html(result, t)}")
+    except KeyboardInterrupt:
+        print(f"\n  {C.GRAY}Exiting...{C.RST}")
+
+if __name__ == "__main__":
+    main()

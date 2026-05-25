@@ -1,0 +1,121 @@
+#!/bin/bash
+
+DESKTOP_FILE="/etc/xdg/autostart/zenclora-conky.desktop"
+REANCHOR_FILE="/etc/xdg/autostart/conky-reanchor.desktop"
+
+get_status() {
+    if [ -f "$DESKTOP_FILE" ]; then
+        local status=$(grep "^X-MATE-Autostart-enabled=" "$DESKTOP_FILE" 2>/dev/null | cut -d= -f2)
+        if [ "$status" = "false" ]; then
+            echo "Disabled"
+        else
+            echo "Enabled"
+        fi
+    else
+        echo "Unknown"
+    fi
+}
+
+get_reanchor_status() {
+    if [ -f "$REANCHOR_FILE" ]; then
+        local status=$(grep "^X-MATE-Autostart-enabled=" "$REANCHOR_FILE" 2>/dev/null | cut -d= -f2)
+        if [ "$status" = "false" ]; then
+            echo "Disabled"
+        else
+            echo "Enabled"
+        fi
+    else
+        echo "Unknown"
+    fi
+}
+
+set_autostart() {
+    local value="$1"
+    if [ -f "$DESKTOP_FILE" ]; then
+        if [ "$value" = "true" ]; then
+            # Enable: set autostart to true and restore OnlyShowIn=MATE;
+            if grep -q '^X-MATE-Autostart-enabled=' "$DESKTOP_FILE"; then
+                sed -i "s/^X-MATE-Autostart-enabled=.*/X-MATE-Autostart-enabled=true/" "$DESKTOP_FILE"
+            else
+                echo "X-MATE-Autostart-enabled=true" >> "$DESKTOP_FILE"
+            fi
+            sed -i "s/^OnlyShowIn=.*/OnlyShowIn=MATE;/" "$DESKTOP_FILE"
+        else
+            # Disable: set autostart to false and remove MATE from OnlyShowIn
+            if grep -q '^X-MATE-Autostart-enabled=' "$DESKTOP_FILE"; then
+                sed -i "s/^X-MATE-Autostart-enabled=.*/X-MATE-Autostart-enabled=false/" "$DESKTOP_FILE"
+            else
+                echo "X-MATE-Autostart-enabled=false" >> "$DESKTOP_FILE"
+            fi
+            sed -i "s/^OnlyShowIn=MATE;/OnlyShowIn=;/" "$DESKTOP_FILE"
+        fi
+    fi
+}
+
+set_reanchor_autostart() {
+    local value="$1"
+    if [ -f "$REANCHOR_FILE" ]; then
+        if [ "$value" = "true" ]; then
+            # Enable: set autostart to true and restore OnlyShowIn=MATE;
+            if grep -q '^X-MATE-Autostart-enabled=' "$REANCHOR_FILE"; then
+                sed -i "s/^X-MATE-Autostart-enabled=.*/X-MATE-Autostart-enabled=true/" "$REANCHOR_FILE"
+            else
+                echo "X-MATE-Autostart-enabled=true" >> "$REANCHOR_FILE"
+            fi
+            sed -i "s/^OnlyShowIn=.*/OnlyShowIn=MATE;/" "$REANCHOR_FILE"
+        else
+            # Disable: set autostart to false and remove MATE from OnlyShowIn
+            if grep -q '^X-MATE-Autostart-enabled=' "$REANCHOR_FILE"; then
+                sed -i "s/^X-MATE-Autostart-enabled=.*/X-MATE-Autostart-enabled=false/" "$REANCHOR_FILE"
+            else
+                echo "X-MATE-Autostart-enabled=false" >> "$REANCHOR_FILE"
+            fi
+            sed -i "s/^OnlyShowIn=MATE;/OnlyShowIn=;/" "$REANCHOR_FILE"
+        fi
+    fi
+}
+
+while true; do
+    clear
+    echo "=================================="
+    echo "  Zenclora Conky Manager"
+    echo "=================================="
+    echo ""
+    echo "Zenclora Conky: $(get_status)"
+    echo "Conky Reanchor:  $(get_reanchor_status)"
+    echo ""
+    echo "=================================="
+    echo "1) Enable Conky (with Reanchor)"
+    echo "2) Disable Conky (with Reanchor)"
+    echo "3) Exit"
+    echo "=================================="
+    echo ""
+    read -p "Select an option [1-3]: " choice
+
+    case $choice in
+        1)
+            set_autostart "true"
+            set_reanchor_autostart "true"
+            echo ""
+            echo "✓ Zenclora Conky and Reanchor enabled."
+            echo "  Both will start automatically next boot."
+            read -p "Press Enter to continue..."
+            ;;
+        2)
+            set_autostart "false"
+            set_reanchor_autostart "false"
+            echo ""
+            echo "✗ Zenclora Conky and Reanchor disabled."
+            echo "  Neither will start next boot."
+            read -p "Press Enter to continue..."
+            ;;
+        3)
+            echo "Exiting..."
+            exit 0
+            ;;
+        *)
+            echo "Invalid option!"
+            read -p "Press Enter to continue..."
+            ;;
+    esac
+done

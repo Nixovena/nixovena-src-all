@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Dnsmap
+Comment=Dictionary-based DNS enumeration
+Comment[tr]=Sözlük tabanlı DNS keşfi
+Comment[es]=Enumeración DNS basada en diccionario
+Comment[fr]=Énumération DNS basée sur un dictionnaire
+Comment[de]=Wörterbuchbasierte DNS-Aufzählung
+Comment[ar]=تعداد DNS قائم على القاموس
+Comment[ru]=Перечисление DNS на основе словаря
+Comment[zh]=基于字典的 DNS 枚举
+Comment[ja]=辞書ベースの DNS 列挙
+Comment[ko]=사전 기반 DNS 열거
+Comment[pt]=Enumeração DNS baseada em dicionário
+Comment[it]=Enumerazione DNS basata su dizionario
+Comment[nl]=Woordenlijst-gebaseerde DNS-enumeratie
+Comment[sv]=Ordboksbaserad DNS-uppräkning
+Comment[pl]=Enumeracja DNS oparta na słowniku
+Exec=mate-terminal -- bash -c "dnsmap -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

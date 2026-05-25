@@ -1,0 +1,26 @@
+#!/bin/bash
+set -e
+
+SERVICES_DISABLE=(
+    ModemManager.service
+    avahi-daemon.service
+    avahi-daemon.socket
+    apt-daily.service
+    apt-daily.timer
+    apt-daily-upgrade.service
+    apt-daily-upgrade.timer
+    fwupd-refresh.timer
+    motd-news.service
+    motd-news.timer
+    geoclue.service
+    cups-browsed.service
+    e2scrub_reap.service
+    e2scrub_all.timer
+)
+
+for svc in "${SERVICES_DISABLE[@]}"; do
+    systemctl disable "$svc" 2>/dev/null || true
+    systemctl mask "$svc" 2>/dev/null || true
+done
+
+rm -f /etc/xdg/autostart/tumblerd.desktop 2>/dev/null || true

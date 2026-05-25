@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=deepchaintk
+Comment=Blockchain analysis and crypto tracking
+Comment[tr]=Bloackhain analizi ve kripto izi takibi
+Comment[es]=Análisis de blockchain y seguimiento de criptomonedas
+Comment[fr]=Analyse de la blockchain et suivi des cryptomonnaies
+Comment[de]=Blockchain-Analyse und Krypto-Tracking
+Comment[ar]=تحليل البلوك تشين وتتبع العملات المشفرة
+Comment[ru]=Анализ блокчейна и отслеживание криптовалют
+Comment[zh]=区块链分析和加密货币跟踪
+Comment[ja]=ブロックチェーン分析および暗号通貨追跡
+Comment[ko]=블록체인 분석 및 암호화폐 추적
+Comment[pt]=Análise de blockchain e rastreamento de criptomoedas
+Comment[it]=Analisi della blockchain e tracciamento delle criptovalute
+Comment[nl]=Blockchain-analyse en cryptovooring
+Comment[sv]=Blockchainanalys och kryptospårning
+Comment[pl]=Analiza blockchain i śledzenie kryptowalut
+Exec=mate-terminal -- bash -c "deepchaintk -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/deepchaintk.png
+Categories=Analysis;
+StartupNotify=false

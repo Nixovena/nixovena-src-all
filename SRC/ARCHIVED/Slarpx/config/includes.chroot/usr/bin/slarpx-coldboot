@@ -1,0 +1,34 @@
+#!/bin/bash
+# Slarpx Cold Boot Protection
+# Wipes swap headers and clears RAM caches at shutdown.
+# Designed to be fast enough not to annoy the user.
+
+echo "[*] Cold Boot Protection: Initiating fast wipe..."
+
+# 1. Sync and drop kernel caches
+# This forces the kernel to free up as much RAM as possible from buffers/cache.
+sync
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+
+# 2. Identify and Wipe Swap
+# We wipe the first 128MB of each swap partition.
+# This is fast and usually destroys the most sensitive metadata and recent hibernated data.
+swaps=$(awk '/\/dev\// {print $1}' /proc/swaps 2>/dev/null)
+for s in $swaps; do
+    if [ -b "$s" ] || [ -f "$s" ]; then
+        echo "[*] Clearing swap: $s"
+        swapoff "$s" 2>/dev/null || true
+        # Wipe 128MB with zeros
+        dd if=/dev/zero of="$s" bs=1M count=128 conv=notrunc status=none 2>/dev/null || true
+        # Re-initialize swap header so it doesn't look like garbage on next boot
+        mkswap "$s" >/dev/null 2>&1 || true
+    fi
+done
+
+# 3. Clear /tmp and /var/tmp
+rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+
+# 4. Final Sync
+sync
+
+echo "[+] Cold Boot Protection: Fast wipe completed."

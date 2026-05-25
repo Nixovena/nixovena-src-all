@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+import argparse
+import requests
+from urllib.parse import quote_plus
+from json import dumps, decoder
+
+import phonenumbers
+from phonenumbers.phonenumberutil import (
+    region_code_for_country_code,
+    region_code_for_number,
+)
+import pycountry
+
+
+def getUserId(username, sessionsId):
+    headers = {"User-Agent": "iphone_ua", "x-ig-app-id": "936619743392459"}
+    api = requests.get(
+        f'https://i.instagram.com/api/v1/users/web_profile_info/?username={username}',
+        headers=headers,
+        cookies={'sessionid': sessionsId}
+    )
+    try:
+        if api.status_code == 404:
+            return {"id": None, "error": "User not found"}
+
+        id = api.json()["data"]['user']['id']
+        return {"id": id, "error": None}
+
+    except decoder.JSONDecodeError:
+        return {"id": None, "error": "Rate limit"}
+
+
+def getInfo(search, sessionId, searchType="username" or "id"):
+    if searchType == "username":
+        data = getUserId(search, sessionId)
+        if data["error"]:
+            return data
+        userId = data["id"]
+    else:
+        try:
+            userId = str(int(search))
+        except ValueError:
+            return {"user": None, "error": "Invalid ID"}
+
+    try:
+        response = requests.get(
+            f'https://i.instagram.com/api/v1/users/{userId}/info/',
+            headers={'User-Agent': 'Instagram 64.0.0.14.96'},
+            cookies={'sessionid': sessionId}
+        )
+        if response.status_code == 429:
+            return {"user": None, "error": "Rate limit"}
+
+        response.raise_for_status()
+
+        info_user = response.json().get("user")
+        if not info_user:
+            return {"user": None, "error": "Not found"}
+
+        info_user["userID"] = userId
+        return {"user": info_user, "error": None}
+
+    except requests.exceptions.RequestException:
+        return {"user": None, "error": "Not found"}
+
+
+def advanced_lookup(username):
+    """
+        Post to get obfuscated login infos
+    """
+    data = "signed_body=SIGNATURE." + quote_plus(dumps(
+        {"q": username, "skip_recovery": "1"},
+        separators=(",", ":")
+    ))
+    api = requests.post(
+        'https://i.instagram.com/api/v1/users/lookup/',
+        headers={
+            "Accept-Language": "en-US",
+            "User-Agent": "Instagram 101.0.0.15.120",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-IG-App-ID": "124024574287414",
+            "Accept-Encoding": "gzip, deflate",
+            "Host": "i.instagram.com",
+            # "X-FB-HTTP-Engine": "Liger",
+            "Connection": "keep-alive",
+            "Content-Length": str(len(data))
+        },
+        data=data
+    )
+
+    try:
+        return ({"user": api.json(), "error": None})
+    except decoder.JSONDecodeError:
+        return ({"user": None, "error": "rate limit"})
+
+
+C_RED = "\033[91m"
+C_GREEN = "\033[92m"
+C_YELLOW = "\033[93m"
+C_BLUE = "\033[94m"
+C_PURPLE = "\033[95m"
+C_CYAN = "\033[96m"
+C_WHITE = "\033[97m"
+C_GRAY = "\033[90m"
+C_RST = "\033[0m"
+
+BANNER = f"""{C_PURPLE}
+  __                 __         .__        
+_/  |_  ____  __ ___/  |______  |__| ______
+\   __\/  _ \|  |  \   __\__  \ |  |/  ___/
+ |  | (  <_> )  |  /|  |  / __ \|  |\___ \ 
+ |__|  \____/|____/ |__| (____  /__/____  >
+                              \/        \/ 
+{C_RST}
+{C_CYAN}  Instagram OSINT & Information Gathering Tool{C_RST}
+{C_CYAN}  Author: megadose | Tool Remastered for Almighty Linux{C_RST}
+{C_GRAY}  --------------------------------------------------{C_RST}
+"""
+
+def print_banner():
+    print(BANNER)
+
+def main():
+    print_banner()
+    
+    parser = argparse.ArgumentParser(
+        description=f"{C_WHITE}Toutais - Advanced Instagram OSINT Tool{C_RST}",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=f"""{C_YELLOW}Examples:
+  python3 toutais -s <session_id> -u <username>
+  python3 toutais -s <session_id> -i <user_id>{C_RST}"""
+    )
+    
+    parser._optionals.title = f"{C_CYAN}Options{C_RST}"
+    
+    parser.add_argument('-s', '--sessionid', help="Instagram session ID (Required)", required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('-u', '--username', help="Target username")
+    group.add_argument('-i', '--id', help="Target User ID")
+    
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        return
+
+    sessionsId = args.sessionid
+    search_type = "id" if args.id else "username"
+    search = args.id or args.username
+    
+    print(f"\n{C_BLUE}[*]{C_RST} Fetching information for {C_YELLOW}{search}{C_RST}...\n")
+    
+    infos = getInfo(search, sessionsId, searchType=search_type)
+    if not infos.get("user"):
+        print(f"{C_RED}[-]{C_RST} Error: {infos['error']}")
+        return
+
+    infos = infos["user"]
+
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Informations about     :{C_RST} {infos['username']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}userID                 :{C_RST} {infos['userID']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Full Name              :{C_RST} {infos['full_name']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Verified               :{C_RST} {infos['is_verified']} | {C_WHITE}Is business Account:{C_RST} {infos['is_business']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Is private Account     :{C_RST} {infos['is_private']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Followers              :{C_RST} {infos['follower_count']} | {C_WHITE}Following:{C_RST} {infos['following_count']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Number of posts        :{C_RST} {infos['media_count']}")
+    
+    if infos["external_url"]:
+        print(f"{C_GREEN}[+]{C_RST} {C_WHITE}External url           :{C_RST} {infos['external_url']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}IGTV posts             :{C_RST} {infos['total_igtv_videos']}")
+    
+    bio = (f"\n{' ' * 27}").join(infos["biography"].split("\n"))
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Biography              :{C_RST} {bio}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Linked WhatsApp        :{C_RST} {infos['is_whatsapp_linked']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Memorial Account       :{C_RST} {infos['is_memorialized']}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}New Instagram user     :{C_RST} {infos['is_new_to_instagram']}")
+
+    if "public_email" in infos.keys() and infos["public_email"]:
+        print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Public Email           :{C_RST} {infos['public_email']}")
+
+    if "public_phone_number" in infos.keys() and infos["public_phone_number"]:
+        phonenr = "+" + str(infos["public_phone_country_code"]) + " " + str(infos["public_phone_number"])
+        try:
+            pn = phonenumbers.parse(phonenr)
+            countrycode = region_code_for_country_code(pn.country_code)
+            country = pycountry.countries.get(alpha_2=countrycode)
+            phonenr = phonenr + " ({}) ".format(country.name)
+        except:
+            pass
+        print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Public Phone number    :{C_RST} {phonenr}")
+
+    print(f"\n{C_BLUE}[*]{C_RST} Performing advanced lookup...")
+    other_infos = advanced_lookup(infos["username"])
+
+    if other_infos["error"] == "rate limit":
+        print(f"{C_RED}[-]{C_RST} Rate limit: please wait a few minutes before you try again")
+    elif "message" in other_infos["user"].keys():
+        if other_infos["user"]["message"] == "No users found":
+            print(f"{C_YELLOW}[!]{C_RST} The lookup did not work on this account (No users found)")
+        else:
+            print(f"{C_YELLOW}[!]{C_RST} {other_infos['user']['message']}")
+    else:
+        if "obfuscated_email" in other_infos["user"].keys():
+            if other_infos["user"]["obfuscated_email"]:
+                print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Obfuscated email       :{C_RST} {other_infos['user']['obfuscated_email']}")
+            else:
+                print(f"{C_YELLOW}[-]{C_RST} {C_GRAY}No obfuscated email found{C_RST}")
+
+        if "obfuscated_phone" in other_infos["user"].keys():
+            if other_infos["user"]["obfuscated_phone"]:
+                print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Obfuscated phone       :{C_RST} {other_infos['user']['obfuscated_phone']}")
+            else:
+                print(f"{C_YELLOW}[-]{C_RST} {C_GRAY}No obfuscated phone found{C_RST}")
+                
+    print(f"{C_GRAY}{'-' * 50}{C_RST}")
+    print(f"{C_GREEN}[+]{C_RST} {C_WHITE}Profile Picture        :{C_RST} {infos['hd_profile_pic_url_info']['url']}")
+    print(f"{C_GRAY}{'-' * 50}{C_RST}\n")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,19 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+echo -e "${CYAN}--------------------------------------------------------"
+echo "  RESCUEXY FRAMEWORK - SYSTEM RECOVERY TOOLS"
+echo -e "--------------------------------------------------------${NC}"
+echo -e "${GREEN}rescuexy-hw${NC}      : Hardware Diagnostics"
+echo -e "${GREEN}rescuexy-disk${NC}    : Storage Health & SMART"
+echo -e "${GREEN}rescuexy-net${NC}     : Network Connectivity"
+echo -e "${GREEN}rescuexy-boot${NC}    : Boot Mode & GRUB Detection"
+echo -e "${GREEN}rescuexy-fs${NC}      : Filesystem & LVM/RAID Analysis"
+echo -e "${GREEN}rescuexy-chroot${NC}  : Quick Chroot into System"
+echo -e "${GREEN}rescuexy-passwd${NC}  : Reset User Password"
+echo -e "${GREEN}rescuexy-grub${NC}    : Reinstall GRUB Bootloader"
+echo -e "${GREEN}rescuexy-log${NC}     : System Log Analyzer"
+echo -e "${CYAN}--------------------------------------------------------${NC}"

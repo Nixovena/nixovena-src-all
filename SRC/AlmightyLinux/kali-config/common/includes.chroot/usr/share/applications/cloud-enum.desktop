@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Cloud-enum
+Comment=Enumerate cloud resources and misconfigurations
+Comment[tr]=Bulut kaynaklarını ve yanlış yapılandırmaları keşfeder
+Comment[es]=Enumera recursos en la nube y malas configuraciones
+Comment[fr]=Énumère les ressources cloud et les mauvaises configurations
+Comment[de]=Zählt Cloud-Ressourcen und Fehlkonfigurationen auf
+Comment[ar]=يعدد موارد السحابة وسوء التهيئة
+Comment[ru]=Выполняет перечисление облачных ресурсов и неверных настроек
+Comment[zh]=枚举云资源和错误配置
+Comment[ja]=クラウド資源と誤った構成を列挙します
+Comment[ko]=클라우드 리소스 및 잘못된 구성 나열
+Comment[pt]=Enumera recursos na nuvem e más configurações
+Comment[it]=Enumera risorse cloud e cattive configurazioni
+Comment[nl]=Enumereert cloudresources en misconfiguraties
+Comment[sv]=Uppräknar molnresurser och felkonfigurationer
+Comment[pl]=Wylicza zasoby w chmurze i błędne konfiguracje
+Exec=mate-terminal -- bash -c "cloud_enum -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

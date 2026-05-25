@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=YesItsMe
+Comment=Instagram OSINT Account Matcher Tool
+Comment[tr]=Instagram OSINT Hesap Eşleştirme Aracı
+Comment[es]=Herramienta de emparejamiento de cuentas OSINT de Instagram
+Comment[fr]=Outil de correspondance de comptes OSINT Instagram
+Comment[de]=Instagram OSINT-Konto-Matching-Tool
+Comment[ar]=أداة مطابقة حسابات OSINT لإنستغرام
+Comment[ru]=Инструмент сопоставления учетных записей Instagram OSINT
+Comment[zh]=Instagram OSINT账户匹配工具
+Comment[ja]=Instagram OSINTアカウントマッチングツール
+Comment[ko]=Instagram OSINT 계정 매칭 도구
+Comment[pt]=Ferramenta de correspondência de contas OSINT do Instagram
+Comment[it]=Strumento di abbinamento account OSINT di Instagram
+Comment[nl]=Instagram OSINT-tool voor accountmatching
+Comment[sv]=Matchningsverktyg för Instagram OSINT-konton
+Comment[pl]=Narzędzie do dopasowywania kont OSINT na Instagramie
+Exec=mate-terminal -- bash -c "yesitsme -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/yes.png
+Categories=Social;
+StartupNotify=false

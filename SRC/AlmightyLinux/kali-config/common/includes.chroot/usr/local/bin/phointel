@@ -1,0 +1,122 @@
+#!/usr/bin/env python3 
+
+"""
+GITHUB : emka'thas
+"""
+
+# version
+VERSION = '1.0'
+
+# import the modules
+import phonenumbers, argparse
+from phonenumbers import carrier, geocoder, timezone, number_type, is_valid_number, PhoneNumberType
+from json import loads
+from packaging import version
+
+# argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('-i', '--isp', help='get the isp')
+parser.add_argument('-l', '--location', help='get the location')
+parser.add_argument('-t', '--time', help='get the time zone')
+parser.add_argument('-n', '--number-type', help='get the number type')
+parser.add_argument('-v', '--valid', help='check if number is valid')
+parser.add_argument('-a', '--all', help='get all information about the number')
+args = parser.parse_args()
+
+# class phointel
+class Phointel:
+
+    # auto run the banner
+    def __init__(self) -> None:
+        print(rf"""
+
+       _           _       _       _ 
+ _ __ | |__   ___ (_)_ __ | |_ ___| |
+| '_ \| '_ \ / _ \| | '_ \| __/ _ \ |
+| |_) | | | | (_) | | | | | ||  __/ |
+| .__/|_| |_|\___/|_|_| |_|\__\___|_|
+|_|                                  
+
+ [!] Phointel is small tool to information gathering phonenumbers.
+ [!] Version : {VERSION}
+           """)
+        
+    # this is main function
+    def Main(self):
+        try:
+            # check if user has been choose the ISP
+            if args.isp:
+                # give output
+                parsed_number = phonenumbers.parse(args.isp)
+                isp = carrier.name_for_number(parsed_number, 'en')
+                print(f"[+] ISP : {isp}")
+
+            # check if user has been choose the location
+            elif args.location:
+                # give output
+                parsed_number = phonenumbers.parse(args.location)
+                location = geocoder.description_for_number(parsed_number, 'en')
+                print(f"[+] Location : {location}")   
+
+            # check if user has been choose the time zone
+            elif args.time:
+                # give output
+                parsed_number = phonenumbers.parse(args.time)
+                time_zone = timezone.time_zones_for_number(parsed_number)
+                print(f"[+] Time zone : {time_zone}")
+
+            # check if user has been choose the number type
+            elif args.number_type:
+                # give output
+                parsed_number = phonenumbers.parse(args.number_type)
+                num_type = number_type(parsed_number)
+                # Convert PhoneNumberType to string properly
+                if hasattr(PhoneNumberType, 'to_string'):
+                    type_name = PhoneNumberType.to_string(num_type)
+                else:
+                    type_name = str(num_type)
+                print(f"[+] Number type : {type_name}")
+
+            # check if user has been choose to validate the number
+            elif args.valid:
+                # give output
+                parsed_number = phonenumbers.parse(args.valid)
+                is_valid = is_valid_number(parsed_number)
+                print(f"[+] Valid number : {is_valid}")
+
+            # check if user has been choose to get all information
+            elif args.all:
+                # give output
+                parsed_number = phonenumbers.parse(args.all)
+                isp = carrier.name_for_number(parsed_number, 'en')
+                location = geocoder.description_for_number(parsed_number, 'en')
+                time_zone = timezone.time_zones_for_number(parsed_number)
+                num_type = number_type(parsed_number)
+                # Convert PhoneNumberType to string properly
+                if hasattr(PhoneNumberType, 'to_string'):
+                    type_name = PhoneNumberType.to_string(num_type)
+                else:
+                    type_name = str(num_type)
+                is_valid = is_valid_number(parsed_number)
+                
+                print(f"[+] ISP : {isp}")
+                print(f"[+] Location : {location}")
+                print(f"[+] Time zone : {time_zone}")
+                print(f"[+] Number type : {type_name}")
+                print(f"[+] Valid number : {is_valid}")
+        except phonenumbers.NumberParseException as e:
+            print(f"[!] Error parsing phone number: {e}")
+        except Exception as e:
+            print(f"[!] Error: {e}")
+ 
+# run 
+if __name__ == '__main__':
+  try:
+    RUN = Phointel()
+    RUN.Main()
+
+  # handling error
+  except KeyboardInterrupt:
+    print('^C')
+  except Exception as e:
+    print(f'[!] Error: {e}')

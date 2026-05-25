@@ -1,0 +1,2060 @@
+#!/usr/bin/env python3
+# developed by emka'thas
+
+import argparse
+import asyncio
+import hashlib
+import json
+import math
+import os
+import re
+import socket
+import ssl
+import struct
+import sys
+import time
+import ipaddress
+import concurrent.futures
+import threading
+from datetime import datetime, timezone, timedelta
+from urllib.parse import quote, urlencode, urlparse
+
+try:
+    import phonenumbers
+    from phonenumbers import timezone as pn_timezone
+    from phonenumbers import geocoder as pn_geocoder
+    from phonenumbers import carrier as pn_carrier
+    from phonenumbers import phonenumberutil
+    from phonenumbers import PhoneNumberFormat
+    from phonenumbers import PhoneNumberType
+    from phonenumbers import NumberParseException
+    HAS_PHONENUMBERS = True
+except ImportError:
+    HAS_PHONENUMBERS = False
+
+try:
+    import pytz
+    HAS_PYTZ = True
+except ImportError:
+    HAS_PYTZ = False
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    try:
+        from urllib3.util.retry import Retry
+        HAS_RETRY = True
+    except ImportError:
+        HAS_RETRY = False
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+    HAS_RETRY = False
+
+try:
+    from bs4 import BeautifulSoup
+    HAS_BS4 = True
+except ImportError:
+    HAS_BS4 = False
+
+
+PHONE_TYPE_MAP = {
+    PhoneNumberType.FIXED_LINE: "Fixed Line",
+    PhoneNumberType.MOBILE: "Mobile",
+    PhoneNumberType.FIXED_LINE_OR_MOBILE: "Fixed Line or Mobile",
+    PhoneNumberType.TOLL_FREE: "Toll Free",
+    PhoneNumberType.PREMIUM_RATE: "Premium Rate",
+    PhoneNumberType.SHARED_COST: "Shared Cost",
+    PhoneNumberType.VOIP: "VoIP",
+    PhoneNumberType.PERSONAL_NUMBER: "Personal Number",
+    PhoneNumberType.PAGER: "Pager",
+    PhoneNumberType.UAN: "UAN",
+    PhoneNumberType.VOICEMAIL: "Voicemail",
+    PhoneNumberType.UNKNOWN: "Unknown",
+} if HAS_PHONENUMBERS else {}
+
+COUNTRY_DIAL_INFO = {
+    "US": {"emergency": "911", "exit_code": "011", "trunk": "1", "reg_authority": "FCC", "numbering_plan": "NANP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "GB": {"emergency": "999/112", "exit_code": "00", "trunk": "0", "reg_authority": "Ofcom", "numbering_plan": "UK NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "DE": {"emergency": "112/110", "exit_code": "00", "trunk": "0", "reg_authority": "BNetzA", "numbering_plan": "German NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "FR": {"emergency": "112/15/17/18", "exit_code": "00", "trunk": "0", "reg_authority": "ARCEP", "numbering_plan": "French NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "TR": {"emergency": "112", "exit_code": "00", "trunk": "0", "reg_authority": "BTK", "numbering_plan": "Turkish NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "RU": {"emergency": "112/01/02/03", "exit_code": "810", "trunk": "8", "reg_authority": "Roskomnadzor", "numbering_plan": "Russian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "CN": {"emergency": "110/119/120", "exit_code": "00", "trunk": "0", "reg_authority": "MIIT", "numbering_plan": "Chinese NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "JP": {"emergency": "110/119", "exit_code": "010", "trunk": "0", "reg_authority": "MIC", "numbering_plan": "Japanese NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "IN": {"emergency": "112", "exit_code": "00", "trunk": "0", "reg_authority": "TRAI", "numbering_plan": "Indian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "BR": {"emergency": "190/192/193", "exit_code": "00", "trunk": "0", "reg_authority": "Anatel", "numbering_plan": "Brazilian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "AU": {"emergency": "000/112", "exit_code": "0011", "trunk": "0", "reg_authority": "ACMA", "numbering_plan": "Australian NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "CA": {"emergency": "911", "exit_code": "011", "trunk": "1", "reg_authority": "CRTC", "numbering_plan": "NANP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "IT": {"emergency": "112/113/115/118", "exit_code": "00", "trunk": "None", "reg_authority": "AGCOM", "numbering_plan": "Italian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "ES": {"emergency": "112", "exit_code": "00", "trunk": "None", "reg_authority": "CNMC", "numbering_plan": "Spanish NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "MX": {"emergency": "911", "exit_code": "00", "trunk": "None", "reg_authority": "IFT", "numbering_plan": "Mexican NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "KR": {"emergency": "112/119", "exit_code": "001/002", "trunk": "0", "reg_authority": "MSIT/KCC", "numbering_plan": "Korean NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "NL": {"emergency": "112", "exit_code": "00", "trunk": "0", "reg_authority": "ACM", "numbering_plan": "Dutch NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "SE": {"emergency": "112", "exit_code": "00", "trunk": "0", "reg_authority": "PTS", "numbering_plan": "Swedish NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "CH": {"emergency": "112/117/118/144", "exit_code": "00", "trunk": "0", "reg_authority": "OFCOM", "numbering_plan": "Swiss NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "PL": {"emergency": "112/997/998/999", "exit_code": "00", "trunk": "None", "reg_authority": "UKE", "numbering_plan": "Polish NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "AT": {"emergency": "112/122/133/144", "exit_code": "00", "trunk": "0", "reg_authority": "RTR", "numbering_plan": "Austrian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "BE": {"emergency": "112/101/100", "exit_code": "00", "trunk": "0", "reg_authority": "BIPT", "numbering_plan": "Belgian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "NO": {"emergency": "112/110/113", "exit_code": "00", "trunk": "None", "reg_authority": "Nkom", "numbering_plan": "Norwegian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "DK": {"emergency": "112", "exit_code": "00", "trunk": "None", "reg_authority": "DBA", "numbering_plan": "Danish NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "FI": {"emergency": "112", "exit_code": "00", "trunk": "0", "reg_authority": "Traficom", "numbering_plan": "Finnish NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "PT": {"emergency": "112", "exit_code": "00", "trunk": "None", "reg_authority": "ANACOM", "numbering_plan": "Portuguese NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "IE": {"emergency": "112/999", "exit_code": "00", "trunk": "0", "reg_authority": "ComReg", "numbering_plan": "Irish NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "GR": {"emergency": "112/100/166/199", "exit_code": "00", "trunk": "None", "reg_authority": "EETT", "numbering_plan": "Greek NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "CZ": {"emergency": "112/150/155/158", "exit_code": "00", "trunk": "None", "reg_authority": "CTU", "numbering_plan": "Czech NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "RO": {"emergency": "112", "exit_code": "00", "trunk": "0", "reg_authority": "ANCOM", "numbering_plan": "Romanian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "HU": {"emergency": "112", "exit_code": "00", "trunk": "06", "reg_authority": "NMHH", "numbering_plan": "Hungarian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "ZA": {"emergency": "112/10111/10177", "exit_code": "00", "trunk": "0", "reg_authority": "ICASA", "numbering_plan": "South African NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "EG": {"emergency": "122/123/180", "exit_code": "00", "trunk": "0", "reg_authority": "NTRA", "numbering_plan": "Egyptian NNP", "sim_registration": True, "number_portability": False, "sms_capable": True},
+    "NG": {"emergency": "112/199", "exit_code": "009", "trunk": "0", "reg_authority": "NCC", "numbering_plan": "Nigerian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "KE": {"emergency": "112/999", "exit_code": "000", "trunk": "0", "reg_authority": "CA", "numbering_plan": "Kenyan NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "SA": {"emergency": "911/997/998/999", "exit_code": "00", "trunk": "0", "reg_authority": "CITC", "numbering_plan": "Saudi NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "AE": {"emergency": "112/999", "exit_code": "00", "trunk": "0", "reg_authority": "TDRA", "numbering_plan": "UAE NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "IL": {"emergency": "100/101/102", "exit_code": "00/012/013/014", "trunk": "0", "reg_authority": "MOC", "numbering_plan": "Israeli NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "TH": {"emergency": "191/199", "exit_code": "001", "trunk": "0", "reg_authority": "NBTC", "numbering_plan": "Thai NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "SG": {"emergency": "995/999", "exit_code": "001/002/008", "trunk": "None", "reg_authority": "IMDA", "numbering_plan": "Singaporean NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "MY": {"emergency": "112/999", "exit_code": "00", "trunk": "0", "reg_authority": "MCMC", "numbering_plan": "Malaysian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "PH": {"emergency": "911/117", "exit_code": "00", "trunk": "0", "reg_authority": "NTC", "numbering_plan": "Philippine NNP", "sim_registration": True, "number_portability": False, "sms_capable": True},
+    "ID": {"emergency": "112/110/113/118/119", "exit_code": "001/007/008/009", "trunk": "0", "reg_authority": "Kominfo", "numbering_plan": "Indonesian NNP", "sim_registration": True, "number_portability": False, "sms_capable": True},
+    "VN": {"emergency": "113/114/115", "exit_code": "00", "trunk": "0", "reg_authority": "MIC", "numbering_plan": "Vietnamese NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "PK": {"emergency": "115/1122", "exit_code": "00", "trunk": "0", "reg_authority": "PTA", "numbering_plan": "Pakistani NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "BD": {"emergency": "999", "exit_code": "00", "trunk": "0", "reg_authority": "BTRC", "numbering_plan": "Bangladeshi NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "AR": {"emergency": "911/100/101/107", "exit_code": "00", "trunk": "0", "reg_authority": "ENACOM", "numbering_plan": "Argentine NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "CL": {"emergency": "131/132/133/134", "exit_code": "00", "trunk": "None", "reg_authority": "Subtel", "numbering_plan": "Chilean NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "CO": {"emergency": "123", "exit_code": "00", "trunk": "None", "reg_authority": "CRC", "numbering_plan": "Colombian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "PE": {"emergency": "105/116/117", "exit_code": "00", "trunk": "0", "reg_authority": "OSIPTEL", "numbering_plan": "Peruvian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "UA": {"emergency": "112/101/102/103", "exit_code": "00", "trunk": "0", "reg_authority": "NKRZI", "numbering_plan": "Ukrainian NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "NZ": {"emergency": "111", "exit_code": "00", "trunk": "0", "reg_authority": "Commerce Commission", "numbering_plan": "NZ NNP", "sim_registration": False, "number_portability": True, "sms_capable": True},
+    "TW": {"emergency": "110/119", "exit_code": "002", "trunk": "0", "reg_authority": "NCC", "numbering_plan": "Taiwanese NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+    "HK": {"emergency": "999", "exit_code": "001", "trunk": "None", "reg_authority": "OFCA", "numbering_plan": "HK NNP", "sim_registration": True, "number_portability": True, "sms_capable": True},
+}
+
+CARRIER_PREFIX_MAP = {
+    "TR": {
+        "530": "Turk Telekom", "531": "Turk Telekom", "532": "Turkcell", "533": "Turkcell",
+        "534": "Turkcell", "535": "Turkcell", "536": "Vodafone TR", "537": "Vodafone TR",
+        "538": "Vodafone TR", "539": "Turk Telekom", "540": "Turk Telekom", "541": "Turk Telekom",
+        "542": "Vodafone TR", "543": "Vodafone TR", "544": "Turk Telekom", "545": "Turkcell",
+        "546": "Turkcell", "547": "Turkcell", "548": "Turkcell", "549": "Turkcell",
+        "551": "Turk Telekom", "552": "Turk Telekom", "553": "Turkcell", "554": "Turkcell",
+        "555": "Turkcell", "556": "Vodafone TR", "557": "Vodafone TR", "558": "Vodafone TR",
+        "559": "Turk Telekom", "501": "Turkcell (MVNO)", "505": "Vodafone TR", "506": "Vodafone TR",
+        "507": "Vodafone TR",
+    },
+    "US": {
+        "201": "NJ", "202": "DC", "203": "CT", "205": "AL", "206": "WA",
+        "207": "ME", "208": "ID", "209": "CA", "210": "TX", "212": "NY",
+        "213": "CA", "214": "TX", "215": "PA", "216": "OH", "217": "IL",
+        "218": "MN", "219": "IN", "224": "IL", "225": "LA", "228": "MS",
+        "229": "GA", "231": "MI", "234": "OH", "239": "FL", "240": "MD",
+        "248": "MI", "251": "AL", "252": "NC", "253": "WA", "254": "TX",
+        "256": "AL", "260": "IN", "262": "WI", "267": "PA", "269": "MI",
+        "270": "KY", "272": "PA", "276": "VA", "281": "TX", "301": "MD",
+        "302": "DE", "303": "CO", "304": "WV", "305": "FL", "307": "WY",
+        "308": "NE", "309": "IL", "310": "CA", "312": "IL", "313": "MI",
+        "314": "MO", "315": "NY", "316": "KS", "317": "IN", "318": "LA",
+        "319": "IA", "320": "MN", "321": "FL", "323": "CA", "325": "TX",
+        "330": "OH", "331": "IL", "332": "NY", "334": "AL", "336": "NC",
+        "337": "LA", "339": "MA", "340": "VI", "346": "TX", "347": "NY",
+    },
+    "GB": {
+        "71": "Mobile", "72": "Mobile", "73": "Mobile", "74": "Mobile",
+        "75": "Mobile", "76": "Mobile/Pager", "77": "Mobile", "78": "Mobile", "79": "Mobile",
+        "20": "London", "21": "Birmingham", "23": "Southampton/Portsmouth",
+        "24": "Coventry", "28": "Northern Ireland", "29": "Cardiff",
+        "113": "Leeds", "114": "Sheffield", "115": "Nottingham",
+        "116": "Leicester", "117": "Bristol", "118": "Reading",
+        "121": "Birmingham", "131": "Edinburgh", "141": "Glasgow",
+        "151": "Liverpool", "161": "Manchester", "171": "London (old)",
+        "181": "London (old)", "191": "Tyneside",
+    },
+    "DE": {
+        "151": "T-Mobile", "152": "Vodafone", "155": "O2",
+        "157": "O2", "159": "O2", "160": "T-Mobile",
+        "162": "Vodafone", "163": "O2", "170": "T-Mobile",
+        "171": "T-Mobile", "172": "Vodafone", "173": "Vodafone",
+        "174": "Vodafone", "175": "T-Mobile", "176": "O2",
+        "177": "O2", "178": "O2", "179": "O2",
+        "30": "Berlin", "40": "Hamburg", "69": "Frankfurt",
+        "89": "Munich", "221": "Cologne", "211": "Dusseldorf",
+    },
+    "IN": {
+        "6": "Various (6xxx)", "70": "Airtel/Jio", "72": "Various",
+        "73": "Various", "74": "Various", "75": "Various",
+        "76": "Jio", "77": "Various", "78": "Airtel/Jio",
+        "79": "Various", "80": "BSNL/Airtel", "81": "Various",
+        "82": "Various", "83": "Various", "84": "Various",
+        "85": "Jio", "86": "Various", "87": "Jio",
+        "88": "Jio/Airtel", "89": "Various",
+        "90": "Various", "91": "Various", "92": "Various",
+        "93": "Various", "94": "Various", "95": "Various",
+        "96": "Jio", "97": "Various", "98": "Airtel/Idea",
+        "99": "Airtel/BSNL",
+    },
+}
+
+KNOWN_CARRIER_RANGES = {
+    "US": {
+        "mobile_prefixes": ["201", "202", "203", "205", "206", "207", "208", "209", "210"],
+        "major_carriers": ["AT&T", "T-Mobile", "Verizon", "US Cellular", "Dish"],
+        "mvno_carriers": ["Mint Mobile", "Visible", "Cricket", "Metro by T-Mobile", "Boost Mobile", "Google Fi", "Straight Talk"],
+    },
+    "TR": {
+        "mobile_prefixes": ["501", "505", "506", "507", "530", "531", "532", "533", "534", "535", "536", "537", "538", "539",
+                           "540", "541", "542", "543", "544", "545", "546", "547", "548", "549", "551", "552", "553",
+                           "554", "555", "556", "557", "558", "559"],
+        "major_carriers": ["Turkcell", "Vodafone TR", "Turk Telekom"],
+        "mvno_carriers": ["Bimcell"],
+    },
+    "GB": {
+        "mobile_prefixes": ["7"],
+        "major_carriers": ["EE", "Three", "O2", "Vodafone UK"],
+        "mvno_carriers": ["giffgaff", "Tesco Mobile", "Sky Mobile", "VOXI", "Lebara", "Lycamobile"],
+    },
+    "DE": {
+        "mobile_prefixes": ["15", "16", "17"],
+        "major_carriers": ["Deutsche Telekom", "Vodafone DE", "Telefonica/O2"],
+        "mvno_carriers": ["congstar", "ALDI TALK", "Lidl Connect", "freenet"],
+    },
+    "FR": {
+        "mobile_prefixes": ["6", "7"],
+        "major_carriers": ["Orange", "SFR", "Bouygues Telecom", "Free Mobile"],
+        "mvno_carriers": ["NRJ Mobile", "La Poste Mobile", "Prixtel"],
+    },
+    "IN": {
+        "mobile_prefixes": ["6", "7", "8", "9"],
+        "major_carriers": ["Jio", "Airtel", "Vi (Vodafone Idea)", "BSNL"],
+        "mvno_carriers": [],
+    },
+    "JP": {
+        "mobile_prefixes": ["70", "80", "90"],
+        "major_carriers": ["NTT Docomo", "au (KDDI)", "SoftBank", "Rakuten Mobile"],
+        "mvno_carriers": ["IIJmio", "mineo", "UQ mobile", "Y!mobile"],
+    },
+    "AU": {
+        "mobile_prefixes": ["4"],
+        "major_carriers": ["Telstra", "Optus", "TPG/Vodafone AU"],
+        "mvno_carriers": ["Boost Mobile AU", "Amaysim", "Woolworths Mobile", "Kogan Mobile"],
+    },
+    "BR": {
+        "mobile_prefixes": ["9"],
+        "major_carriers": ["Vivo", "Claro", "TIM", "Oi"],
+        "mvno_carriers": [],
+    },
+    "RU": {
+        "mobile_prefixes": ["9"],
+        "major_carriers": ["MTS", "MegaFon", "Beeline", "Tele2 Russia"],
+        "mvno_carriers": ["Yota", "Tinkoff Mobile"],
+    },
+    "KR": {
+        "mobile_prefixes": ["10", "11", "16", "17", "18", "19"],
+        "major_carriers": ["SK Telecom", "KT", "LG U+"],
+        "mvno_carriers": ["KT M Mobile", "U+ Alllo"],
+    },
+}
+
+VOIP_INDICATORS = frozenset([
+    "google voice", "skype", "vonage", "magicjack", "ooma",
+    "ringcentral", "grasshopper", "line2", "sideline", "hushed",
+    "burner", "textnow", "textfree", "talkatone", "dingtone",
+    "nextiva", "8x8", "bandwidth", "telnyx", "twilio",
+    "plivo", "sinch", "messagebird", "nexmo", "vonage api",
+    "zoom phone", "microsoft teams", "webex calling",
+    "aircall", "dialpad", "openphone", "phone.com",
+    "freshcaller", "talkdesk", "genesys", "five9",
+    "nice incontact", "avaya", "mitel", "3cx",
+    "callcentric", "flowroute", "vitelity", "voip.ms",
+    "anveo", "callwithus", "localphone", "sipgate",
+    "zadarma", "broadvoice", "jive", "fuze",
+    "counterpathbria", "zoiper", "linphone", "xlite",
+])
+
+DISPOSABLE_NUMBER_SERVICES = frozenset([
+    "receive-sms-online", "receive-smss", "sms-receive", "receivesms",
+    "temp-sms", "freephonenum", "freesmsverification", "smsreceivefree",
+    "receive-a-sms", "sellaite", "sms-online", "getfreesmsnumber",
+    "receive-sms-free", "receivesmsonline", "smstibo", "smsget",
+    "onlinesim", "sms-activate", "5sim", "sms-bus",
+    "grizzlysms", "smspva", "receive-sms", "quackr",
+    "anonymous-sms", "tempophone", "temp-number", "burnerapp",
+    "hushed", "textnow", "textfree", "textplus",
+    "talkatone", "2ndline", "phoner", "dingtone",
+    "numero", "smspool", "smsman", "simsms",
+    "hottelecom", "sms24", "getsmscode", "sms-man",
+])
+
+USER_AGENTS = [
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+]
+
+INTERNATIONAL_DIALING_PREFIXES = {
+    "from_US": "011", "from_CA": "011", "from_GB": "00", "from_DE": "00",
+    "from_FR": "00", "from_TR": "00", "from_RU": "810", "from_CN": "00",
+    "from_JP": "010", "from_IN": "00", "from_BR": "00", "from_AU": "0011",
+    "from_KR": "001", "from_MX": "00", "from_SG": "001", "from_HK": "001",
+    "from_TW": "002", "from_TH": "001", "from_MY": "00", "from_ID": "001",
+    "from_PH": "00", "from_VN": "00", "from_NZ": "00", "from_ZA": "00",
+    "from_AE": "00", "from_SA": "00", "from_IL": "00",
+}
+
+
+def _get_ua():
+    return USER_AGENTS[int(time.time()) % len(USER_AGENTS)]
+
+
+def _md5(data):
+    return hashlib.md5(data.encode("utf-8")).hexdigest()
+
+
+def _sha256(data):
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def _sha1(data):
+    return hashlib.sha1(data.encode("utf-8")).hexdigest()
+
+
+def _shannon_entropy(text):
+    if not text:
+        return 0.0
+    freq = {}
+    for c in text:
+        freq[c] = freq.get(c, 0) + 1
+    length = len(text)
+    ent = 0.0
+    for count in freq.values():
+        p = count / length
+        ent -= p * math.log2(p)
+    return round(ent, 4)
+
+
+def _create_session(timeout=12):
+    if not HAS_REQUESTS:
+        return None
+    session = requests.Session()
+    if HAS_RETRY:
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST", "HEAD"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=10)
+    else:
+        adapter = HTTPAdapter(max_retries=2, pool_connections=10, pool_maxsize=10)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+_global_session = None
+_session_lock = threading.Lock()
+
+
+def _get_session():
+    global _global_session
+    if _global_session is None:
+        with _session_lock:
+            if _global_session is None:
+                _global_session = _create_session()
+    return _global_session
+
+
+def _safe_request(url, method="GET", timeout=12, headers=None, params=None, allow_redirects=True, data=None):
+    if not HAS_REQUESTS:
+        return None
+    default_headers = {
+        "User-Agent": _get_ua(),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+    }
+    if headers:
+        default_headers.update(headers)
+    try:
+        session = _get_session()
+        if session is None:
+            return None
+        resp = session.request(
+            method, url, timeout=timeout, headers=default_headers,
+            params=params, allow_redirects=allow_redirects, verify=True,
+            data=data
+        )
+        return resp
+    except requests.exceptions.Timeout:
+        return None
+    except requests.exceptions.ConnectionError:
+        return None
+    except requests.exceptions.TooManyRedirects:
+        return None
+    except Exception:
+        return None
+
+
+def _concurrent_requests(url_tasks, max_workers=5, timeout=12):
+    results = {}
+    if not HAS_REQUESTS:
+        return results
+
+    def _fetch(name, url, extra_headers=None):
+        resp = _safe_request(url, timeout=timeout, headers=extra_headers)
+        return name, resp
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {}
+        for task in url_tasks:
+            name = task["name"]
+            url = task["url"]
+            extra_headers = task.get("headers")
+            future = executor.submit(_fetch, name, url, extra_headers)
+            futures[future] = name
+        for future in concurrent.futures.as_completed(futures, timeout=timeout + 5):
+            try:
+                name, resp = future.result(timeout=timeout)
+                results[name] = resp
+            except Exception:
+                results[futures[future]] = None
+    return results
+
+
+def _parse_number(raw_number):
+    if not HAS_PHONENUMBERS:
+        return None
+    try:
+        parsed = phonenumbers.parse(raw_number, None)
+        if not phonenumbers.is_possible_number(parsed):
+            for region in ["US", "GB", "DE", "TR", "FR"]:
+                try:
+                    alt = phonenumbers.parse(raw_number, region)
+                    if phonenumbers.is_possible_number(alt):
+                        return alt
+                except Exception:
+                    continue
+            return parsed
+        return parsed
+    except NumberParseException:
+        return None
+
+
+def _get_number_type_str(parsed):
+    if not HAS_PHONENUMBERS:
+        return "Unknown"
+    ntype = phonenumbers.number_type(parsed)
+    return PHONE_TYPE_MAP.get(ntype, "Unknown")
+
+
+def _get_all_formats(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    formats = {}
+    try:
+        formats["e164"] = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    except Exception:
+        formats["e164"] = None
+    try:
+        formats["international"] = phonenumbers.format_number(parsed, PhoneNumberFormat.INTERNATIONAL)
+    except Exception:
+        formats["international"] = None
+    try:
+        formats["national"] = phonenumbers.format_number(parsed, PhoneNumberFormat.NATIONAL)
+    except Exception:
+        formats["national"] = None
+    try:
+        formats["rfc3966"] = phonenumbers.format_number(parsed, PhoneNumberFormat.RFC3966)
+    except Exception:
+        formats["rfc3966"] = None
+    try:
+        formats["e164_cc"] = f"+{parsed.country_code}"
+    except Exception:
+        formats["e164_cc"] = None
+    try:
+        national_significant = phonenumbers.national_significant_number(parsed)
+        formats["national_significant"] = national_significant
+    except Exception:
+        formats["national_significant"] = None
+    return formats
+
+
+def _get_international_dialing_formats(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    cc = str(parsed.country_code)
+    nsn = phonenumbers.national_significant_number(parsed)
+    result = {}
+    for key, prefix in INTERNATIONAL_DIALING_PREFIXES.items():
+        country = key.replace("from_", "")
+        result[f"dial_from_{country}"] = f"{prefix}{cc}{nsn}"
+    return result
+
+
+def _get_timezone_info(parsed):
+    if not HAS_PHONENUMBERS or not HAS_PYTZ:
+        return {}
+    try:
+        tz_list = pn_timezone.time_zones_for_number(parsed)
+        if not tz_list:
+            return {"timezones": [], "current_times": []}
+        result = {"timezones": [], "current_times": [], "utc_offsets": [], "business_hours": []}
+        for tz_name in tz_list:
+            tz_str = str(tz_name)
+            result["timezones"].append(tz_str)
+            if tz_str != "Etc/Unknown":
+                try:
+                    tz_obj = pytz.timezone(tz_str)
+                    now = datetime.now(tz_obj)
+                    result["current_times"].append({
+                        "timezone": tz_str,
+                        "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+                        "utc_offset": now.strftime("%z"),
+                        "dst_active": bool(now.dst()),
+                        "day_of_week": now.strftime("%A"),
+                    })
+                    utc_offset = now.utcoffset()
+                    if utc_offset:
+                        hours = utc_offset.total_seconds() / 3600
+                        result["utc_offsets"].append(f"UTC{'+' if hours >= 0 else ''}{hours:.1f}")
+                    hour = now.hour
+                    if 9 <= hour <= 17:
+                        result["business_hours"].append({"timezone": tz_str, "status": "business_hours", "local_hour": hour})
+                    elif 7 <= hour <= 22:
+                        result["business_hours"].append({"timezone": tz_str, "status": "awake_hours", "local_hour": hour})
+                    else:
+                        result["business_hours"].append({"timezone": tz_str, "status": "sleeping_hours", "local_hour": hour})
+                except Exception:
+                    pass
+        return result
+    except Exception:
+        return {}
+
+
+def _get_geo_info(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    result = {}
+    for lang in ["en", "de", "fr", "es", "tr", "ru", "zh", "ja", "ar", "pt", "ko", "it", "nl", "pl", "sv"]:
+        try:
+            desc = pn_geocoder.description_for_number(parsed, lang)
+            if desc:
+                result[lang] = desc
+        except Exception:
+            pass
+    return result
+
+
+def _get_carrier_info(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    result = {}
+    for lang in ["en", "de", "fr", "es", "tr", "ru", "zh", "ja"]:
+        try:
+            c = pn_carrier.name_for_number(parsed, lang)
+            if c:
+                result[lang] = c
+        except Exception:
+            pass
+    return result
+
+
+def _get_carrier_prefix_info(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    region = phonenumbers.region_code_for_number(parsed)
+    nsn = phonenumbers.national_significant_number(parsed)
+    if not nsn or not region:
+        return {}
+    result = {"region": region, "prefix_match": None, "carrier_from_prefix": None}
+    if region in CARRIER_PREFIX_MAP:
+        prefix_map = CARRIER_PREFIX_MAP[region]
+        for prefix_len in [4, 3, 2, 1]:
+            if len(nsn) >= prefix_len:
+                prefix = nsn[:prefix_len]
+                if prefix in prefix_map:
+                    result["prefix_match"] = prefix
+                    result["carrier_from_prefix"] = prefix_map[prefix]
+                    break
+    return result
+
+
+def _get_country_code_info(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    try:
+        cc = parsed.country_code
+        region = phonenumbers.region_code_for_number(parsed)
+        regions = phonenumbers.region_codes_for_country_code(cc)
+        country_name = pn_geocoder.country_name_for_number(parsed, "en") if hasattr(pn_geocoder, "country_name_for_number") else None
+        result = {
+            "country_code": cc,
+            "region_code": region,
+            "all_regions_for_code": list(regions) if regions else [],
+            "country_name": country_name,
+        }
+        if region and region in COUNTRY_DIAL_INFO:
+            result["dial_info"] = COUNTRY_DIAL_INFO[region]
+        if region and region in KNOWN_CARRIER_RANGES:
+            result["carrier_landscape"] = KNOWN_CARRIER_RANGES[region]
+        return result
+    except Exception:
+        return {}
+
+
+def _deep_validation(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    result = {}
+    try:
+        result["is_valid"] = phonenumbers.is_valid_number(parsed)
+    except Exception:
+        result["is_valid"] = None
+    try:
+        result["is_possible"] = phonenumbers.is_possible_number(parsed)
+    except Exception:
+        result["is_possible"] = None
+    try:
+        reason = phonenumbers.is_possible_number_with_reason(parsed)
+        reason_map = {
+            phonenumberutil.ValidationResult.IS_POSSIBLE: "IS_POSSIBLE",
+            phonenumberutil.ValidationResult.IS_POSSIBLE_LOCAL_ONLY: "IS_POSSIBLE_LOCAL_ONLY",
+            phonenumberutil.ValidationResult.INVALID_COUNTRY_CODE: "INVALID_COUNTRY_CODE",
+            phonenumberutil.ValidationResult.TOO_SHORT: "TOO_SHORT",
+            phonenumberutil.ValidationResult.TOO_LONG: "TOO_LONG",
+            phonenumberutil.ValidationResult.INVALID_LENGTH: "INVALID_LENGTH",
+        }
+        result["validation_reason"] = reason_map.get(reason, str(reason))
+    except Exception:
+        result["validation_reason"] = None
+    try:
+        result["number_type"] = _get_number_type_str(parsed)
+    except Exception:
+        result["number_type"] = None
+    nsn = phonenumbers.national_significant_number(parsed)
+    result["nsn_length"] = len(nsn) if nsn else 0
+    result["has_leading_zero"] = parsed.italian_leading_zero if hasattr(parsed, "italian_leading_zero") else False
+    result["raw_input"] = parsed.raw_input if hasattr(parsed, "raw_input") and parsed.raw_input else None
+    result["preferred_domestic_prefix"] = parsed.preferred_domestic_carrier_code if hasattr(parsed, "preferred_domestic_carrier_code") else None
+    result["country_code_source"] = str(parsed.country_code_source) if hasattr(parsed, "country_code_source") else None
+    try:
+        region = phonenumbers.region_code_for_number(parsed)
+        ntype = phonenumbers.number_type(parsed)
+        example = phonenumbers.example_number_for_type(region, ntype)
+        if example:
+            result["example_for_type"] = phonenumbers.format_number(example, PhoneNumberFormat.INTERNATIONAL)
+            example_nsn = phonenumbers.national_significant_number(example)
+            result["expected_nsn_length"] = len(example_nsn) if example_nsn else None
+    except Exception:
+        pass
+    try:
+        result["is_valid_for_region"] = phonenumbers.is_valid_number_for_region(
+            parsed, phonenumbers.region_code_for_number(parsed)
+        ) if phonenumbers.region_code_for_number(parsed) else None
+    except Exception:
+        result["is_valid_for_region"] = None
+    try:
+        result["can_be_internationally_dialed"] = phonenumberutil.can_be_internationally_dialled(parsed) if hasattr(phonenumberutil, "can_be_internationally_dialled") else None
+    except Exception:
+        result["can_be_internationally_dialed"] = None
+    return result
+
+
+def _number_pattern_analysis(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    nsn = phonenumbers.national_significant_number(parsed)
+    if not nsn:
+        return {}
+    result = {
+        "national_number": nsn,
+        "digit_count": len(nsn),
+        "digit_frequency": {},
+        "entropy": _shannon_entropy(nsn),
+        "is_sequential": False,
+        "is_repeating": False,
+        "is_palindrome": nsn == nsn[::-1],
+        "has_pattern": False,
+        "vanity_potential": False,
+        "digit_sum": sum(int(d) for d in nsn if d.isdigit()),
+        "starts_with": nsn[:3] if len(nsn) >= 3 else nsn,
+        "ends_with": nsn[-3:] if len(nsn) >= 3 else nsn,
+    }
+    for d in nsn:
+        result["digit_frequency"][d] = result["digit_frequency"].get(d, 0) + 1
+    most_common = max(result["digit_frequency"].values())
+    if most_common >= len(nsn) * 0.6:
+        result["is_repeating"] = True
+        result["has_pattern"] = True
+    if len(nsn) >= 3:
+        pairs = [(int(nsn[i+1]) - int(nsn[i])) for i in range(len(nsn)-1) if nsn[i].isdigit() and nsn[i+1].isdigit()]
+        if pairs:
+            if all(d == 1 for d in pairs):
+                result["is_sequential"] = True
+                result["has_pattern"] = True
+            elif all(d == -1 for d in pairs):
+                result["is_sequential"] = True
+                result["has_pattern"] = True
+            elif all(d == 0 for d in pairs):
+                result["is_repeating"] = True
+                result["has_pattern"] = True
+    if len(nsn) >= 7:
+        vanity_map = {"2": "ABC", "3": "DEF", "4": "GHI", "5": "JKL", "6": "MNO", "7": "PQRS", "8": "TUV", "9": "WXYZ"}
+        has_vanity_digits = sum(1 for d in nsn if d in vanity_map)
+        if has_vanity_digits >= 4:
+            result["vanity_potential"] = True
+    unique_digits = len(set(nsn))
+    result["unique_digits"] = unique_digits
+    result["complexity_score"] = round(result["entropy"] * unique_digits / max(len(nsn), 1), 4)
+    if len(nsn) >= 6:
+        half = len(nsn) // 2
+        first_half = nsn[:half]
+        second_half = nsn[half:half+len(first_half)]
+        if first_half == second_half:
+            result["has_pattern"] = True
+            result["pattern_type"] = "repeating_halves"
+    runs = []
+    current_run = 1
+    for i in range(1, len(nsn)):
+        if nsn[i] == nsn[i-1]:
+            current_run += 1
+        else:
+            runs.append(current_run)
+            current_run = 1
+    runs.append(current_run)
+    result["max_consecutive_repeat"] = max(runs) if runs else 0
+    result["run_count"] = len(runs)
+    return result
+
+
+def _voip_detection(parsed, carrier_name):
+    if not HAS_PHONENUMBERS:
+        return {}
+    result = {
+        "likely_voip": False,
+        "voip_confidence": 0,
+        "indicators": [],
+    }
+    ntype = phonenumbers.number_type(parsed)
+    if ntype == PhoneNumberType.VOIP:
+        result["likely_voip"] = True
+        result["voip_confidence"] = 95
+        result["indicators"].append("Number type classified as VoIP by phonenumbers library")
+        return result
+    if carrier_name:
+        carrier_lower = carrier_name.lower()
+        for voip_name in VOIP_INDICATORS:
+            if voip_name in carrier_lower:
+                result["likely_voip"] = True
+                result["voip_confidence"] = max(result["voip_confidence"], 80)
+                result["indicators"].append(f"Carrier matches known VoIP provider: {voip_name}")
+    region = phonenumbers.region_code_for_number(parsed)
+    nsn = phonenumbers.national_significant_number(parsed)
+    if region == "US" and nsn:
+        voip_area_codes = ["456", "500", "521", "522", "523", "524", "525", "526", "527", "528", "529", "533", "544", "566", "577", "588"]
+        if nsn[:3] in voip_area_codes:
+            result["likely_voip"] = True
+            result["voip_confidence"] = max(result["voip_confidence"], 70)
+            result["indicators"].append(f"Area code {nsn[:3]} is commonly associated with VoIP/personal services")
+    if region == "GB" and nsn and nsn.startswith("56"):
+        result["likely_voip"] = True
+        result["voip_confidence"] = max(result["voip_confidence"], 85)
+        result["indicators"].append("UK 056x range is allocated for VoIP services")
+    if region == "GB" and nsn and nsn.startswith("70"):
+        result["voip_confidence"] = max(result["voip_confidence"], 60)
+        result["indicators"].append("UK 070 range is personal numbering (often VoIP)")
+    if region == "DE" and nsn and nsn.startswith("32"):
+        result["likely_voip"] = True
+        result["voip_confidence"] = max(result["voip_confidence"], 80)
+        result["indicators"].append("German 032x range is allocated for VoIP")
+    if region == "FR" and nsn and nsn.startswith("9"):
+        result["voip_confidence"] = max(result["voip_confidence"], 50)
+        result["indicators"].append("French 09 range includes VoIP services")
+    if region == "NL" and nsn and nsn.startswith("85"):
+        result["voip_confidence"] = max(result["voip_confidence"], 60)
+        result["indicators"].append("Dutch 085 range is commonly used by VoIP")
+    if ntype == PhoneNumberType.PERSONAL_NUMBER:
+        result["voip_confidence"] = max(result["voip_confidence"], 40)
+        result["indicators"].append("Personal number type may indicate VoIP or virtual number")
+    if result["voip_confidence"] >= 60 and not result["likely_voip"]:
+        result["likely_voip"] = True
+    return result
+
+
+def _disposable_number_check(parsed, carrier_name):
+    result = {
+        "likely_disposable": False,
+        "confidence": 0,
+        "indicators": [],
+    }
+    if carrier_name:
+        carrier_lower = carrier_name.lower()
+        for svc in DISPOSABLE_NUMBER_SERVICES:
+            if svc in carrier_lower:
+                result["likely_disposable"] = True
+                result["confidence"] = 90
+                result["indicators"].append(f"Carrier matches known disposable number service: {svc}")
+                return result
+    ntype = phonenumbers.number_type(parsed) if HAS_PHONENUMBERS else None
+    if ntype == PhoneNumberType.VOIP:
+        result["confidence"] = max(result["confidence"], 30)
+        result["indicators"].append("VoIP numbers have higher disposable probability")
+    if ntype == PhoneNumberType.PERSONAL_NUMBER:
+        result["confidence"] = max(result["confidence"], 20)
+        result["indicators"].append("Personal numbers can be virtual/disposable")
+    return result
+
+
+def _messaging_platform_analysis(parsed, region):
+    if not HAS_PHONENUMBERS:
+        return {}
+    ntype = phonenumbers.number_type(parsed)
+    result = {
+        "whatsapp": {"possible": False, "check_url": None},
+        "telegram": {"possible": False, "check_url": None},
+        "signal": {"possible": False},
+        "viber": {"possible": False, "check_url": None},
+        "imessage": {"possible": False},
+        "line": {"possible": False},
+        "kakao": {"possible": False},
+        "wechat": {"possible": False},
+        "zalo": {"possible": False},
+        "imo": {"possible": False},
+    }
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    clean = e164.replace("+", "")
+    if ntype in (PhoneNumberType.MOBILE, PhoneNumberType.FIXED_LINE_OR_MOBILE):
+        result["whatsapp"]["possible"] = True
+        result["whatsapp"]["check_url"] = f"https://wa.me/{clean}"
+        result["telegram"]["possible"] = True
+        result["telegram"]["check_url"] = f"https://t.me/+{clean}"
+        result["signal"]["possible"] = True
+        result["viber"]["possible"] = True
+        result["viber"]["check_url"] = f"viber://chat?number={e164}"
+        result["imo"]["possible"] = True
+    if region in ("US", "CA", "GB", "AU", "NZ", "IE"):
+        result["imessage"]["possible"] = True
+    if region in ("JP", "TH", "TW", "ID", "MY"):
+        result["line"]["possible"] = True
+    if region == "KR":
+        result["kakao"]["possible"] = True
+    if region in ("CN", "HK", "MO", "TW"):
+        result["wechat"]["possible"] = True
+    if region == "VN":
+        result["zalo"]["possible"] = True
+    if ntype == PhoneNumberType.VOIP:
+        result["whatsapp"]["possible"] = False
+        result["whatsapp"]["check_url"] = None
+        result["signal"]["possible"] = False
+        result["viber"]["possible"] = False
+        result["viber"]["check_url"] = None
+        result["imessage"]["possible"] = False
+    return result
+
+
+def _whatsapp_link_check(parsed):
+    if not HAS_PHONENUMBERS or not HAS_REQUESTS:
+        return {}
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    clean = e164.replace("+", "")
+    result = {
+        "api_link": f"https://api.whatsapp.com/send?phone={clean}",
+        "direct_link": f"https://wa.me/{clean}",
+        "qr_link": f"https://wa.me/qr/{clean}",
+        "business_check_url": f"https://wa.me/{clean}?text=",
+    }
+    try:
+        resp = _safe_request(
+            f"https://wa.me/{clean}",
+            timeout=8,
+            allow_redirects=False,
+            headers={"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"}
+        )
+        if resp:
+            if resp.status_code in (200, 302):
+                result["wa_me_reachable"] = True
+                if resp.status_code == 302:
+                    location = resp.headers.get("Location", "")
+                    if "send" in location or "api" in location:
+                        result["likely_registered"] = True
+                    else:
+                        result["likely_registered"] = False
+            elif resp.status_code == 404:
+                result["wa_me_reachable"] = True
+                result["likely_registered"] = False
+            else:
+                result["wa_me_reachable"] = False
+        else:
+            result["wa_me_reachable"] = False
+    except Exception:
+        result["wa_me_reachable"] = False
+    return result
+
+
+def _search_engine_dork(phone_number, parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    national = phonenumbers.format_number(parsed, PhoneNumberFormat.NATIONAL)
+    international = phonenumbers.format_number(parsed, PhoneNumberFormat.INTERNATIONAL)
+    nsn = phonenumbers.national_significant_number(parsed)
+    clean = e164.replace("+", "")
+    variants = list(set(filter(None, [
+        e164, national, international, clean, nsn,
+        national.replace(" ", ""), national.replace(" ", "-"),
+        international.replace(" ", ""), clean[:3] + "-" + clean[3:6] + "-" + clean[6:] if len(clean) >= 10 else None,
+        f"({national[:3]})" + national[3:] if len(national) >= 7 else None,
+        national.replace(" ", "."),
+        clean[:3] + "." + clean[3:6] + "." + clean[6:] if len(clean) >= 10 else None,
+    ])))
+    search_urls = {}
+    or_query = "+OR+".join([f'"{v}"' for v in variants[:6]])
+    search_urls["google"] = f"https://www.google.com/search?q={or_query}"
+    search_urls["duckduckgo"] = f"https://duckduckgo.com/?q={or_query}"
+    search_urls["bing"] = f"https://www.bing.com/search?q={or_query}"
+    search_urls["yandex"] = f"https://yandex.com/search/?text={or_query}"
+    search_urls["brave"] = f"https://search.brave.com/search?q={or_query}"
+    search_urls["startpage"] = f"https://www.startpage.com/do/dsearch?query={or_query}"
+    site_dorks = {
+        "facebook": f"site:facebook.com \"{clean}\"",
+        "linkedin": f"site:linkedin.com \"{clean}\"",
+        "twitter": f"site:twitter.com OR site:x.com \"{clean}\"",
+        "instagram": f"site:instagram.com \"{clean}\"",
+        "vk": f"site:vk.com \"{clean}\"",
+        "tiktok": f"site:tiktok.com \"{clean}\"",
+        "youtube": f"site:youtube.com \"{clean}\"",
+        "reddit": f"site:reddit.com \"{clean}\"",
+        "quora": f"site:quora.com \"{clean}\"",
+        "whocallsme": f"site:whocallsme.com \"{clean}\"",
+        "800notes": f"site:800notes.com \"{clean}\"",
+        "callercomplaints": f"site:callercomplaints.com \"{clean}\"",
+        "shouldianswer": f"site:shouldianswer.com \"{clean}\"",
+        "tellows": f"site:tellows.com \"{clean}\"",
+        "whitepages": f"site:whitepages.com \"{clean}\"",
+        "truecaller_web": f"site:truecaller.com \"{clean}\"",
+        "pipl": f"site:pipl.com \"{clean}\"",
+        "spokeo": f"site:spokeo.com \"{clean}\"",
+        "zabasearch": f"site:zabasearch.com \"{clean}\"",
+        "pastebin": f"site:pastebin.com \"{clean}\"",
+        "github": f"site:github.com \"{clean}\"",
+        "gitlab": f"site:gitlab.com \"{clean}\"",
+        "medium": f"site:medium.com \"{clean}\"",
+        "pinterest": f"site:pinterest.com \"{clean}\"",
+        "telegram_web": f"site:t.me \"{clean}\"",
+    }
+    search_urls["site_dorks"] = {}
+    for name, dork in site_dorks.items():
+        search_urls["site_dorks"][name] = f"https://www.google.com/search?q={quote(dork)}"
+    search_urls["number_variants"] = variants
+    search_urls["advanced_dorks"] = {
+        "inurl_search": f"https://www.google.com/search?q=inurl:{clean}",
+        "intext_search": f"https://www.google.com/search?q=intext:\"{clean}\"",
+        "filetype_pdf": f"https://www.google.com/search?q=\"{clean}\"+filetype:pdf",
+        "filetype_doc": f"https://www.google.com/search?q=\"{clean}\"+filetype:doc+OR+filetype:docx",
+        "filetype_xls": f"https://www.google.com/search?q=\"{clean}\"+filetype:xls+OR+filetype:xlsx",
+        "filetype_csv": f"https://www.google.com/search?q=\"{clean}\"+filetype:csv",
+        "cache_search": f"https://www.google.com/search?q=cache:\"{clean}\"",
+        "contact_page": f"https://www.google.com/search?q=\"{clean}\"+intitle:\"contact\"+OR+intitle:\"about\"",
+        "directory_listing": f"https://www.google.com/search?q=\"{clean}\"+intitle:\"index+of\"",
+    }
+    return search_urls
+
+
+def _web_reputation_check(phone_number, parsed, timeout=12):
+    if not HAS_REQUESTS or not HAS_BS4:
+        return {}
+    clean = phone_number.replace("+", "").replace(" ", "").replace("-", "")
+    result = {
+        "sources_checked": [],
+        "reputation_score": None,
+        "overall_sentiment": "neutral",
+    }
+    spam_score = 0
+    total_sources = 0
+
+    url_tasks = [
+        {"name": "spamcalls", "url": f"https://spamcalls.net/en/number/{clean}"},
+        {"name": "unknownphone", "url": f"https://www.unknownphone.com/phone/{clean}"},
+        {"name": "shouldianswer", "url": f"https://www.shouldianswer.com/phone-number/{clean}"},
+        {"name": "tellows", "url": f"https://www.tellows.com/num/{clean}"},
+        {"name": "whocalld", "url": f"https://whocalld.com/+{clean}"},
+    ]
+    responses = _concurrent_requests(url_tasks, max_workers=5, timeout=timeout)
+
+    resp = responses.get("spamcalls")
+    source_result = {"source": "spamcalls.net", "status": "error"}
+    try:
+        if resp and resp.status_code == 200:
+            soup = BeautifulSoup(resp.content, "html.parser")
+            rating_elements = soup.select('a[href="#ratings"]')
+            type_elements = soup.select('a[href="#estimates"]')
+            solution_elements = soup.select('a[href="#solution"]')
+            source_result["status"] = "ok"
+            source_result["rating"] = rating_elements[0].text.strip() if rating_elements else None
+            source_result["number_type"] = type_elements[0].text.strip() if type_elements else None
+            source_result["solution"] = solution_elements[0].text.strip() if solution_elements else None
+            comments = []
+            comment_elements = soup.select('p[lang="en"]')
+            for el in comment_elements[:10]:
+                txt = el.text.strip()
+                if txt:
+                    comments.append(txt)
+            source_result["comments"] = comments
+            if source_result["rating"] and any(w in source_result["rating"].lower() for w in ["spam", "scam", "fraud", "dangerous", "harass", "telemarket"]):
+                spam_score += 30
+            total_sources += 1
+    except Exception:
+        pass
+    result["sources_checked"].append(source_result)
+
+    resp = responses.get("unknownphone")
+    source_result = {"source": "unknownphone.com", "status": "error"}
+    try:
+        if resp and resp.status_code == 200:
+            soup = BeautifulSoup(resp.content, "html.parser")
+            source_result["status"] = "ok"
+            scam_el = soup.select('#content > div > main > section.user-scam-detected > div > p > mark > strong:nth-child(2)')
+            source_result["scam_detection"] = scam_el[0].text.strip() if scam_el else None
+            comments = []
+            for i in range(1, 15):
+                try:
+                    comment_el = soup.select(f'#content > div > main > section.comments > ul > li:nth-child({i}) > article > div')
+                    if comment_el:
+                        txt = comment_el[0].text.strip()
+                        if txt:
+                            comments.append(txt)
+                except Exception:
+                    continue
+            source_result["comments"] = comments
+            if source_result["scam_detection"] and any(w in source_result["scam_detection"].lower() for w in ["spam", "scam", "fraud", "unsafe"]):
+                spam_score += 30
+            total_sources += 1
+    except Exception:
+        pass
+    result["sources_checked"].append(source_result)
+
+    resp = responses.get("shouldianswer")
+    source_result = {"source": "shouldianswer.com", "status": "error"}
+    try:
+        if resp and resp.status_code == 200:
+            soup = BeautifulSoup(resp.content, "html.parser")
+            source_result["status"] = "ok"
+            rating_el = soup.select(".review_rating, .rating, .score, .negative, .positive")
+            if rating_el:
+                source_result["rating_text"] = rating_el[0].text.strip()
+                if any(w in source_result["rating_text"].lower() for w in ["negative", "spam", "scam", "dangerous"]):
+                    spam_score += 20
+            total_sources += 1
+    except Exception:
+        pass
+    result["sources_checked"].append(source_result)
+
+    resp = responses.get("tellows")
+    source_result = {"source": "tellows.com", "status": "error"}
+    try:
+        if resp and resp.status_code == 200:
+            soup = BeautifulSoup(resp.content, "html.parser")
+            source_result["status"] = "ok"
+            score_el = soup.select(".score, .tellows-score, .scoreValue")
+            if score_el:
+                source_result["score"] = score_el[0].text.strip()
+                try:
+                    s = int(re.search(r'\d+', source_result["score"]).group())
+                    source_result["numeric_score"] = s
+                    if s >= 7:
+                        spam_score += 25
+                    elif s >= 5:
+                        spam_score += 10
+                except Exception:
+                    pass
+            call_type_el = soup.select(".calltype, .callertype")
+            if call_type_el:
+                source_result["caller_type"] = call_type_el[0].text.strip()
+            total_sources += 1
+    except Exception:
+        pass
+    result["sources_checked"].append(source_result)
+
+    resp = responses.get("whocalld")
+    source_result = {"source": "whocalld.com", "status": "error"}
+    try:
+        if resp and resp.status_code == 200:
+            source_result["status"] = "ok"
+            total_sources += 1
+    except Exception:
+        pass
+    result["sources_checked"].append(source_result)
+
+    if total_sources > 0:
+        result["reputation_score"] = max(0, 100 - spam_score)
+        if result["reputation_score"] <= 20:
+            result["overall_sentiment"] = "dangerous"
+        elif result["reputation_score"] <= 40:
+            result["overall_sentiment"] = "highly_suspicious"
+        elif result["reputation_score"] <= 60:
+            result["overall_sentiment"] = "suspicious"
+        elif result["reputation_score"] <= 75:
+            result["overall_sentiment"] = "mixed"
+        else:
+            result["overall_sentiment"] = "clean"
+    return result
+
+
+def _duckduckgo_links(phone_number, parsed):
+    if not HAS_REQUESTS or not HAS_BS4:
+        return []
+    clean = phone_number.replace("+", "").replace(" ", "")
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164) if HAS_PHONENUMBERS else phone_number
+    national = phonenumbers.format_number(parsed, PhoneNumberFormat.NATIONAL) if HAS_PHONENUMBERS else phone_number
+    queries = [f'"{clean}"', f'"{e164}"', clean]
+    if national != clean:
+        queries.append(f'"{national}"')
+    all_links = []
+    seen = set()
+    for q in queries[:3]:
+        try:
+            url = f"https://duckduckgo.com/html/?q={quote(q)}"
+            resp = _safe_request(url, timeout=12, headers={"User-Agent": _get_ua()})
+            if resp and resp.status_code == 200:
+                soup = BeautifulSoup(resp.content, "html.parser")
+                for a_tag in soup.find_all("a", class_="result__url", href=True):
+                    href = a_tag["href"].strip()
+                    if href and href not in seen:
+                        seen.add(href)
+                        title_el = a_tag.find_parent("div")
+                        title = ""
+                        snippet = ""
+                        if title_el:
+                            title_link = title_el.find("a", class_="result__a")
+                            if title_link:
+                                title = title_link.text.strip()
+                            snippet_el = title_el.find("a", class_="result__snippet")
+                            if snippet_el:
+                                snippet = snippet_el.text.strip()[:200]
+                        try:
+                            domain = urlparse(href).netloc
+                        except Exception:
+                            domain = ""
+                        all_links.append({
+                            "url": href,
+                            "title": title,
+                            "snippet": snippet,
+                            "domain": domain,
+                            "source_query": q,
+                        })
+                    if len(all_links) >= 30:
+                        break
+        except Exception:
+            continue
+        if len(all_links) >= 30:
+            break
+        time.sleep(0.5)
+    return all_links
+
+
+def _google_dorking_results(phone_number, parsed):
+    if not HAS_PHONENUMBERS:
+        return []
+    clean = phone_number.replace("+", "").replace(" ", "")
+    results = []
+    paste_sites = ["pastebin.com", "ghostbin.com", "dpaste.org", "hastebin.com", "paste.ee", "justpaste.it"]
+    social_sites = ["facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com", "vk.com", "tiktok.com", "pinterest.com"]
+    directory_sites = ["whitepages.com", "truecaller.com", "pipl.com", "spokeo.com", "intelius.com", "zabasearch.com",
+                       "beenverified.com", "peekyou.com", "thatsthem.com", "fastpeoplesearch.com"]
+    forum_sites = ["reddit.com", "quora.com", "stackoverflow.com", "hackernews.com", "medium.com"]
+    categories = {
+        "paste_sites": paste_sites,
+        "social_media": social_sites,
+        "directories": directory_sites,
+        "forums": forum_sites,
+    }
+    for category, sites in categories.items():
+        for site in sites:
+            results.append({
+                "category": category,
+                "site": site,
+                "dork": f'site:{site} "{clean}"',
+                "search_url": f"https://duckduckgo.com/html/?q={quote(f'site:{site} \"{clean}\"')}",
+            })
+    return results
+
+
+def _numverify_check(phone_number, api_key=None):
+    if not HAS_REQUESTS or not api_key:
+        return None
+    clean = phone_number.replace("+", "").replace(" ", "").replace("-", "")
+    url = f"http://apilayer.net/api/validate?access_key={api_key}&number={clean}&format=1"
+    resp = _safe_request(url, timeout=10)
+    if resp and resp.status_code == 200:
+        try:
+            return resp.json()
+        except Exception:
+            return None
+    return None
+
+
+def _abstractapi_check(phone_number, api_key=None):
+    if not HAS_REQUESTS or not api_key:
+        return None
+    url = f"https://phonevalidation.abstractapi.com/v1/?api_key={api_key}&phone={quote(phone_number)}"
+    resp = _safe_request(url, timeout=10)
+    if resp and resp.status_code == 200:
+        try:
+            return resp.json()
+        except Exception:
+            return None
+    return None
+
+
+def _veriphone_check(phone_number, api_key=None):
+    if not HAS_REQUESTS or not api_key:
+        return None
+    url = f"https://api.veriphone.io/v2/verify?phone={quote(phone_number)}&key={api_key}"
+    resp = _safe_request(url, timeout=10)
+    if resp and resp.status_code == 200:
+        try:
+            return resp.json()
+        except Exception:
+            return None
+    return None
+
+
+def _hlr_simulation(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    region = phonenumbers.region_code_for_number(parsed)
+    ntype = phonenumbers.number_type(parsed)
+    carrier_en = pn_carrier.name_for_number(parsed, "en")
+    result = {
+        "mcc": None,
+        "mnc": None,
+        "network_name": carrier_en if carrier_en else None,
+        "number_portability": "unknown",
+        "roaming_status": "unknown",
+        "imsi_estimation": None,
+        "network_generation": None,
+    }
+    mcc_map = {
+        "US": "310-316", "GB": "234-235", "DE": "262", "FR": "208", "TR": "286",
+        "RU": "250", "CN": "460-461", "JP": "440-441", "IN": "404-405", "BR": "724",
+        "AU": "505", "CA": "302", "IT": "222", "ES": "214", "MX": "334",
+        "KR": "450", "NL": "204", "SE": "240", "CH": "228", "PL": "260",
+        "AT": "232", "BE": "206", "NO": "242", "DK": "238", "FI": "244",
+        "PT": "268", "IE": "272", "GR": "202", "CZ": "230", "RO": "226",
+        "HU": "216", "ZA": "655", "EG": "602", "NG": "621", "KE": "639",
+        "SA": "420", "AE": "424-431", "IL": "425", "TH": "520", "SG": "525",
+        "MY": "502", "PH": "515", "ID": "510", "VN": "452", "PK": "410",
+        "BD": "470", "AR": "722", "CL": "730", "CO": "732", "PE": "716",
+        "UA": "255", "NZ": "530", "TW": "466", "HK": "454",
+    }
+    result["mcc"] = mcc_map.get(region, "Unknown")
+    if ntype == PhoneNumberType.MOBILE:
+        result["number_portability"] = "possible"
+        result["network_generation"] = "4G/5G (likely)"
+    elif ntype == PhoneNumberType.FIXED_LINE:
+        result["number_portability"] = "unlikely"
+        result["network_generation"] = "PSTN/VoLTE"
+    elif ntype == PhoneNumberType.VOIP:
+        result["number_portability"] = "not_applicable"
+        result["network_generation"] = "VoIP/IP"
+    elif ntype == PhoneNumberType.FIXED_LINE_OR_MOBILE:
+        result["number_portability"] = "possible"
+        result["network_generation"] = "mixed"
+    return result
+
+
+def _reverse_lookup_urls(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    clean = e164.replace("+", "")
+    region = phonenumbers.region_code_for_number(parsed)
+    urls = {
+        "truecaller": f"https://www.truecaller.com/search/{region.lower() if region else 'us'}/{clean}",
+        "sync_me": f"https://sync.me/search/?number=%2B{clean}",
+        "whocalld": f"https://whocalld.com/%2B{clean}",
+        "emobiletracker": f"https://www.emobiletracker.com/index.php?phone={clean}",
+        "whitepages": f"https://www.whitepages.com/phone/{clean}",
+        "spokeo": f"https://www.spokeo.com/phone-lookup/{clean}",
+        "thatsthem": f"https://thatsthem.com/phone/{clean}",
+        "fastpeoplesearch": f"https://www.fastpeoplesearch.com/{clean}",
+        "nuwber": f"https://nuwber.com/phone/{clean}",
+        "intelius": f"https://www.intelius.com/phone-lookup/{clean}",
+        "zlookup": f"https://www.zlookup.com/phone-lookup/{clean}",
+        "phonevalidator": f"https://www.phonevalidator.com/index.aspx?phone={clean}",
+        "calleridtest": f"https://calleridtest.com/look-up/{clean}",
+        "spydialer": f"https://spydialer.com/results.aspx?type=phone&q={clean}",
+        "national_registry": f"https://www.donotcall.gov/search/{clean}" if region == "US" else None,
+        "callername": f"https://callername.com/{clean}",
+        "phoneowner": f"https://phoneowner.com/phone/{clean}",
+        "searchbug": f"https://www.searchbug.com/peoplefinder/results.aspx?pid=rp&typ=pid&ph={clean}",
+    }
+    if region == "US":
+        urls["usphonebook"] = f"https://www.usphonebook.com/{clean}"
+        urls["anywho"] = f"https://www.anywho.com/phone/{clean}"
+        urls["yellowpages"] = f"https://www.yellowpages.com/phone?phone_search_terms={clean}"
+        urls["beenverified"] = f"https://www.beenverified.com/phone/{clean}/"
+        urls["peekyou"] = f"https://www.peekyou.com/phone/{clean}"
+    elif region == "GB":
+        urls["thephonebook"] = f"https://www.thephonebook.bt.com/result?dn={clean}"
+        urls["192com"] = f"https://www.192.com/reverse-phone/{clean}/"
+    elif region == "TR":
+        urls["rehber"] = f"https://www.rehber.net/sorgula/{clean}"
+        urls["numbering_btk"] = f"https://www.btk.gov.tr/numaralandirilmis-hizmetler"
+    elif region == "DE":
+        urls["dasoertliche"] = f"https://www.dasoertliche.de/Rueckwaertssuche/{clean}"
+        urls["dastelefonbuch"] = f"https://www.dastelefonbuch.de/Rueckwaertssuche/{clean}"
+        urls["klicktel"] = f"https://www.klicktel.de/rueckwaertssuche/{clean}"
+    elif region == "FR":
+        urls["pagesjaunes"] = f"https://www.pagesjaunes.fr/annuaireinverse/recherche?quoiqui={clean}"
+        urls["118712"] = f"https://www.118712.fr/recherche?q={clean}"
+    elif region == "IN":
+        urls["indiamart"] = f"https://dir.indiamart.com/search.mp?ss={clean}"
+        urls["justdial"] = f"https://www.justdial.com/search/{clean}"
+        urls["findandtrace"] = f"https://www.findandtrace.com/trace-mobile-number-location/{clean}"
+    elif region == "AU":
+        urls["whitepages_au"] = f"https://www.whitepages.com.au/phone/{clean}"
+        urls["reverseaustralia"] = f"https://www.reverseaustralia.com/lookup/{clean}/"
+    elif region == "RU":
+        urls["nomer_org"] = f"https://www.nomer.org/{clean}"
+    elif region == "BR":
+        urls["consultanumero"] = f"https://consultanumero.abrtelecom.com.br/{clean}"
+    elif region == "KR":
+        urls["114_search"] = f"https://www.114.co.kr/search?query={clean}"
+    return {k: v for k, v in urls.items() if v is not None}
+
+
+def _social_media_profile_urls(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    clean = e164.replace("+", "")
+    return {
+        "whatsapp_direct": f"https://wa.me/{clean}",
+        "whatsapp_api": f"https://api.whatsapp.com/send?phone={clean}",
+        "telegram_direct": f"https://t.me/+{clean}",
+        "viber_direct": f"viber://chat?number=%2B{clean}",
+        "signal_profile": f"https://signal.me/#p/+{clean}",
+        "skype_search": f"https://web.skype.com/search?query=%2B{clean}",
+        "google_contacts_search": f"https://contacts.google.com/search/{clean}",
+        "facebook_search": f"https://www.facebook.com/search/people/?q={clean}",
+        "facebook_messenger": f"https://m.me/{clean}",
+        "twitter_search": f"https://twitter.com/search?q={clean}&f=user",
+        "instagram_search": f"https://www.instagram.com/explore/search/?q={clean}",
+        "linkedin_search": f"https://www.linkedin.com/search/results/all/?keywords={clean}",
+        "vk_search": f"https://vk.com/search?c%5Bq%5D={clean}&c%5Bsection%5D=people",
+        "tiktok_search": f"https://www.tiktok.com/search?q={clean}",
+        "snapchat_add": f"https://www.snapchat.com/add/{clean}",
+        "pinterest_search": f"https://www.pinterest.com/search/users/?q={clean}",
+        "tumblr_search": f"https://www.tumblr.com/search/{clean}",
+        "discord_lookup": f"https://discord.com/users/{clean}",
+        "threads_search": f"https://www.threads.net/search?q={clean}&filter=people",
+        "paypal_link": f"https://paypal.me/{clean}",
+        "cashapp_link": f"https://cash.app/${clean}",
+        "venmo_search": f"https://venmo.com/{clean}",
+    }
+
+
+def _data_breach_search_urls(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    clean = e164.replace("+", "")
+    return {
+        "haveibeenpwned": f"https://haveibeenpwned.com/unifiedsearch/{quote(e164)}",
+        "dehashed_search": f"https://dehashed.com/search?query={clean}",
+        "leakcheck": f"https://leakcheck.io/check?query={clean}&type=phone",
+        "intelx": f"https://intelx.io/?s={clean}",
+        "snusbase": f"https://snusbase.com/search?q={clean}&type=phone",
+        "breachdirectory": f"https://breachdirectory.org/search?query={clean}",
+        "leakpeek": f"https://leakpeek.com/try?query={clean}",
+        "hudsonrock": f"https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-phone?phone={clean}",
+        "phonebook_cz": f"https://phonebook.cz/search?query={clean}",
+    }
+
+
+def _osint_framework_urls(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+    clean = e164.replace("+", "")
+    return {
+        "callerid_com": f"https://calleridservice.com/free-reverse-phone-number-lookup/?phone_number={clean}",
+        "carrier_lookup": f"https://www.carrierlookup.com/results.php?phone={clean}",
+        "freecarrierlookup": f"https://freecarrierlookup.com/?phone={clean}",
+        "phoneinfoga": f"https://demo.phoneinfoga.crvx.fr/#/scan/{clean}",
+        "opencnam": f"https://api.opencnam.com/v3/phone/{clean}",
+        "twilio_lookup": f"https://www.twilio.com/console/phone-numbers/lookup/{clean}",
+        "numverify_web": f"https://numverify.com/?number={clean}",
+        "google_search": f"https://www.google.com/search?q=\"{clean}\"",
+        "bing_search": f"https://www.bing.com/search?q=\"{clean}\"",
+        "yandex_search": f"https://yandex.com/search/?text=\"{clean}\"",
+        "ahmia_darkweb": f"https://ahmia.fi/search/?q={clean}",
+        "torch_darkweb": f"http://xmh57jrknzkhv6y3ls3ubitzfqnkrwxhopf5aygthi7d6rplyvk3noyd.onion/cgi-bin/omega/omega?P={clean}",
+        "cybergordon": f"https://cybergordon.com/search/{clean}",
+    }
+
+
+def _number_age_estimation(parsed):
+    if not HAS_PHONENUMBERS:
+        return {}
+    region = phonenumbers.region_code_for_number(parsed)
+    nsn = phonenumbers.national_significant_number(parsed)
+    ntype = phonenumbers.number_type(parsed)
+    result = {
+        "estimated_allocation_era": "unknown",
+        "confidence": "low",
+        "analysis": [],
+    }
+    if region == "US" and nsn and len(nsn) >= 3:
+        area_code = nsn[:3]
+        original_1947 = ["201", "202", "203", "205", "206", "207", "208", "209", "210",
+                         "212", "213", "214", "215", "216", "217", "218", "219",
+                         "301", "302", "303", "304", "305", "307", "308", "309",
+                         "312", "313", "314", "315", "316", "317", "318", "319",
+                         "401", "402", "404", "405", "406", "407", "408", "409",
+                         "412", "413", "414", "415", "416", "417", "418", "419",
+                         "501", "502", "503", "504", "505", "506", "507", "508", "509",
+                         "512", "513", "514", "515", "516", "517", "518", "519",
+                         "601", "602", "603", "604", "605", "606", "607", "608", "609",
+                         "612", "613", "614", "615", "616", "617", "618", "619",
+                         "701", "702", "703", "704", "706", "707", "708", "709",
+                         "712", "713", "714", "715", "716", "717", "718", "719",
+                         "801", "802", "803", "804", "805", "806", "808", "809",
+                         "812", "813", "814", "815", "816", "817", "818", "819",
+                         "901", "902", "903", "904", "906", "907", "912", "913", "914", "915", "916", "918", "919"]
+        mid_codes = ["917", "347", "646", "929", "469", "832", "678", "786", "857", "484",
+                     "267", "443", "571", "770", "972", "281", "925", "949", "310", "323"]
+        new_codes = ["332", "680", "838", "564", "943", "726", "640", "548", "223", "463",
+                     "472", "534", "557", "574", "624", "659", "689", "737"]
+        if area_code in original_1947:
+            result["estimated_allocation_era"] = "pre-1990s (original area code from 1947)"
+            result["confidence"] = "medium"
+            result["analysis"].append(f"Area code {area_code} is one of the original NANP codes assigned in 1947")
+        elif area_code in mid_codes:
+            result["estimated_allocation_era"] = "1990s-2010s (overlay/split code)"
+            result["confidence"] = "medium"
+            result["analysis"].append(f"Area code {area_code} was introduced as an overlay or split during expansion")
+        elif area_code in new_codes:
+            result["estimated_allocation_era"] = "2010s-present (recent allocation)"
+            result["confidence"] = "medium"
+            result["analysis"].append(f"Area code {area_code} is a recently allocated code")
+    elif region == "TR" and nsn and len(nsn) >= 3:
+        prefix = nsn[:3]
+        old_prefixes = ["532", "533", "534", "535", "536", "537", "538", "505", "506", "507"]
+        new_prefixes = ["551", "552", "553", "554", "559", "540", "539", "501"]
+        if prefix in old_prefixes:
+            result["estimated_allocation_era"] = "2000s-2010s (early mobile era)"
+            result["confidence"] = "medium"
+            result["analysis"].append(f"Prefix {prefix} is from the early Turkish mobile allocation")
+        elif prefix in new_prefixes:
+            result["estimated_allocation_era"] = "2015-present (newer allocation)"
+            result["confidence"] = "medium"
+            result["analysis"].append(f"Prefix {prefix} is a more recently allocated Turkish mobile prefix")
+    elif region == "GB" and nsn:
+        if nsn.startswith("20"):
+            result["analysis"].append("London (020) numbers - established geographic range")
+        elif nsn.startswith("7"):
+            result["analysis"].append("UK mobile (07xxx) - range allocated progressively since 1990s")
+    if ntype == PhoneNumberType.MOBILE:
+        result["analysis"].append("Mobile numbers are frequently recycled by carriers (typical cycle: 90-180 days)")
+        result["analysis"].append("Number portability makes age estimation less reliable for mobile")
+    elif ntype == PhoneNumberType.VOIP:
+        result["analysis"].append("VoIP numbers are typically recently allocated (post-2000)")
+        result["estimated_allocation_era"] = "2000s-present (VoIP era)"
+        result["confidence"] = "medium"
+    elif ntype == PhoneNumberType.TOLL_FREE:
+        result["analysis"].append("Toll-free numbers can be very old or recently allocated")
+    return result
+
+
+def _risk_assessment(parsed, carrier_name, voip_result, disposable_result, reputation_result):
+    risk = {
+        "overall_risk": "low",
+        "risk_score": 0,
+        "risk_factors": [],
+        "trust_indicators": [],
+        "recommendations": [],
+    }
+    ntype = phonenumbers.number_type(parsed) if HAS_PHONENUMBERS else None
+    region = phonenumbers.region_code_for_number(parsed) if HAS_PHONENUMBERS else None
+    if ntype == PhoneNumberType.VOIP:
+        risk["risk_score"] += 15
+        risk["risk_factors"].append("VoIP number - can be created anonymously without identity verification")
+        risk["recommendations"].append("Request alternative contact method for verification")
+    elif ntype == PhoneNumberType.TOLL_FREE:
+        risk["risk_score"] += 10
+        risk["risk_factors"].append("Toll-free number - commonly used by businesses but also by scammers")
+    elif ntype == PhoneNumberType.PREMIUM_RATE:
+        risk["risk_score"] += 30
+        risk["risk_factors"].append("Premium rate number - calling this number will incur charges")
+        risk["recommendations"].append("CAUTION: Do not call back - premium rate charges apply")
+    elif ntype == PhoneNumberType.MOBILE:
+        risk["trust_indicators"].append("Mobile number - likely registered with carrier identity verification")
+        if region and region in COUNTRY_DIAL_INFO:
+            if COUNTRY_DIAL_INFO[region].get("sim_registration"):
+                risk["trust_indicators"].append(f"SIM registration required in {region} - identity linked to number")
+                risk["risk_score"] -= 5
+    elif ntype == PhoneNumberType.FIXED_LINE:
+        risk["trust_indicators"].append("Fixed line number - associated with physical location")
+        risk["risk_score"] -= 10
+    if voip_result and voip_result.get("likely_voip"):
+        risk["risk_score"] += 10
+        risk["risk_factors"].append(f"VoIP detection confidence: {voip_result.get('voip_confidence', 0)}%")
+    if disposable_result and disposable_result.get("likely_disposable"):
+        risk["risk_score"] += 30
+        risk["risk_factors"].append("Potentially disposable/temporary number")
+        risk["recommendations"].append("This number may be temporary and could become inactive soon")
+    if reputation_result:
+        rep_score = reputation_result.get("reputation_score")
+        if rep_score is not None:
+            if rep_score <= 20:
+                risk["risk_score"] += 40
+                risk["risk_factors"].append(f"Very poor reputation score: {rep_score}/100")
+                risk["recommendations"].append("Number reported as dangerous by multiple sources - exercise extreme caution")
+            elif rep_score <= 40:
+                risk["risk_score"] += 30
+                risk["risk_factors"].append(f"Poor reputation score: {rep_score}/100")
+                risk["recommendations"].append("Number has significant spam/scam reports")
+            elif rep_score <= 60:
+                risk["risk_score"] += 15
+                risk["risk_factors"].append(f"Suspicious reputation score: {rep_score}/100")
+            elif rep_score >= 80:
+                risk["trust_indicators"].append(f"Good reputation score: {rep_score}/100")
+                risk["risk_score"] -= 5
+    if carrier_name:
+        risk["trust_indicators"].append(f"Carrier identified: {carrier_name}")
+    else:
+        risk["risk_score"] += 5
+        risk["risk_factors"].append("Carrier could not be identified - potentially anonymized")
+    nsn = phonenumbers.national_significant_number(parsed) if HAS_PHONENUMBERS else ""
+    entropy = _shannon_entropy(nsn)
+    if entropy < 1.5 and len(nsn) >= 7:
+        risk["risk_score"] += 10
+        risk["risk_factors"].append(f"Low digit entropy ({entropy}) - unusual/synthetic pattern")
+    elif entropy > 3.2 and len(nsn) >= 7:
+        risk["trust_indicators"].append(f"Normal digit entropy ({entropy}) - natural number pattern")
+    risk["risk_score"] = max(0, min(100, risk["risk_score"]))
+    if risk["risk_score"] >= 70:
+        risk["overall_risk"] = "critical"
+    elif risk["risk_score"] >= 50:
+        risk["overall_risk"] = "high"
+    elif risk["risk_score"] >= 35:
+        risk["overall_risk"] = "medium"
+    elif risk["risk_score"] >= 15:
+        risk["overall_risk"] = "low-medium"
+    else:
+        risk["overall_risk"] = "low"
+    return risk
+
+
+def _generate_report_hash(phone_number):
+    timestamp = datetime.now(timezone.utc).isoformat()
+    data = f"{phone_number}:{timestamp}:{os.getpid()}"
+    return _sha256(data)[:16]
+
+
+def _print_section(title, width=72):
+    print(f"\n{'─' * width}")
+    print(f"  {title}")
+    print(f"{'─' * width}")
+
+
+def _print_kv(key, value, indent=4):
+    prefix = " " * indent
+    if value is None or value == "" or value == "Unknown":
+        print(f"{prefix}{key}: N/A")
+    elif isinstance(value, bool):
+        print(f"{prefix}{key}: {'Yes' if value else 'No'}")
+    elif isinstance(value, dict):
+        print(f"{prefix}{key}:")
+        for k, v in value.items():
+            _print_kv(k, v, indent + 4)
+    elif isinstance(value, list):
+        if not value:
+            print(f"{prefix}{key}: (empty)")
+        elif len(value) == 1:
+            if isinstance(value[0], dict):
+                print(f"{prefix}{key}:")
+                print(f"{prefix}    [1]")
+                for k, v in value[0].items():
+                    _print_kv(k, v, indent + 8)
+            else:
+                print(f"{prefix}{key}: {value[0]}")
+        else:
+            print(f"{prefix}{key}:")
+            for i, item in enumerate(value, 1):
+                if isinstance(item, dict):
+                    print(f"{prefix}    [{i}]")
+                    for k, v in item.items():
+                        _print_kv(k, v, indent + 8)
+                else:
+                    print(f"{prefix}    [{i}] {item}")
+    else:
+        print(f"{prefix}{key}: {value}")
+
+
+def _print_results(phone_number, results, output_format="text"):
+    if output_format == "json":
+        print(json.dumps(results, indent=2, default=str, ensure_ascii=False))
+        return
+    w = 72
+    print(f"\n{'═' * w}")
+    print(f"  ph000enix v{results.get('tool_version', '4.x')} - Phone Number Intelligence Report")
+    print(f"{'═' * w}")
+    print(f"    Target: {phone_number}")
+    print(f"    Report ID: {results.get('report_id', 'N/A')}")
+    print(f"    Generated: {results.get('timestamp', 'N/A')}")
+    scan_count = sum(1 for k, v in results.items() if k not in ("target", "report_id", "timestamp", "tool_version") and v)
+    print(f"    Modules Executed: {scan_count}")
+    print(f"{'═' * w}")
+    if "validation" in results and results["validation"]:
+        _print_section("VALIDATION & NUMBER PROPERTIES")
+        v = results["validation"]
+        _print_kv("Valid Number", v.get("is_valid"))
+        _print_kv("Possible Number", v.get("is_possible"))
+        _print_kv("Valid for Region", v.get("is_valid_for_region"))
+        _print_kv("Validation Reason", v.get("validation_reason"))
+        _print_kv("Number Type", v.get("number_type"))
+        _print_kv("NSN Length", v.get("nsn_length"))
+        _print_kv("Expected NSN Length", v.get("expected_nsn_length"))
+        _print_kv("Has Leading Zero", v.get("has_leading_zero"))
+        _print_kv("Can Be Internationally Dialed", v.get("can_be_internationally_dialed"))
+        _print_kv("Example for Type", v.get("example_for_type"))
+    if "formats" in results and results["formats"]:
+        _print_section("NUMBER FORMATS")
+        f = results["formats"]
+        for fmt_name, fmt_val in f.items():
+            _print_kv(fmt_name.upper(), fmt_val)
+    if "international_dialing" in results and results["international_dialing"]:
+        _print_section("INTERNATIONAL DIALING FORMATS")
+        for name, dial_str in list(results["international_dialing"].items())[:15]:
+            _print_kv(name.replace("dial_from_", "From "), dial_str)
+    if "country_info" in results and results["country_info"]:
+        _print_section("COUNTRY & REGION INTELLIGENCE")
+        c = results["country_info"]
+        _print_kv("Country Code", c.get("country_code"))
+        _print_kv("Region Code", c.get("region_code"))
+        _print_kv("Country Name", c.get("country_name"))
+        _print_kv("All Regions for Code", c.get("all_regions_for_code"))
+        if "dial_info" in c:
+            di = c["dial_info"]
+            _print_kv("Emergency Number", di.get("emergency"))
+            _print_kv("Exit Code", di.get("exit_code"))
+            _print_kv("Trunk Prefix", di.get("trunk"))
+            _print_kv("Regulatory Authority", di.get("reg_authority"))
+            _print_kv("Numbering Plan", di.get("numbering_plan"))
+            _print_kv("SIM Registration Required", di.get("sim_registration"))
+            _print_kv("Number Portability", di.get("number_portability"))
+        if "carrier_landscape" in c:
+            _print_kv("Major Carriers", c["carrier_landscape"].get("major_carriers"))
+            _print_kv("MVNO Carriers", c["carrier_landscape"].get("mvno_carriers"))
+    if "geo" in results and results["geo"]:
+        _print_section("GEOLOCATION (Multi-Language)")
+        for lang, desc in results["geo"].items():
+            _print_kv(f"Location [{lang}]", desc)
+    if "carrier" in results and results["carrier"]:
+        _print_section("CARRIER INFORMATION")
+        for lang, c_name in results["carrier"].items():
+            _print_kv(f"Carrier [{lang}]", c_name)
+    if "carrier_prefix" in results and results["carrier_prefix"]:
+        cp = results["carrier_prefix"]
+        if cp.get("carrier_from_prefix"):
+            _print_kv("Prefix-Based Carrier", f"{cp['carrier_from_prefix']} (prefix: {cp.get('prefix_match', '?')})")
+    if "timezone" in results and results["timezone"]:
+        _print_section("TIMEZONE & LOCAL TIME")
+        tz = results["timezone"]
+        _print_kv("Timezones", tz.get("timezones"))
+        _print_kv("UTC Offsets", tz.get("utc_offsets"))
+        if tz.get("current_times"):
+            for ct in tz["current_times"]:
+                _print_kv(f"Local Time ({ct['timezone']})", f"{ct['time']} {ct.get('day_of_week', '')} (DST: {ct['dst_active']})")
+        if tz.get("business_hours"):
+            for bh in tz["business_hours"]:
+                _print_kv(f"Availability ({bh['timezone']})", f"{bh['status'].upper()} (hour: {bh['local_hour']})")
+    if "pattern_analysis" in results and results["pattern_analysis"]:
+        _print_section("NUMBER PATTERN ANALYSIS")
+        p = results["pattern_analysis"]
+        _print_kv("National Number", p.get("national_number"))
+        _print_kv("Digit Count", p.get("digit_count"))
+        _print_kv("Entropy", p.get("entropy"))
+        _print_kv("Unique Digits", p.get("unique_digits"))
+        _print_kv("Complexity Score", p.get("complexity_score"))
+        _print_kv("Digit Sum", p.get("digit_sum"))
+        _print_kv("Sequential", p.get("is_sequential"))
+        _print_kv("Repeating", p.get("is_repeating"))
+        _print_kv("Palindrome", p.get("is_palindrome"))
+        _print_kv("Vanity Potential", p.get("vanity_potential"))
+        _print_kv("Max Consecutive Repeat", p.get("max_consecutive_repeat"))
+        _print_kv("Digit Frequency", p.get("digit_frequency"))
+    if "voip_detection" in results and results["voip_detection"]:
+        _print_section("VoIP DETECTION")
+        vd = results["voip_detection"]
+        _print_kv("Likely VoIP", vd.get("likely_voip"))
+        _print_kv("VoIP Confidence", f"{vd.get('voip_confidence', 0)}%")
+        if vd.get("indicators"):
+            _print_kv("Indicators", vd["indicators"])
+    if "disposable_check" in results and results["disposable_check"]:
+        _print_section("DISPOSABLE NUMBER CHECK")
+        dc = results["disposable_check"]
+        _print_kv("Likely Disposable", dc.get("likely_disposable"))
+        _print_kv("Confidence", f"{dc.get('confidence', 0)}%")
+        if dc.get("indicators"):
+            _print_kv("Indicators", dc["indicators"])
+    if "hlr_simulation" in results and results["hlr_simulation"]:
+        _print_section("HLR / NETWORK SIMULATION")
+        h = results["hlr_simulation"]
+        _print_kv("MCC", h.get("mcc"))
+        _print_kv("MNC", h.get("mnc"))
+        _print_kv("Network Name", h.get("network_name"))
+        _print_kv("Number Portability", h.get("number_portability"))
+        _print_kv("Roaming Status", h.get("roaming_status"))
+        _print_kv("Network Generation", h.get("network_generation"))
+    if "number_age" in results and results["number_age"]:
+        _print_section("NUMBER AGE ESTIMATION")
+        na = results["number_age"]
+        _print_kv("Estimated Era", na.get("estimated_allocation_era"))
+        _print_kv("Confidence", na.get("confidence"))
+        if na.get("analysis"):
+            _print_kv("Analysis", na["analysis"])
+    if "messaging_platforms" in results and results["messaging_platforms"]:
+        _print_section("MESSAGING PLATFORM COMPATIBILITY")
+        mp = results["messaging_platforms"]
+        for platform, info in mp.items():
+            if isinstance(info, dict):
+                status = "Possible" if info.get("possible") else "Unlikely"
+                check_url = info.get("check_url", "")
+                if check_url:
+                    _print_kv(platform.upper(), f"{status} | {check_url}")
+                else:
+                    _print_kv(platform.upper(), status)
+    if "whatsapp_check" in results and results["whatsapp_check"]:
+        _print_section("WHATSAPP LINK CHECK")
+        wa = results["whatsapp_check"]
+        _print_kv("WA.me Reachable", wa.get("wa_me_reachable"))
+        _print_kv("Likely Registered", wa.get("likely_registered"))
+        _print_kv("Direct Link", wa.get("direct_link"))
+        _print_kv("API Link", wa.get("api_link"))
+    if "reputation" in results and results["reputation"]:
+        _print_section("REPUTATION & SPAM ANALYSIS")
+        rep = results["reputation"]
+        _print_kv("Reputation Score", f"{rep.get('reputation_score', 'N/A')}/100")
+        _print_kv("Overall Sentiment", rep.get("overall_sentiment", "").upper())
+        if rep.get("sources_checked"):
+            for src in rep["sources_checked"]:
+                print(f"\n    --- {src.get('source', 'Unknown')} ---")
+                _print_kv("Status", src.get("status"), 6)
+                for key in ["rating", "scam_detection", "number_type", "solution", "score", "rating_text", "caller_type", "numeric_score"]:
+                    if src.get(key):
+                        _print_kv(key.replace("_", " ").title(), src[key], 6)
+                if src.get("comments"):
+                    for ci, comment in enumerate(src["comments"][:5], 1):
+                        _print_kv(f"Comment {ci}", comment[:200], 6)
+    if "risk_assessment" in results and results["risk_assessment"]:
+        _print_section("RISK ASSESSMENT")
+        ra = results["risk_assessment"]
+        _print_kv("Overall Risk", ra.get("overall_risk", "unknown").upper())
+        _print_kv("Risk Score", f"{ra.get('risk_score', 0)}/100")
+        if ra.get("risk_factors"):
+            _print_kv("Risk Factors", ra["risk_factors"])
+        if ra.get("trust_indicators"):
+            _print_kv("Trust Indicators", ra["trust_indicators"])
+        if ra.get("recommendations"):
+            _print_kv("Recommendations", ra["recommendations"])
+    if "web_links" in results and results["web_links"]:
+        _print_section("WEB PRESENCE (DuckDuckGo)")
+        for i, link in enumerate(results["web_links"][:20], 1):
+            title = link.get("title", "")
+            url = link.get("url", "")
+            domain = link.get("domain", "")
+            print(f"    [{i:02d}] {title}")
+            print(f"         {url}")
+            if domain:
+                print(f"         [{domain}]")
+    if "search_dorks" in results and results["search_dorks"]:
+        _print_section("SEARCH ENGINE DORK URLS")
+        sd = results["search_dorks"]
+        for engine in ["google", "duckduckgo", "bing", "yandex", "brave", "startpage"]:
+            if sd.get(engine):
+                _print_kv(engine.title(), sd[engine])
+        if sd.get("number_variants"):
+            _print_kv("Search Variants", sd["number_variants"])
+        if sd.get("advanced_dorks"):
+            print(f"\n    --- Advanced Dorks ---")
+            for name, url in sd["advanced_dorks"].items():
+                _print_kv(name.replace("_", " ").title(), url, 6)
+    if "reverse_lookup" in results and results["reverse_lookup"]:
+        _print_section("REVERSE LOOKUP URLS")
+        for name, url in results["reverse_lookup"].items():
+            _print_kv(name, url)
+    if "social_media_urls" in results and results["social_media_urls"]:
+        _print_section("SOCIAL MEDIA PROFILE URLS")
+        for name, url in results["social_media_urls"].items():
+            _print_kv(name, url)
+    if "breach_search_urls" in results and results["breach_search_urls"]:
+        _print_section("DATA BREACH SEARCH URLS")
+        for name, url in results["breach_search_urls"].items():
+            _print_kv(name, url)
+    if "osint_framework" in results and results["osint_framework"]:
+        _print_section("OSINT FRAMEWORK URLS")
+        for name, url in results["osint_framework"].items():
+            _print_kv(name, url)
+    if "dorking_targets" in results and results["dorking_targets"]:
+        _print_section("ADVANCED DORKING TARGETS")
+        for dt in results["dorking_targets"][:15]:
+            _print_kv(f"[{dt.get('category')}] {dt.get('site')}", dt.get("search_url"))
+    if "api_results" in results and results["api_results"]:
+        _print_section("EXTERNAL API RESULTS")
+        for api_name, api_data in results["api_results"].items():
+            print(f"\n    --- {api_name} ---")
+            if isinstance(api_data, dict):
+                for k, v in api_data.items():
+                    _print_kv(k, v, 6)
+            else:
+                _print_kv("Result", api_data, 6)
+    print(f"\n{'═' * w}")
+    print(f"  ph000enix - Investigation Complete")
+    print(f"{'═' * w}\n")
+
+
+async def main():
+    if not HAS_PHONENUMBERS:
+        print("[FATAL] phonenumbers library is required. Install: pip install phonenumbers")
+        sys.exit(1)
+
+    parser = argparse.ArgumentParser(
+        description="ph000enix - Phone Number Intelligence Tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Example: ph000enix -n +14155552671 --full-scan\n"
+               "         ph000enix -n +905551234567 --no-web --json\n"
+               "         ph000enix -n +442071234567 --no-reputation --delay 1.5\n"
+               "         ph000enix -n +14155552671 --save report.json"
+    )
+    parser.add_argument("-n", "--number", required=True, help="Phone number with country code (e.g. +14155552671)")
+    parser.add_argument("--json", action="store_true", help="Output results in JSON format")
+    parser.add_argument("--full-scan", action="store_true", help="Enable all scan modules including web lookups")
+    parser.add_argument("--no-web", action="store_true", help="Skip web-based lookups (DuckDuckGo, reputation)")
+    parser.add_argument("--no-reputation", action="store_true", help="Skip reputation/spam database checks")
+    parser.add_argument("--no-links", action="store_true", help="Skip web link discovery")
+    parser.add_argument("--no-dorks", action="store_true", help="Skip search engine dork generation")
+    parser.add_argument("--no-social", action="store_true", help="Skip social media URL generation")
+    parser.add_argument("--no-breach", action="store_true", help="Skip breach search URL generation")
+    parser.add_argument("--no-reverse", action="store_true", help="Skip reverse lookup URL generation")
+    parser.add_argument("--no-messaging", action="store_true", help="Skip messaging platform analysis")
+    parser.add_argument("--no-hlr", action="store_true", help="Skip HLR simulation")
+    parser.add_argument("--no-risk", action="store_true", help="Skip risk assessment")
+    parser.add_argument("--no-osint", action="store_true", help="Skip OSINT framework URL generation")
+    parser.add_argument("--no-whatsapp", action="store_true", help="Skip WhatsApp link check")
+    parser.add_argument("--no-dialing", action="store_true", help="Skip international dialing format generation")
+    parser.add_argument("--numverify-key", default=None, help="API key for numverify.com lookup")
+    parser.add_argument("--abstractapi-key", default=None, help="API key for abstractapi.com phone validation")
+    parser.add_argument("--veriphone-key", default=None, help="API key for veriphone.io lookup")
+    parser.add_argument("--delay", type=float, default=1.0, help="Delay between web requests in seconds (default: 1.0)")
+    parser.add_argument("--timeout", type=int, default=12, help="HTTP request timeout in seconds (default: 12)")
+    parser.add_argument("--save", default=None, help="Save JSON results to specified file path")
+
+    args = parser.parse_args()
+    phone_number = args.number.strip()
+
+    if not phone_number.startswith("+"):
+        print("[ERROR] Phone number must start with + and include country code (e.g. +14155552671)")
+        sys.exit(1)
+
+    parsed = _parse_number(phone_number)
+    if not parsed:
+        print(f"[ERROR] Cannot parse phone number: {phone_number}")
+        sys.exit(1)
+
+    if not phonenumbers.is_possible_number(parsed):
+        print(f"[WARNING] Number may not be valid: {phone_number}")
+
+    if not args.json:
+        print(f"\n[*] ph000enix v4.1.0 - Starting intelligence gathering for {phone_number}")
+        print(f"[*] Timestamp: {datetime.now(timezone.utc).isoformat()}")
+
+    results = {
+        "target": phone_number,
+        "report_id": _generate_report_hash(phone_number),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tool_version": "4.1.0",
+    }
+
+    if not args.json:
+        print("[*] Running deep validation...")
+    results["validation"] = _deep_validation(parsed)
+
+    if not args.json:
+        print("[*] Generating number formats...")
+    results["formats"] = _get_all_formats(parsed)
+
+    if not args.no_dialing:
+        if not args.json:
+            print("[*] Generating international dialing formats...")
+        results["international_dialing"] = _get_international_dialing_formats(parsed)
+
+    if not args.json:
+        print("[*] Gathering country intelligence...")
+    results["country_info"] = _get_country_code_info(parsed)
+
+    if not args.json:
+        print("[*] Resolving geolocation data...")
+    results["geo"] = _get_geo_info(parsed)
+
+    if not args.json:
+        print("[*] Identifying carrier information...")
+    results["carrier"] = _get_carrier_info(parsed)
+    carrier_en = results["carrier"].get("en", "")
+
+    if not args.json:
+        print("[*] Matching carrier prefix database...")
+    results["carrier_prefix"] = _get_carrier_prefix_info(parsed)
+
+    if not args.json:
+        print("[*] Resolving timezone data...")
+    results["timezone"] = _get_timezone_info(parsed)
+
+    if not args.json:
+        print("[*] Analyzing number patterns...")
+    results["pattern_analysis"] = _number_pattern_analysis(parsed)
+
+    if not args.json:
+        print("[*] Running VoIP detection...")
+    results["voip_detection"] = _voip_detection(parsed, carrier_en)
+
+    if not args.json:
+        print("[*] Checking disposable number indicators...")
+    results["disposable_check"] = _disposable_number_check(parsed, carrier_en)
+
+    if not args.no_hlr:
+        if not args.json:
+            print("[*] Running HLR simulation...")
+        results["hlr_simulation"] = _hlr_simulation(parsed)
+
+    if not args.json:
+        print("[*] Estimating number age...")
+    results["number_age"] = _number_age_estimation(parsed)
+
+    region = phonenumbers.region_code_for_number(parsed)
+
+    if not args.no_messaging:
+        if not args.json:
+            print("[*] Analyzing messaging platform compatibility...")
+        results["messaging_platforms"] = _messaging_platform_analysis(parsed, region)
+
+    if not args.no_whatsapp and not args.no_web:
+        if not args.json:
+            print("[*] Checking WhatsApp link availability...")
+        results["whatsapp_check"] = _whatsapp_link_check(parsed)
+        await asyncio.sleep(args.delay * 0.5)
+
+    if not args.no_web and not args.no_reputation:
+        if not args.json:
+            print("[*] Checking reputation databases (concurrent)...")
+        results["reputation"] = _web_reputation_check(phone_number, parsed, timeout=args.timeout)
+        await asyncio.sleep(args.delay)
+
+    if not args.no_risk:
+        if not args.json:
+            print("[*] Performing risk assessment...")
+        results["risk_assessment"] = _risk_assessment(
+            parsed, carrier_en,
+            results.get("voip_detection", {}),
+            results.get("disposable_check", {}),
+            results.get("reputation", {})
+        )
+
+    if not args.no_web and not args.no_links:
+        if not args.json:
+            print("[*] Discovering web presence...")
+        results["web_links"] = _duckduckgo_links(phone_number, parsed)
+        await asyncio.sleep(args.delay)
+
+    if not args.no_dorks:
+        if not args.json:
+            print("[*] Generating search engine dorks...")
+        results["search_dorks"] = _search_engine_dork(phone_number, parsed)
+
+    if not args.no_reverse:
+        if not args.json:
+            print("[*] Generating reverse lookup URLs...")
+        results["reverse_lookup"] = _reverse_lookup_urls(parsed)
+
+    if not args.no_social:
+        if not args.json:
+            print("[*] Generating social media profile URLs...")
+        results["social_media_urls"] = _social_media_profile_urls(parsed)
+
+    if not args.no_breach:
+        if not args.json:
+            print("[*] Generating breach search URLs...")
+        results["breach_search_urls"] = _data_breach_search_urls(parsed)
+
+    if not args.no_osint:
+        if not args.json:
+            print("[*] Generating OSINT framework URLs...")
+        results["osint_framework"] = _osint_framework_urls(parsed)
+
+    if args.full_scan or args.numverify_key or args.abstractapi_key or args.veriphone_key:
+        if not args.json:
+            print("[*] Generating advanced dorking targets...")
+        results["dorking_targets"] = _google_dorking_results(phone_number, parsed)
+
+    results["api_results"] = {}
+
+    if args.numverify_key:
+        if not args.json:
+            print("[*] Querying numverify API...")
+        nv = _numverify_check(phone_number, args.numverify_key)
+        if nv:
+            results["api_results"]["numverify"] = nv
+
+    if args.abstractapi_key:
+        if not args.json:
+            print("[*] Querying AbstractAPI...")
+        aa = _abstractapi_check(phone_number, args.abstractapi_key)
+        if aa:
+            results["api_results"]["abstractapi"] = aa
+
+    if args.veriphone_key:
+        if not args.json:
+            print("[*] Querying Veriphone API...")
+        vp = _veriphone_check(phone_number, args.veriphone_key)
+        if vp:
+            results["api_results"]["veriphone"] = vp
+
+    if not results["api_results"]:
+        del results["api_results"]
+
+    _print_results(phone_number, results, "json" if args.json else "text")
+
+    if args.save:
+        try:
+            save_dir = os.path.dirname(args.save)
+            if save_dir and not os.path.exists(save_dir):
+                os.makedirs(save_dir, exist_ok=True)
+            with open(args.save, "w", encoding="utf-8") as f:
+                json.dump(results, f, indent=2, default=str, ensure_ascii=False)
+            if not args.json:
+                print(f"[*] Results saved to: {args.save}")
+        except Exception as e:
+            print(f"[ERROR] Failed to save results: {e}")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n[!] Investigation interrupted by user.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n[ERROR] Unexpected error: {e}")
+        sys.exit(1)

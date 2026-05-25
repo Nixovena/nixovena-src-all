@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=5piderx
+Comment=OSINT Framework
+Comment[tr]=OSINT Çerçevesi
+Comment[es]=Marco OSINT
+Comment[fr]=Cadre OSINT
+Comment[de]=OSINT-Rahmenwerk
+Comment[ar]=إطار عمل OSINT
+Comment[ru]=Фреймворк OSINT
+Comment[zh]=OSINT框架
+Comment[ja]=OSINTフレームワーク
+Comment[ko]=OSINT 프레임워크
+Comment[pt]=Estrutura OSINT
+Comment[it]=Framework OSINT
+Comment[nl]=OSINT-kader
+Comment[sv]=OSINT ramverk
+Comment[pl]=Platforma OSINT
+Exec=mate-terminal -- bash -c "5piderx; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/5piderx.png
+Categories=Frameworks;
+StartupNotify=false

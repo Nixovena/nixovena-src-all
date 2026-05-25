@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Binwalk
+Comment=LengToolkit - binwalk
+Exec=mate-terminal -- bash -c "binwalk; exec bash"
+Icon=/usr/share/icons/lengtoolkit/binwalk.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

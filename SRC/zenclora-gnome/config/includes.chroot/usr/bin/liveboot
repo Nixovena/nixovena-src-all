@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Check the filesystem type of root
+if grep -q overlay /proc/mounts; then
+    echo "Running on a live system. Applying GNOME-only power settings..."
+
+    # Disable screensaver and lock
+    gsettings set org.gnome.desktop.screensaver lock-enabled false
+    gsettings set org.gnome.desktop.screensaver idle-activation-enabled false
+    gsettings set org.gnome.desktop.session idle-delay 0
+    gsettings set org.gnome.desktop.lockdown disable-lock-screen true
+
+    # Disable display sleep and dimming
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-display-ac 0
+    gsettings set org.gnome.settings-daemon.plugins.power sleep-display-battery 0
+    gsettings set org.gnome.settings-daemon.plugins.power idle-dim false
+
+else
+    echo "Not running on a live system. Exiting..."
+    exit 0
+fi

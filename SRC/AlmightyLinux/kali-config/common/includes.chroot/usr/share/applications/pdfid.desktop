@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=PDFid
+Comment=Quickly detect suspicious elements in PDF files (static)
+Comment[tr]=PDF dosyalarında şüpheli öğeleri hızlıca tespit eder (statik)
+Comment[es]=Detecta rápidamente elementos sospechosos en PDFs (estático)
+Comment[fr]=Détecte rapidement les éléments suspects dans les PDF (statique)
+Comment[de]=Findet schnell verdächtige Elemente in PDF-Dateien (statisch)
+Comment[ar]=يكتشف بسرعة العناصر المشبوهة في ملفات PDF (ثابت)
+Comment[ru]=Быстро обнаруживает подозрительные элементы в PDF (статический)
+Comment[zh]=快速检测 PDF 文件中的可疑元素（静态）
+Comment[ja]=PDF ファイルの疑わしい要素を素早く検出します（静的）
+Comment[ko]=PDF 파일의 의심스러운 요소를 빠르게 감지합니다 (정적)
+Comment[pt]=Detecta rapidamente elementos suspeitos em PDFs (estático)
+Comment[it]=Individua rapidamente elementi sospetti nei PDF (statico)
+Comment[nl]=Detecteert snel verdachte elementen in PDF-bestanden (statisch)
+Comment[sv]=Upptäcker snabbt misstänkta element i PDF-filer (statisk)
+Comment[pl]=Szybko wykrywa podejrzane elementy w plikach PDF (statyczny)
+Exec=mate-terminal -- bash -c "pdfid -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Analysis;
+StartupNotify=false

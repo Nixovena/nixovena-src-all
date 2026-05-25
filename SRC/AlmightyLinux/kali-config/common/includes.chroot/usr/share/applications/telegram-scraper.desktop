@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=telegram-scraper
+Comment=Telegram reconnaissance and rapid information gathering utility
+Comment[tr]=Telegram keşif ve hızlı bilgi toplama aracı
+Comment[es]=Utilidad de reconocimiento de Telegram y recopilación rápida de información
+Comment[fr]=Utilitaire de reconnaissance Telegram et de collecte rapide d'informations
+Comment[de]=Telegram-Reconnaissance- und schnelles Informationsbeschaffungshilfsprogramm
+Comment[ar]=أداة كشف تيليغرام وجمع المعلومات السريعة
+Comment[ru]=Инструмент разведки Telegram и быстрого сбора информации
+Comment[zh]=电报侦察和快速信息收集工具
+Comment[ja]=Telegram偵察および迅速な情報収集ユーティリティ
+Comment[ko]=텔레그램 정찰 및 빠른 정보 수집 유틸리티
+Comment[pt]=Utilitário de reconhecimento do Telegram e coleta rápida de informações
+Comment[it]=Utilità di ricognizione di Telegram e raccolta rapida di informazioni
+Comment[nl]=Telegram-verkennings- en snelle informatieverzamelingshulpprogramma
+Comment[sv]=Telegram-rekognoserings- och snabb informationsinsamlingsverktyg
+Comment[pl]=Narzędzie do rozpoznania Telegram i szybkiego zbierania informacji
+Exec=mate-terminal -- bash -c "telegram-scraper; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false

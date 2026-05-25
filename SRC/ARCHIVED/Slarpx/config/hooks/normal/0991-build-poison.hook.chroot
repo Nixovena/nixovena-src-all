@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+
+# Compile POISON - Timing Disruption Engine with security hardening flags
+echo "Compiling POISON Engine..."
+
+if command -v gcc >/dev/null 2>&1; then
+    gcc -O2 -Wall -Wextra -Werror=format-security -Werror=implicit-function-declaration \
+        -D_FORTIFY_SOURCE=2 \
+        -fstack-protector-strong -fPIE \
+        -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack \
+        -pie \
+        -pthread \
+        -o /usr/bin/poison /usr/src/poison/poison.c
+    chmod 755 /usr/bin/poison
+    echo "POISON Engine compiled and installed to /usr/bin/poison"
+else
+    echo "ERROR: GCC not found. Cannot compile POISON Engine."
+    exit 1
+fi

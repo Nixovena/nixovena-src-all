@@ -1,0 +1,13 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - secure-delete Helper"
+echo "--------------------------------------------------------"
+echo "This package provides advanced secure deletion tools:"
+echo ""
+echo "  sudo srm <file>      : Secure remove (delete files)"
+echo "  sudo sfill <mount>   : Secure fill (wipe free space)"
+echo "  sudo sswap <device>  : Secure swap (wipe swap partition)"
+echo "  sudo smem            : Secure mem (wipe RAM/memory)"
+echo ""
+echo "Example: sudo srm -v -z secret.txt"
+echo "--------------------------------------------------------"

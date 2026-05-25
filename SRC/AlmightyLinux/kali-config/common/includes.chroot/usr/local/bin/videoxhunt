@@ -1,0 +1,684 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import re
+import json
+import hashlib
+import struct
+import subprocess
+import shutil
+import argparse
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, Dict, List
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] Requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+sys.dont_write_bytecode = True
+
+VERSION = "1.0.0"
+REPORT_DIR = os.path.expanduser("~/.vidanalyz/reports")
+
+VIDEO_EXTENSIONS = frozenset({
+    ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm",
+    ".m4v", ".mpg", ".mpeg", ".3gp", ".ts", ".m2ts", ".vob",
+    ".ogv", ".rm", ".rmvb", ".asf", ".divx",
+})
+
+
+class C:
+    RST = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"
+    RED = "\033[38;2;255;85;85m"; GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"; BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"; PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"; CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"; GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color, text):
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = f"""
+   {C.GRAY}v{VERSION} videoxhunt - Video Forensics & Metadata Analysis{C.RST}
+   {C.GRAY}Developed by emka'thas{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+MAGIC_SIGNATURES = {
+    b'\x00\x00\x00\x18ftypmp4':  "MP4 (ftyp mp4)",
+    b'\x00\x00\x00\x1cftypmp4':  "MP4 (ftyp mp4)",
+    b'\x00\x00\x00\x18ftypisom': "MP4 (ftyp isom)",
+    b'\x00\x00\x00\x1cftypisom': "MP4 (ftyp isom)",
+    b'\x00\x00\x00\x18ftypM4V':  "M4V (Apple)",
+    b'\x00\x00\x00\x20ftyp':     "MP4/MOV (ftyp)",
+    b'\x1aE\xdf\xa3':            "MKV/WebM (Matroska)",
+    b'RIFF':                     "AVI (RIFF)",
+    b'\x00\x00\x01\xba':        "MPEG-PS",
+    b'\x00\x00\x01\xb3':        "MPEG-1/2",
+    b'\x47':                     "MPEG-TS (possible)",
+    b'FLV\x01':                  "FLV (Flash Video)",
+    b'\x1a\x45\xdf\xa3':        "WebM/MKV",
+    b'OggS':                     "OGG/OGV",
+}
+
+
+class Log:
+    @staticmethod
+    def info(msg): print(f"  {C.BLUE}[*]{C.RST} {msg}")
+    @staticmethod
+    def success(msg): print(f"  {C.GREEN}[+]{C.RST} {msg}")
+    @staticmethod
+    def warn(msg): print(f"  {C.YELLOW}[!]{C.RST} {msg}")
+    @staticmethod
+    def error(msg): print(f"  {C.RED}[-]{C.RST} {msg}")
+    @staticmethod
+    def alert(msg): print(f"  {C.RED}[!!]{C.RST} {C.RED}{msg}{C.RST}")
+    @staticmethod
+    def header(title):
+        print(f"\n  {C.PINK}{'=' * 55}{C.RST}")
+        print(f"  {C.PINK}|{C.RST}  {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f"  {C.PINK}{'=' * 55}{C.RST}")
+    @staticmethod
+    def subheader(title): print(f"\n  {C.PURPLE}-- {title} --{C.RST}")
+    @staticmethod
+    def kv(key, value): print(f"  {C.GREEN}[+]{C.RST} {C.BOLD}{key:<28}{C.RST} {C.WHITE}{value}{C.RST}")
+    @staticmethod
+    def detail(key, value):
+        print(f"    {C.GRAY}|-- {C.CYAN}{key}{C.RST}: {value}")
+
+
+def check_ffprobe():
+    return shutil.which("ffprobe")
+
+
+def check_ffmpeg():
+    return shutil.which("ffmpeg")
+
+
+def run_ffprobe(args):
+    ffprobe = check_ffprobe()
+    if not ffprobe:
+        return None
+    try:
+        cmd = [ffprobe] + args
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return result
+    except Exception:
+        return None
+
+
+def run_ffmpeg(args):
+    ffmpeg = check_ffmpeg()
+    if not ffmpeg:
+        return None
+    try:
+        cmd = [ffmpeg] + args
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return result
+    except Exception:
+        return None
+
+
+class FileAnalyzer:
+
+    @staticmethod
+    def get_hashes(path):
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
+        sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                md5.update(chunk)
+                sha1.update(chunk)
+                sha256.update(chunk)
+        return {"md5": md5.hexdigest(), "sha1": sha1.hexdigest(), "sha256": sha256.hexdigest()}
+
+    @staticmethod
+    def check_magic(path):
+        with open(path, "rb") as f:
+            header = f.read(32)
+        for sig, fmt in MAGIC_SIGNATURES.items():
+            if header[:len(sig)] == sig:
+                return fmt, header[:16].hex()
+        if len(header) >= 8 and header[4:8] == b'ftyp':
+            return f"MP4/MOV (ftyp: {header[8:12].decode('ascii', errors='replace')})", header[:16].hex()
+        return "Unknown", header[:16].hex()
+
+    @staticmethod
+    def get_file_info(path):
+        stat = os.stat(path)
+        size = stat.st_size
+        if size < 1024:
+            size_h = f"{size} B"
+        elif size < 1048576:
+            size_h = f"{size / 1024:.2f} KB"
+        elif size < 1073741824:
+            size_h = f"{size / 1048576:.2f} MB"
+        else:
+            size_h = f"{size / 1073741824:.2f} GB"
+        return {
+            "path": str(path),
+            "filename": os.path.basename(path),
+            "size_bytes": size,
+            "size_human": size_h,
+            "extension": Path(path).suffix.lower(),
+            "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+        }
+
+
+class MetadataExtractor:
+
+    @staticmethod
+    def extract(path):
+        result = run_ffprobe([
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            "-show_streams",
+            path
+        ])
+        if not result or result.returncode != 0:
+            return None
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return None
+
+    @staticmethod
+    def extract_tags(path):
+        result = run_ffprobe([
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_entries", "format_tags",
+            path
+        ])
+        if not result or result.returncode != 0:
+            return {}
+        try:
+            data = json.loads(result.stdout)
+            return data.get("format", {}).get("tags", {})
+        except Exception:
+            return {}
+
+
+class GPSExtractor:
+
+    @staticmethod
+    def extract_from_metadata(tags):
+        gps = {}
+        location = tags.get("location") or tags.get("com.apple.quicktime.location.ISO6709") or ""
+        if location:
+            gps["raw_location"] = location
+            match = re.match(r'([+-]\d+\.\d+)([+-]\d+\.\d+)([+-]\d+\.\d+)?', location)
+            if match:
+                lat = float(match.group(1))
+                lon = float(match.group(2))
+                gps["latitude"] = lat
+                gps["longitude"] = lon
+                gps["google_maps"] = f"https://maps.google.com/?q={lat},{lon}"
+                gps["openstreetmap"] = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}&zoom=16"
+                if match.group(3):
+                    gps["altitude_m"] = float(match.group(3))
+        return gps
+
+
+class StreamAnalyzer:
+
+    @staticmethod
+    def analyze_streams(probe_data):
+        if not probe_data:
+            return [], []
+        video_streams = []
+        audio_streams = []
+        subtitle_streams = []
+
+        for stream in probe_data.get("streams", []):
+            codec_type = stream.get("codec_type", "")
+
+            if codec_type == "video":
+                vs = {
+                    "index": stream.get("index"),
+                    "codec": stream.get("codec_name", "?"),
+                    "codec_long": stream.get("codec_long_name", ""),
+                    "profile": stream.get("profile", ""),
+                    "width": stream.get("width", 0),
+                    "height": stream.get("height", 0),
+                    "aspect_ratio": stream.get("display_aspect_ratio", ""),
+                    "pixel_format": stream.get("pix_fmt", ""),
+                    "color_space": stream.get("color_space", ""),
+                    "color_range": stream.get("color_range", ""),
+                    "bit_depth": stream.get("bits_per_raw_sample", ""),
+                    "level": stream.get("level", ""),
+                }
+                fps = stream.get("r_frame_rate", "0/1")
+                try:
+                    num, den = fps.split("/")
+                    vs["fps"] = round(int(num) / int(den), 2) if int(den) > 0 else 0
+                except Exception:
+                    vs["fps"] = fps
+                bitrate = stream.get("bit_rate")
+                if bitrate:
+                    vs["bitrate_kbps"] = round(int(bitrate) / 1000)
+                dur = stream.get("duration")
+                if dur:
+                    vs["duration_sec"] = round(float(dur), 2)
+                nb_frames = stream.get("nb_frames")
+                if nb_frames and nb_frames != "N/A":
+                    vs["total_frames"] = int(nb_frames)
+                tags = stream.get("tags", {})
+                if tags.get("rotate"):
+                    vs["rotation"] = tags["rotate"]
+                if tags.get("handler_name"):
+                    vs["handler"] = tags["handler_name"]
+                video_streams.append(vs)
+
+            elif codec_type == "audio":
+                aus = {
+                    "index": stream.get("index"),
+                    "codec": stream.get("codec_name", "?"),
+                    "codec_long": stream.get("codec_long_name", ""),
+                    "sample_rate": stream.get("sample_rate", ""),
+                    "channels": stream.get("channels", 0),
+                    "channel_layout": stream.get("channel_layout", ""),
+                    "sample_format": stream.get("sample_fmt", ""),
+                }
+                bitrate = stream.get("bit_rate")
+                if bitrate:
+                    aus["bitrate_kbps"] = round(int(bitrate) / 1000)
+                tags = stream.get("tags", {})
+                if tags.get("language"):
+                    aus["language"] = tags["language"]
+                if tags.get("title"):
+                    aus["title"] = tags["title"]
+                audio_streams.append(aus)
+
+            elif codec_type == "subtitle":
+                ss = {
+                    "index": stream.get("index"),
+                    "codec": stream.get("codec_name", "?"),
+                }
+                tags = stream.get("tags", {})
+                if tags.get("language"):
+                    ss["language"] = tags["language"]
+                if tags.get("title"):
+                    ss["title"] = tags["title"]
+                subtitle_streams.append(ss)
+
+        return video_streams, audio_streams, subtitle_streams
+
+
+class FrameExtractor:
+
+    @staticmethod
+    def extract_keyframes(video_path, output_dir, max_frames=10):
+        os.makedirs(output_dir, exist_ok=True)
+        result = run_ffmpeg([
+            "-i", video_path,
+            "-vf", f"select=eq(pict_type\\,I)",
+            "-frames:v", str(max_frames),
+            "-vsync", "vfr",
+            "-q:v", "2",
+            os.path.join(output_dir, "keyframe_%03d.jpg"),
+            "-y"
+        ])
+        if result and result.returncode == 0:
+            frames = sorted(Path(output_dir).glob("keyframe_*.jpg"))
+            return [str(f) for f in frames]
+        return []
+
+    @staticmethod
+    def extract_thumbnail(video_path, output_path, timestamp="00:00:02"):
+        result = run_ffmpeg([
+            "-i", video_path,
+            "-ss", timestamp,
+            "-frames:v", "1",
+            "-q:v", "2",
+            output_path,
+            "-y"
+        ])
+        return result and result.returncode == 0
+
+    @staticmethod
+    def extract_frames_interval(video_path, output_dir, interval=10, max_frames=20):
+        os.makedirs(output_dir, exist_ok=True)
+        result = run_ffmpeg([
+            "-i", video_path,
+            "-vf", f"fps=1/{interval}",
+            "-frames:v", str(max_frames),
+            "-q:v", "2",
+            os.path.join(output_dir, "frame_%04d.jpg"),
+            "-y"
+        ])
+        if result and result.returncode == 0:
+            frames = sorted(Path(output_dir).glob("frame_*.jpg"))
+            return [str(f) for f in frames]
+        return []
+
+
+def analyze_video(path):
+    report = {"analysis_time": datetime.now(timezone.utc).isoformat()}
+
+    report["file_info"] = FileAnalyzer.get_file_info(path)
+    magic, header_hex = FileAnalyzer.check_magic(path)
+    report["magic_signature"] = magic
+    report["header_hex"] = header_hex
+    report["hashes"] = FileAnalyzer.get_hashes(path)
+
+    probe_data = MetadataExtractor.extract(path)
+    tags = MetadataExtractor.extract_tags(path)
+
+    if probe_data:
+        fmt = probe_data.get("format", {})
+        report["container"] = {
+            "format": fmt.get("format_name", ""),
+            "format_long": fmt.get("format_long_name", ""),
+            "duration_sec": round(float(fmt.get("duration", 0)), 2),
+            "bitrate_kbps": round(int(fmt.get("bit_rate", 0)) / 1000) if fmt.get("bit_rate") else 0,
+            "nb_streams": int(fmt.get("nb_streams", 0)),
+        }
+        dur = float(fmt.get("duration", 0))
+        mins, secs = divmod(int(dur), 60)
+        hrs, mins = divmod(mins, 60)
+        report["container"]["duration_human"] = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+    else:
+        report["container"] = {"error": "ffprobe not available or failed"}
+
+    v, a, s = StreamAnalyzer.analyze_streams(probe_data)
+    report["video_streams"] = v
+    report["audio_streams"] = a
+    report["subtitle_streams"] = s
+
+    report["tags"] = tags
+    report["gps"] = GPSExtractor.extract_from_metadata(tags)
+
+    device_info = {}
+    make_keys = ["com.apple.quicktime.make", "make", "Make"]
+    model_keys = ["com.apple.quicktime.model", "model", "Model"]
+    sw_keys = ["com.apple.quicktime.software", "software", "Software", "encoder", "Encoder"]
+    for k in make_keys:
+        if tags.get(k):
+            device_info["make"] = tags[k]; break
+    for k in model_keys:
+        if tags.get(k):
+            device_info["model"] = tags[k]; break
+    for k in sw_keys:
+        if tags.get(k):
+            device_info["software"] = tags[k]; break
+    if tags.get("creation_time"):
+        device_info["creation_time"] = tags["creation_time"]
+    report["device_info"] = device_info
+
+    return report
+
+
+def print_report(report):
+    Log.header("FILE INFORMATION")
+    fi = report.get("file_info", {})
+    Log.kv("Filename", fi.get("filename", "?"))
+    Log.kv("Size", fi.get("size_human", "?"))
+    Log.kv("Extension", fi.get("extension", "?"))
+    Log.kv("Created", fi.get("created", "?"))
+    Log.kv("Modified", fi.get("modified", "?"))
+    Log.kv("Magic Signature", report.get("magic_signature", "?"))
+    Log.kv("Header (hex)", report.get("header_hex", "?"))
+
+    Log.header("CRYPTOGRAPHIC HASHES")
+    for algo, val in report.get("hashes", {}).items():
+        Log.kv(algo.upper(), val)
+
+    Log.header("CONTAINER FORMAT")
+    ct = report.get("container", {})
+    if "error" not in ct:
+        Log.kv("Format", f"{ct.get('format','')} ({ct.get('format_long','')})")
+        Log.kv("Duration", ct.get("duration_human", "?"))
+        Log.kv("Bitrate", f"{ct.get('bitrate_kbps', 0)} kbps")
+        Log.kv("Streams", str(ct.get("nb_streams", 0)))
+    else:
+        Log.warn("ffprobe not available - install ffmpeg for full analysis")
+
+    for i, vs in enumerate(report.get("video_streams", [])):
+        Log.header(f"VIDEO STREAM #{i}")
+        Log.kv("Codec", f"{vs.get('codec','')} ({vs.get('codec_long','')})")
+        if vs.get("profile"):
+            Log.kv("Profile", vs["profile"])
+        Log.kv("Resolution", f"{vs.get('width')}x{vs.get('height')}")
+        if vs.get("aspect_ratio"):
+            Log.kv("Aspect Ratio", vs["aspect_ratio"])
+        Log.kv("FPS", str(vs.get("fps", "?")))
+        Log.kv("Pixel Format", vs.get("pixel_format", "?"))
+        if vs.get("color_space"):
+            Log.kv("Color Space", vs["color_space"])
+        if vs.get("bit_depth"):
+            Log.kv("Bit Depth", f"{vs['bit_depth']}-bit")
+        if vs.get("bitrate_kbps"):
+            Log.kv("Bitrate", f"{vs['bitrate_kbps']} kbps")
+        if vs.get("total_frames"):
+            Log.kv("Total Frames", f"{vs['total_frames']:,}")
+        if vs.get("rotation"):
+            Log.kv("Rotation", f"{vs['rotation']} degrees")
+
+    for i, aus in enumerate(report.get("audio_streams", [])):
+        Log.header(f"AUDIO STREAM #{i}")
+        Log.kv("Codec", f"{aus.get('codec','')} ({aus.get('codec_long','')})")
+        Log.kv("Sample Rate", f"{aus.get('sample_rate','')} Hz")
+        Log.kv("Channels", f"{aus.get('channels',0)} ({aus.get('channel_layout', '')})")
+        if aus.get("bitrate_kbps"):
+            Log.kv("Bitrate", f"{aus['bitrate_kbps']} kbps")
+        if aus.get("language"):
+            Log.kv("Language", aus["language"])
+
+    subs = report.get("subtitle_streams", [])
+    if subs:
+        Log.header("SUBTITLE STREAMS")
+        for ss in subs:
+            lang = ss.get("language", "unknown")
+            Log.kv(f"Subtitle #{ss.get('index',0)}", f"{ss.get('codec','')} [{lang}]")
+
+    Log.header("DEVICE IDENTIFICATION")
+    dev = report.get("device_info", {})
+    if dev:
+        if dev.get("make"):
+            Log.kv("Make", dev["make"])
+        if dev.get("model"):
+            Log.kv("Model", dev["model"])
+        if dev.get("software"):
+            Log.kv("Software/Encoder", dev["software"])
+        if dev.get("creation_time"):
+            Log.kv("Creation Time", dev["creation_time"])
+    else:
+        Log.warn("No device information found in metadata")
+
+    Log.header("METADATA TAGS")
+    tags = report.get("tags", {})
+    if tags:
+        skip = {"major_brand", "minor_version", "compatible_brands", "encoder"}
+        for k, v in tags.items():
+            if k.lower() not in skip:
+                Log.detail(k, str(v)[:100])
+    else:
+        Log.warn("No metadata tags found")
+
+    Log.header("GPS & GEOLOCATION")
+    gps = report.get("gps", {})
+    if gps and "latitude" in gps:
+        Log.kv("Latitude", str(gps["latitude"]))
+        Log.kv("Longitude", str(gps["longitude"]))
+        if gps.get("altitude_m"):
+            Log.kv("Altitude", f"{gps['altitude_m']} m")
+        Log.kv("Google Maps", gps.get("google_maps", ""))
+        Log.kv("OpenStreetMap", gps.get("openstreetmap", ""))
+    elif gps.get("raw_location"):
+        Log.kv("Raw Location", gps["raw_location"])
+    else:
+        Log.warn("No GPS data found in video")
+
+    print(f"\n  {C.PINK}{'=' * 55}{C.RST}\n")
+
+
+def batch_analyze(folder):
+    files = [f for f in Path(folder).rglob("*") if f.suffix.lower() in VIDEO_EXTENSIONS]
+    if not files:
+        Log.error(f"No videos found in: {folder}")
+        return
+    Log.info(f"Found {len(files)} videos")
+    results = []
+    for i, fpath in enumerate(files, 1):
+        print(f"\n  {C.YELLOW}[{i}/{len(files)}]{C.RST} {fpath.name}")
+        try:
+            r = analyze_video(str(fpath))
+            results.append(r)
+            ct = r.get("container", {})
+            Log.info(f"Duration: {ct.get('duration_human','?')} | {r.get('file_info',{}).get('size_human','?')}")
+            gps = r.get("gps", {})
+            if gps and "latitude" in gps:
+                Log.success(f"GPS: {gps['latitude']}, {gps['longitude']}")
+        except Exception as e:
+            Log.error(str(e))
+
+    out_path = os.path.join(folder, f"vidanalyz_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+    Log.success(f"Batch report saved: {out_path}")
+
+    Log.header("BATCH SUMMARY")
+    Log.kv("Total Videos", str(len(results)))
+    gps_count = sum(1 for r in results if r.get("gps", {}).get("latitude"))
+    Log.kv("With GPS Data", str(gps_count))
+    total_dur = sum(r.get("container", {}).get("duration_sec", 0) for r in results)
+    mins, secs = divmod(int(total_dur), 60)
+    hrs, mins = divmod(mins, 60)
+    Log.kv("Total Duration", f"{hrs:02d}:{mins:02d}:{secs:02d}")
+
+
+class ReportExporter:
+    @staticmethod
+    def ensure_dir():
+        os.makedirs(REPORT_DIR, exist_ok=True)
+
+    @staticmethod
+    def export_json(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"vidanalyz_{safe}_{ts}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return path
+
+    @staticmethod
+    def export_txt(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"vidanalyz_{safe}_{ts}.txt")
+        lines = ["=" * 60, f"  VidAnalyz v{VERSION} Report", "=" * 60]
+        fi = data.get("file_info", {})
+        lines += [f"  File: {fi.get('filename','')}", f"  Size: {fi.get('size_human','')}"]
+        ct = data.get("container", {})
+        lines += [f"  Duration: {ct.get('duration_human','')}", f"  Format: {ct.get('format','')}"]
+        for algo, val in data.get("hashes", {}).items():
+            lines.append(f"  {algo.upper()}: {val}")
+        gps = data.get("gps", {})
+        if gps and "latitude" in gps:
+            lines += [f"  GPS: {gps['latitude']}, {gps['longitude']}"]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return path
+
+    @staticmethod
+    def export_html(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"vidanalyz_{safe}_{ts}.html")
+        fi = data.get("file_info", {})
+        ct = data.get("container", {})
+        hashes = data.get("hashes", {})
+        dev = data.get("device_info", {})
+        gps = data.get("gps", {})
+        vs_html = ""
+        for vs in data.get("video_streams", []):
+            vs_html += f"<tr><td>Video</td><td>{vs.get('codec','')} {vs.get('width',0)}x{vs.get('height',0)} @ {vs.get('fps','')} fps</td></tr>"
+        for aus in data.get("audio_streams", []):
+            vs_html += f"<tr><td>Audio</td><td>{aus.get('codec','')} {aus.get('sample_rate','')}Hz {aus.get('channels',0)}ch</td></tr>"
+        gps_html = ""
+        if gps and "latitude" in gps:
+            gps_html = f"""<div class="card"><h2>GPS Location</h2><table>
+            <tr><td>Coordinates</td><td>{gps.get('latitude')}, {gps.get('longitude')}</td></tr>
+            <tr><td>Maps</td><td><a href="{gps.get('google_maps','')}" style="color:#8be9fd">Google Maps</a></td></tr>
+            </table></div>"""
+        html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>VidAnalyz Report - {fi.get('filename','')}</title>
+<style>
+:root{{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--accent:#ff79c6}}
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:2rem;line-height:1.6}}
+.c{{max-width:900px;margin:0 auto}}
+.hdr{{background:linear-gradient(135deg,#1a1e2e,#2d1b3d);border:1px solid var(--border);border-radius:12px;padding:2rem;text-align:center;margin-bottom:2rem}}
+.hdr h1{{color:var(--accent);font-size:1.5rem}}
+.card{{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin-bottom:1rem}}
+.card h2{{color:var(--accent);margin-bottom:.6rem;font-size:1rem}}
+table{{width:100%;border-collapse:collapse}}td{{padding:.3rem .5rem;border-top:1px solid var(--border);font-size:.85rem}}
+td:first-child{{color:#8be9fd;width:140px}}code{{background:#21262d;padding:.1rem .3rem;border-radius:3px;font-size:.75rem}}
+.ft{{text-align:center;color:#8b949e;font-size:.75rem;margin-top:2rem}}
+</style></head><body><div class="c">
+<div class="hdr"><h1>VidAnalyz Forensics Report</h1>
+<div style="color:#8b949e;font-size:.85rem">{fi.get('filename','')} | {fi.get('size_human','')} | {ct.get('duration_human','')}</div></div>
+<div class="card"><h2>File Info</h2><table>
+<tr><td>Filename</td><td>{fi.get('filename','')}</td></tr>
+<tr><td>Size</td><td>{fi.get('size_human','')}</td></tr>
+<tr><td>Format</td><td>{ct.get('format','')} ({ct.get('format_long','')})</td></tr>
+<tr><td>Duration</td><td>{ct.get('duration_human','')}</td></tr>
+<tr><td>Bitrate</td><td>{ct.get('bitrate_kbps',0)} kbps</td></tr>
+<tr><td>MD5</td><td><code>{hashes.get('md5','')}</code></td></tr>
+<tr><td>SHA256</td><td><code style="font-size:.65rem">{hashes.get('sha256','')}</code></td></tr>
+</table></div>
+<div class="card"><h2>Streams</h2><table>{vs_html}</table></div>
+<div class="card"><h2>Device</h2><table>
+<tr><td>Make</td><td>{dev.get('make','N/A')}</td></tr>
+<tr><td>Model</td><td>{dev.get('model','N/A')}</td></tr>
+<tr><td>Software</td><td>{dev.get('software','N/A')}</td></tr>
+</table></div>{gps_html}
+<div class="ft">VidAnalyz v{VERSION} - emka'thas</div></div></body></html>"""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
+        return path
+
+
+def main():
+    try:
+        p = argparse.ArgumentParser(prog="vidanalyz", description=f'VidAnalyz v{VERSION}')
+        p.add_argument("target", nargs="?", help="Video file or directory")
+        p.add_argument("--batch", action="store_true", help="Batch scan directory")
+        p.add_argument("--keyframes", type=str, help="Extract keyframes to directory")
+        p.add_argument("--export", choices=["json", "txt", "html", "all"])
+        p.add_argument("--version", action="version", version=f"VidAnalyz v{VERSION}")
+        args = p.parse_args()
+        if len(sys.argv) == 1: p.print_help(); return
+        print(BANNER)
+        if not args.target: Log.error("Target required"); return
+        if args.batch:
+            batch_analyze(args.target); return
+        if not os.path.isfile(args.target): Log.error("File not found"); return
+        if args.keyframes:
+            frames = FrameExtractor.extract_keyframes(args.target, args.keyframes)
+            Log.success(f"Extracted {len(frames)} keyframes"); return
+        report = analyze_video(args.target)
+        print_report(report)
+        if args.export:
+            t = report.get("file_info", {}).get("filename", "video")
+            if args.export in ("json", "all"): Log.success(f"Saved: {ReportExporter.export_json(report, t)}")
+            if args.export in ("txt", "all"): Log.success(f"Saved: {ReportExporter.export_txt(report, t)}")
+            if args.export in ("html", "all"): Log.success(f"Saved: {ReportExporter.export_html(report, t)}")
+    except KeyboardInterrupt:
+        print(f"\n  {C.GRAY}Exiting...{C.RST}")
+
+if __name__ == "__main__":
+    main()

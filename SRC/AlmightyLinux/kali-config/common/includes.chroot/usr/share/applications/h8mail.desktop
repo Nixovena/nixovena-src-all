@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=h8mail
+Comment=Email OSINT and password breach hunting tool
+Comment[tr]=E-posta OSINT ve parola ihlali avlama aracı
+Comment[es]=Herramienta de búsqueda de violaciones de contraseñas y OSINT de correo electrónico
+Comment[fr]=Outil OSINT de messagerie et de recherche de violations de mot de passe
+Comment[de]=E-Mail-OSINT- und Passwort-Breach-Hunting-Tool
+Comment[ar]=أداة OSINT للبريد الإلكتروني والبحث عن خروقات كلمات المرور
+Comment[ru]=Инструмент OSINT электронной почты и поиска утечек паролей
+Comment[zh]=电子邮件OSINT和密码泄露搜寻工具
+Comment[ja]=電子メールOSINTおよびパスワード侵害ハンティングツール
+Comment[ko]=이메일 OSINT 및 비밀번호 유출 사냥 도구
+Comment[pt]=OSINT de e-mail e ferramenta de caça a violações de senha
+Comment[it]=Strumento OSINT per e-mail e ricerca di violazioni delle password
+Comment[nl]=E-mail OSINT en jachttool voor wachtwoordlekken
+Comment[sv]=E-post OSINT och jaktverktyg för lösenordsintrång
+Comment[pl]=Narzędzie OSINT do e-maili i wyszukiwania naruszeń haseł
+Exec=mate-terminal -- bash -c "h8mail -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Emails;
+StartupNotify=false

@@ -1,0 +1,31 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${CYAN}========================================================${NC}"
+echo -e "           RESCUEXY PASSWORD RESET HELPER"
+echo -e "${CYAN}========================================================${NC}"
+
+if [ -z "$1" ]; then
+    echo -e "${YELLOW}Usage:${NC} sudo rescuexy-passwd /dev/sdXY [username]"
+    echo ""
+    echo "This tool mounts the partition and resets the password."
+    echo "If no username is given, 'root' will be used."
+    exit 1
+fi
+
+TARGET=$1
+USER=${2:-root}
+MOUNT_DIR="/mnt/rescue"
+
+mkdir -p $MOUNT_DIR
+mount $TARGET $MOUNT_DIR || { echo -e "${RED}Mount failed!${NC}"; exit 1; }
+
+echo -e "${GREEN}[+]${NC} Resetting password for '$USER'..."
+chroot $MOUNT_DIR passwd $USER
+
+umount $MOUNT_DIR
+echo -e "${GREEN}Done!${NC}"

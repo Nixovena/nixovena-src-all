@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Auto-reanchor Conky to top-right when screen resolution or monitor layout changes.
+# Watches X geometry and monitor layout, and restarts Conky (kill+start) when changes are detected.
+
+set -u
+export DISPLAY=${DISPLAY:-:0}
+
+log(){ :; }
+
+# Wait for X session
+for i in {1..30}; do
+  xdpyinfo >/dev/null 2>&1 && break
+  sleep 1
+done
+
+state_snapshot() {
+  local dims mons
+  dims=$(xdpyinfo 2>/dev/null | awk '/dimensions:/{print $2}')
+  mons=$(xrandr --listmonitors 2>/dev/null | sed -n '2,$p' | awk '{print $2,$3,$4}' | tr '\n' '|')
+  echo "${dims}|${mons}"
+}
+
+ensure_conky() {
+  if ! pgrep -x conky >/dev/null 2>&1; then
+    if command -v conky >/dev/null 2>&1; then
+      # Try the Almighty config; fallback to default
+      if [ -f "/usr/share/conky/almighty_conky.conf" ]; then
+        (conky -c "/usr/share/conky/almighty_conky.conf" >/dev/null 2>&1 &)
+      else
+        (conky >/dev/null 2>&1 &)
+      fi
+      sleep 2
+    fi
+  fi
+}
+
+restart_conky() {
+  pkill -x conky >/dev/null 2>&1 || true
+  sleep 0.3
+  if command -v conky >/dev/null 2>&1; then
+    if [ -f "/usr/share/conky/almighty_conky.conf" ]; then
+      (conky -d -c "/usr/share/conky/almighty_conky.conf" >/dev/null 2>&1 &)
+    else
+      (conky -d >/dev/null 2>&1 &)
+    fi
+  fi
+}
+
+prev="$(state_snapshot)"
+while true; do
+  cur=$(state_snapshot)
+  if [ -n "$cur" ] && [ "$cur" != "$prev" ]; then
+    prev="$cur"
+    # Give X/WM a moment to settle new layout, then fully restart Conky
+    sleep 1
+    restart_conky
+  fi
+  sleep 2
+done

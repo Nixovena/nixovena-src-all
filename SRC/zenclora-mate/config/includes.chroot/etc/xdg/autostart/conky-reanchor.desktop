@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Conky Reanchor
+Comment=Auto-reanchor Conky to top-right when resolution/monitor layout changes
+Exec=/bin/sh -lc 'bash /usr/bin/conky-reanchor &'
+X-MATE-Autostart-enabled=true
+TryExec=/bin/bash
+OnlyShowIn=MATE;
+X-MATE-Autostart-Phase=Applications
+X-MATE-Autostart-Delay=6
+NoDisplay=false
+Terminal=false

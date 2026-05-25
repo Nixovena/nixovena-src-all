@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=videoxhunter
+Comment=Video Analysis Tool
+Comment[tr]=Video Analiz Aracı
+Comment[es]=Herramienta de análisis de video
+Comment[fr]=Outil d'analyse vidéo
+Comment[de]=Videoanalyse-Tool
+Comment[ar]=أداة تحليل الفيديو
+Comment[ru]=Инструмент для анализа видео
+Comment[zh]=视频分析工具
+Comment[ja]=ビデオ分析ツール
+Comment[ko]=비디오 분석 도구
+Comment[pt]=Ferramenta de análise de vídeo
+Comment[it]=Strumento di analisi video
+Comment[nl]=Video-analysetool
+Comment[sv]=Videoanalysverktyg
+Comment[pl]=Narzędzie do analizy wideo
+Exec=mate-terminal -- bash -c "videoxhunter; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Analysis;
+StartupNotify=false

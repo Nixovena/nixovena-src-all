@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Conky Zenclora
+Exec=conky -d -c /usr/share/conky/zenclora_conky.conf
+OnlyShowIn=MATE;
+X-MATE-Autostart-enabled=true
+X-MATE-Autostart-Delay=3
+NoDisplay=false
+Terminal=false

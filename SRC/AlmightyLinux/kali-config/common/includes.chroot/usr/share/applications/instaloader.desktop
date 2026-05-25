@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=instaloader
+Comment=Download media and metadata from Instagram
+Comment[tr]=Instagram'dan medya ve meta veri indirin
+Comment[es]=Descarga medios y metadatos de Instagram
+Comment[fr]=Télécharger des médias et des métadonnées depuis Instagram
+Comment[de]=Laden Sie Medien und Metadaten von Instagram herunter
+Comment[ar]=قم بتنزيل الوسائط والبيانات الوصفية من إنستغرام
+Comment[ru]=Скачивайте медиа и метаданные из Instagram
+Comment[zh]=从Instagram下载媒体和元数据
+Comment[ja]=Instagramからメディアとメタデータをダウンロードする
+Comment[ko]=Instagram에서 미디어 및 메타데이터 다운로드
+Comment[pt]=Baixe mídia e metadados do Instagram
+Comment[it]=Scarica contenuti multimediali e metadati da Instagram
+Comment[nl]=Download media en metagegevens van Instagram
+Comment[sv]=Ladda ner media och metadata från Instagram
+Comment[pl]=Pobierz media i metadane z Instagrama
+Exec=mate-terminal -- bash -c "instaloader -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/instaloader.png
+Categories=Social;
+StartupNotify=false

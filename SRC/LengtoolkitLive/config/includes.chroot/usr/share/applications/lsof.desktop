@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Lsof
+Comment=LengToolkit - lsof
+Exec=mate-terminal -- bash -c "lsof; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

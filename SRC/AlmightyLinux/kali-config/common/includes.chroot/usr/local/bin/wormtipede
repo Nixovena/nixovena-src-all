@@ -1,0 +1,575 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import json
+import re
+import socket
+import argparse
+import time
+import hashlib
+from datetime import datetime
+from urllib.parse import urljoin, urlparse, quote
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from html.parser import HTMLParser
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+except ImportError:
+    sys.exit("[!] Missing: requests")
+
+try:
+    import socks
+except ImportError:
+    sys.exit("[!] Missing: PySocks")
+
+RED = "\033[91m"
+GREEN = "\033[92m"
+CYAN = "\033[96m"
+YELLOW = "\033[93m"
+MAGENTA = "\033[95m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+
+VERSION = "1.0"
+
+TOR_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0",
+    "Mozilla/5.0 (Windows NT 10.0; rv:102.0) Gecko/20100101 Firefox/102.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0",
+]
+
+BTC_REGEX = re.compile(r'\b(?:bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}\b')
+XMR_REGEX = re.compile(r'\b4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}\b')
+ETH_REGEX = re.compile(r'\b0x[a-fA-F0-9]{40}\b')
+EMAIL_REGEX = re.compile(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+')
+ONION_REGEX = re.compile(r'[a-z2-7]{16,56}\.onion')
+PGP_REGEX = re.compile(r'-----BEGIN PGP PUBLIC KEY BLOCK-----.*?-----END PGP PUBLIC KEY BLOCK-----', re.DOTALL)
+COMMENT_REGEX = re.compile(r'<!--(.*?)-->', re.DOTALL)
+IP_REGEX = re.compile(r'\b(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\b')
+SSH_KEY_REGEX = re.compile(r'ssh-(?:rsa|ed25519|dss|ecdsa)\s+[A-Za-z0-9+/=]+')
+API_KEY_REGEX = re.compile(r'(?:api[_-]?key|apikey|access[_-]?token|secret[_-]?key)\s*[=:]\s*["\']?([a-zA-Z0-9_\-]{16,})["\']?', re.IGNORECASE)
+BASE64_BLOB_REGEX = re.compile(r'(?:data:[a-zA-Z]+/[a-zA-Z]+;base64,)?[A-Za-z0-9+/]{50,}={0,2}')
+PHONE_REGEX = re.compile(r'(?:\+\d{1,3}[\s.-])?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}')
+TITLE_REGEX = re.compile(r'<title[^>]*>(.*?)</title>', re.IGNORECASE | re.DOTALL)
+
+ASSET_EXTENSIONS = (
+    '.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg',
+    '.webp', '.woff', '.woff2', '.ttf', '.eot', '.otf', '.mp4',
+    '.webm', '.mp3', '.ogg', '.pdf', '.zip', '.gz', '.bz2',
+)
+
+TECH_HEADERS = {
+    'x-powered-by': 'Framework',
+    'server': 'Server',
+    'x-generator': 'Generator',
+    'x-drupal-cache': 'Drupal',
+    'x-varnish': 'Varnish',
+    'x-cache': 'Cache Layer',
+    'cf-ray': 'Cloudflare',
+    'x-amz-request-id': 'AWS',
+    'x-aspnet-version': 'ASP.NET',
+    'x-content-type-options': 'Security Header',
+    'strict-transport-security': 'HSTS',
+    'content-security-policy': 'CSP',
+    'x-frame-options': 'X-Frame-Options',
+    'x-xss-protection': 'XSS Protection',
+    'referrer-policy': 'Referrer Policy',
+    'permissions-policy': 'Permissions Policy',
+    'onion-location': 'Onion-Location',
+}
+
+
+def banner():
+    print(f"""{CYAN}{BOLD}
+        
+        ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⡴⠞⠋⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⣴⠋⠁⣀⣠⣤⠴⠖⠲⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⡤⣤⣶⡿⠛⢻⡏⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⢀⣔⣻⣶⣟⠛⢷⣾⡛⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠘⣁⣩⣿⣏⠙⣲⣾⢅⠈⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠠⠞⠉⠙⣿⣯⡉⠻⣿⠗⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢀⣤⠤⠴⣿⣿⡟⠛⢻⣶⠲⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠏⠀⠀⠀⢹⣿⣧⠶⠿⣿⣤⠤⠤⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢀⣠⡴⠶⠿⣿⣧⣀⡴⠛⢛⣷⣴⡖⠒⠂⣀⣀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠟⠁⠀⣀⣤⣿⣿⣿⣥⢴⡾⠋⠉⢻⣷⢿⣯⡀⠀⣁⡴⠒⠆⣀⡤⠤⠀⢀⡴⠂⢀⡤⠂⠀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⣰⠛⠉⠀⠀⢉⣿⣿⣿⣄⣀⣴⠋⢀⣤⡿⠿⠿⣟⣷⡶⠾⢿⡷⣤⣶⣿⣦⣴⣿⣷⣤⣼⣏⡁⣠⡴⠒⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠁⠀⠀⢠⡾⠋⠉⠙⠷⣿⣿⣿⣶⣾⡟⣀⠀⣠⡿⠋⢀⡤⠊⢾⡟⠁⣴⠟⠁⢀⣾⠏⢈⣽⠟⠛⢷⣦⣤⣤⣤⠦⣄⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠈⠀⠀⠀⣠⠶⠛⠙⠛⢿⣿⣷⣇⣿⣿⣆⣴⣾⣷⣼⣿⣀⣤⣿⢠⡀⣸⢃⣤⡟⠁⠀⢀⡾⠛⠁⠀⣙⣧⣨⡤⠶⣤⡀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠃⠀⠀⠀⠀⣀⡼⠿⠿⣿⣿⣿⣿⣿⣿⣷⣿⣽⣻⣿⣿⣿⣿⣾⣿⣧⣤⣤⣿⠀⠀⣠⠾⠛⠁⢹⣿⣄⠀⠁⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠋⠀⠀⠀⣠⠟⠁⠁⣿⠁⠀⣹⠛⠛⢹⠟⠋⠻⡿⠻⣿⣿⡿⢿⣷⣾⣷⣰⠞⠛⠚⠻⣿⡷⢦⣄⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠏⠀⠀⠀⢣⠀⠀⠹⡄⠀⢸⡄⠀⢰⠇⢠⠟⢁⣤⠾⢿⣿⣿⣧⣤⡴⠶⠾⣿⣷⠀⠉⠲
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠀⠈⠂⠘⠀⠎⢠⠞⢻⣿⣿⣏⣡⣴⡶⣶⣾⣿⣷⣄⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣡⠔⠛⣿⣿⡿⡅⠀⠀⠀⠙⣿⡃⠈⠳
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣽⣿⠻⢤⣀⠀⠀⢀⣾⣿⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⡴⠶⠚⠓⠾⣿⣿⠆⠀⠈⢣⣸⣿⣿⠛⣧⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡴⠋⠁⠀⠀⠀⠀⠀⠙⢿⣿⣄⣄⣠⣿⠟⠁⠀⢸⠊
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠛⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢉⣿⠛⠉⠁⠀⠀⠀⠈⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣀⣀⣀⣠⣤⠶⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀
+                                     
+    {RED}WORMTIPEDE v{VERSION} | RECON & ARCHIVER{RESET}
+    """)
+
+
+def setup_tor(host, port):
+    try:
+        socks.set_default_proxy(socks.SOCKS5, host, port)
+        socket.socket = socks.socksocket
+        print(f"{GREEN}[+] Tor proxy -> {host}:{port}{RESET}")
+    except Exception as e:
+        sys.exit(f"{RED}[!] Tor Error: {e}{RESET}")
+
+
+def verify_tor():
+    try:
+        resp = requests.get("https://check.torproject.org/api/ip", timeout=15)
+        data = resp.json()
+        if data.get("IsTor"):
+            print(f"{GREEN}[+] Tor verified: {data.get('IP', 'unknown')}{RESET}")
+            return True
+        print(f"{YELLOW}[!] WARNING: Traffic may NOT be routed through Tor{RESET}")
+        return False
+    except Exception:
+        print(f"{YELLOW}[!] Could not verify Tor connection{RESET}")
+        return False
+
+
+def get_headers():
+    import random
+    return {
+        'User-Agent': random.choice(TOR_USER_AGENTS),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'DNT': '1',
+    }
+
+
+class IntelParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.forms = []
+        self.current_form = None
+        self.meta_tags = []
+        self.scripts_src = []
+        self.links_href = []
+
+    def handle_starttag(self, tag, attrs):
+        attr_dict = dict(attrs)
+        if tag == "form":
+            self.current_form = {
+                "action": attr_dict.get("action", ""),
+                "method": attr_dict.get("method", "get"),
+                "inputs": [],
+                "enctype": attr_dict.get("enctype", ""),
+            }
+        elif tag == "input" and self.current_form is not None:
+            self.current_form["inputs"].append({
+                "type": attr_dict.get("type", "text"),
+                "name": attr_dict.get("name", ""),
+                "value": attr_dict.get("value", ""),
+                "placeholder": attr_dict.get("placeholder", ""),
+            })
+        elif tag == "textarea" and self.current_form is not None:
+            self.current_form["inputs"].append({
+                "type": "textarea",
+                "name": attr_dict.get("name", ""),
+            })
+        elif tag == "select" and self.current_form is not None:
+            self.current_form["inputs"].append({
+                "type": "select",
+                "name": attr_dict.get("name", ""),
+            })
+        elif tag == "meta":
+            self.meta_tags.append(attr_dict)
+        elif tag == "script" and "src" in attr_dict:
+            self.scripts_src.append(attr_dict["src"])
+        elif tag == "link" and "href" in attr_dict:
+            self.links_href.append({
+                "rel": attr_dict.get("rel", ""),
+                "href": attr_dict["href"],
+                "type": attr_dict.get("type", ""),
+            })
+
+    def handle_endtag(self, tag):
+        if tag == "form" and self.current_form is not None:
+            self.forms.append(self.current_form)
+            self.current_form = None
+
+
+class Wormtipede:
+    def __init__(self, target, depth, assets, sleep_time, threads, output_dir, retries, max_pages):
+        if not target.startswith("http"):
+            target = "http://" + target
+        self.target = target
+        self.domain = urlparse(target).netloc
+        self.depth = depth
+        self.assets = assets
+        self.sleep_time = sleep_time
+        self.threads = threads
+        self.output_dir = output_dir
+        self.max_pages = max_pages
+        self.visited = set()
+        self.downloaded_assets = set()
+        self.page_count = 0
+        self.total_bytes = 0
+        self.start_time = None
+        self.session = requests.Session()
+
+        retry_strategy = Retry(
+            total=retries,
+            backoff_factor=1.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=threads, pool_maxsize=threads)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        self.session.headers.update(get_headers())
+
+        os.makedirs(self.output_dir, exist_ok=True)
+
+        self.master_recon = {
+            "target": self.target,
+            "domain": self.domain,
+            "scan_started": datetime.now().isoformat(),
+            "scan_finished": None,
+            "pages_crawled": 0,
+            "total_bytes_downloaded": 0,
+            "btc_addresses": set(),
+            "xmr_addresses": set(),
+            "eth_addresses": set(),
+            "emails": set(),
+            "pgp_keys": set(),
+            "onion_links": set(),
+            "ip_addresses": set(),
+            "clearnet_links": set(),
+            "ssh_keys": set(),
+            "api_keys_found": set(),
+            "phone_numbers": set(),
+            "forms": [],
+            "comments": [],
+            "page_titles": {},
+            "http_headers": {},
+            "technologies": set(),
+            "security_headers": {},
+            "meta_tags": [],
+            "external_scripts": set(),
+            "content_hashes": {},
+            "response_times": {},
+            "status_codes": {},
+            "robots_txt": None,
+            "sitemap_urls": [],
+        }
+
+    def extract_links(self, html_content, current_url):
+        internal = set()
+        for match in re.finditer(r'href=[\'"]?([^\'" >]+)', html_content):
+            raw_link = match.group(1)
+            if raw_link.startswith(("mailto:", "javascript:", "tel:", "data:", "#")):
+                continue
+            link = urljoin(current_url, raw_link)
+            parsed = urlparse(link)
+            clean_link = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            if parsed.query:
+                clean_link += f"?{parsed.query}"
+            if parsed.netloc == self.domain:
+                internal.add(clean_link)
+            else:
+                self.master_recon["clearnet_links"].add(link)
+        return internal
+
+    def extract_assets(self, html_content, current_url):
+        assets_found = set()
+        for match in re.finditer(r'(?:src|href)=[\'"]?([^\'" >]+)', html_content, re.IGNORECASE):
+            url = match.group(1)
+            if any(url.lower().endswith(ext) for ext in ASSET_EXTENSIONS):
+                asset_url = urljoin(current_url, url)
+                if urlparse(asset_url).netloc == self.domain:
+                    assets_found.add(asset_url)
+        return assets_found
+
+    def perform_recon(self, html_content, url, response):
+        self.master_recon["btc_addresses"].update(BTC_REGEX.findall(html_content))
+        self.master_recon["xmr_addresses"].update(XMR_REGEX.findall(html_content))
+        self.master_recon["eth_addresses"].update(ETH_REGEX.findall(html_content))
+        self.master_recon["emails"].update(EMAIL_REGEX.findall(html_content))
+        self.master_recon["pgp_keys"].update(PGP_REGEX.findall(html_content))
+        self.master_recon["onion_links"].update(ONION_REGEX.findall(html_content))
+        self.master_recon["ssh_keys"].update(SSH_KEY_REGEX.findall(html_content))
+        self.master_recon["phone_numbers"].update(PHONE_REGEX.findall(html_content))
+
+        found_ips = IP_REGEX.findall(html_content)
+        valid_ips = set()
+        for ip in found_ips:
+            parts = ip.split('.')
+            if all(0 <= int(p) <= 255 for p in parts):
+                if not (ip.startswith('0.') or ip.startswith('255.') or ip == '127.0.0.1'):
+                    valid_ips.add(ip)
+        self.master_recon["ip_addresses"].update(valid_ips)
+
+        for api_match in API_KEY_REGEX.finditer(html_content):
+            self.master_recon["api_keys_found"].add(api_match.group(0))
+
+        for comment_text in COMMENT_REGEX.findall(html_content):
+            clean_c = comment_text.strip()
+            if clean_c and len(clean_c) > 3:
+                self.master_recon["comments"].append({"url": url, "content": clean_c[:500]})
+
+        title_match = TITLE_REGEX.search(html_content)
+        if title_match:
+            self.master_recon["page_titles"][url] = title_match.group(1).strip()
+
+        content_hash = hashlib.sha256(html_content.encode('utf-8', errors='replace')).hexdigest()
+        self.master_recon["content_hashes"][url] = content_hash
+
+        if response:
+            headers_dict = dict(response.headers)
+            self.master_recon["http_headers"][url] = headers_dict
+            self.master_recon["status_codes"][url] = response.status_code
+
+            for header_key, tech_name in TECH_HEADERS.items():
+                header_val = response.headers.get(header_key)
+                if header_val:
+                    self.master_recon["technologies"].add(f"{tech_name}: {header_val}")
+                    if header_key in ('strict-transport-security', 'content-security-policy',
+                                      'x-frame-options', 'x-content-type-options',
+                                      'x-xss-protection', 'referrer-policy', 'permissions-policy'):
+                        self.master_recon["security_headers"][header_key] = header_val
+
+            onion_loc = response.headers.get('onion-location')
+            if onion_loc:
+                self.master_recon["onion_links"].add(onion_loc)
+
+        parser = IntelParser()
+        try:
+            parser.feed(html_content)
+            for form in parser.forms:
+                form["source_url"] = url
+                self.master_recon["forms"].append(form)
+            for meta in parser.meta_tags:
+                self.master_recon["meta_tags"].append({"url": url, **meta})
+            for script_src in parser.scripts_src:
+                full_src = urljoin(url, script_src)
+                self.master_recon["external_scripts"].add(full_src)
+        except Exception:
+            pass
+
+    def download_asset(self, url):
+        if url in self.downloaded_assets:
+            return
+        self.downloaded_assets.add(url)
+        try:
+            time.sleep(self.sleep_time)
+            resp = self.session.get(url, timeout=45)
+            if resp.status_code == 200:
+                parsed = urlparse(url)
+                path = parsed.path.lstrip('/')
+                if not path:
+                    return
+                local_path = os.path.join(self.output_dir, 'assets', path)
+                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                with open(local_path, 'wb') as f:
+                    f.write(resp.content)
+                self.total_bytes += len(resp.content)
+                print(f"{CYAN}[+] Asset: {url} ({len(resp.content)} bytes){RESET}")
+        except Exception:
+            pass
+
+    def fetch_robots_txt(self):
+        robots_url = urljoin(self.target, "/robots.txt")
+        try:
+            resp = self.session.get(robots_url, timeout=30)
+            if resp.status_code == 200:
+                self.master_recon["robots_txt"] = resp.text
+                print(f"{GREEN}[+] robots.txt found ({len(resp.text)} bytes){RESET}")
+                for line in resp.text.splitlines():
+                    line = line.strip()
+                    if line.lower().startswith("sitemap:"):
+                        sitemap_url = line.split(":", 1)[1].strip()
+                        self.master_recon["sitemap_urls"].append(sitemap_url)
+        except Exception:
+            pass
+
+    def fetch_sitemap(self):
+        sitemap_url = urljoin(self.target, "/sitemap.xml")
+        try:
+            resp = self.session.get(sitemap_url, timeout=30)
+            if resp.status_code == 200:
+                urls_found = re.findall(r'<loc>(.*?)</loc>', resp.text)
+                for u in urls_found:
+                    self.master_recon["sitemap_urls"].append(u)
+                if urls_found:
+                    print(f"{GREEN}[+] sitemap.xml: {len(urls_found)} URLs found{RESET}")
+        except Exception:
+            pass
+
+    def archive_page(self, url, current_depth):
+        if url in self.visited or current_depth > self.depth:
+            return
+        if self.max_pages > 0 and self.page_count >= self.max_pages:
+            return
+        self.visited.add(url)
+        self.page_count += 1
+
+        depth_indicator = f"{'  ' * current_depth}[{current_depth}/{self.depth}]"
+        print(f"{YELLOW}{depth_indicator} {url}{RESET}")
+
+        try:
+            time.sleep(self.sleep_time)
+            start = time.time()
+            response = self.session.get(url, timeout=60)
+            elapsed = round(time.time() - start, 2)
+            self.master_recon["response_times"][url] = elapsed
+
+            if response.status_code != 200:
+                self.master_recon["status_codes"][url] = response.status_code
+                print(f"{RED}  [{response.status_code}] {url}{RESET}")
+                return
+
+            html_content = response.text
+            content_size = len(response.content)
+            self.total_bytes += content_size
+
+            self.perform_recon(html_content, url, response)
+
+            parsed = urlparse(url)
+            path = parsed.path.strip("/")
+            if not path:
+                path = "index"
+            if not path.endswith((".html", ".php", ".htm", ".asp", ".aspx", ".jsp")):
+                path += "/index.html"
+            safe_filename = re.sub(r'[?&=]', '_', path)
+            file_path = os.path.join(self.output_dir, safe_filename)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+
+            print(f"{GREEN}  [{response.status_code}] {content_size}B {elapsed}s{RESET}")
+
+            if self.assets:
+                asset_links = self.extract_assets(html_content, url)
+                if asset_links:
+                    with ThreadPoolExecutor(max_workers=self.threads) as executor:
+                        executor.map(self.download_asset, asset_links)
+
+            internal_links = self.extract_links(html_content, url)
+            for link in internal_links:
+                self.archive_page(link, current_depth + 1)
+
+        except Exception as e:
+            print(f"{RED}[!] Error on {url}: {e}{RESET}")
+
+    def save_recon_report(self):
+        self.master_recon["scan_finished"] = datetime.now().isoformat()
+        self.master_recon["pages_crawled"] = self.page_count
+        self.master_recon["total_bytes_downloaded"] = self.total_bytes
+
+        if self.start_time:
+            elapsed = round(time.time() - self.start_time, 2)
+            self.master_recon["scan_duration_seconds"] = elapsed
+
+        report_path = os.path.join(self.output_dir, "recon_report.json")
+
+        def set_default(obj):
+            if isinstance(obj, set):
+                return sorted(list(obj))
+            raise TypeError
+
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(self.master_recon, f, indent=2, default=set_default, ensure_ascii=False)
+
+        print(f"\n{BOLD}{GREEN}{'=' * 60}{RESET}")
+        print(f"{BOLD}{GREEN}  RECON SUMMARY{RESET}")
+        print(f"{BOLD}{GREEN}{'=' * 60}{RESET}")
+        print(f"{CYAN}  Pages Crawled:     {self.page_count}{RESET}")
+        print(f"{CYAN}  Total Downloaded:  {self.total_bytes:,} bytes{RESET}")
+        print(f"{CYAN}  BTC Addresses:     {len(self.master_recon['btc_addresses'])}{RESET}")
+        print(f"{CYAN}  XMR Addresses:     {len(self.master_recon['xmr_addresses'])}{RESET}")
+        print(f"{CYAN}  ETH Addresses:     {len(self.master_recon['eth_addresses'])}{RESET}")
+        print(f"{CYAN}  Emails:            {len(self.master_recon['emails'])}{RESET}")
+        print(f"{CYAN}  PGP Keys:          {len(self.master_recon['pgp_keys'])}{RESET}")
+        print(f"{CYAN}  Onion Links:       {len(self.master_recon['onion_links'])}{RESET}")
+        print(f"{CYAN}  IP Addresses:      {len(self.master_recon['ip_addresses'])}{RESET}")
+        print(f"{CYAN}  Clearnet Links:    {len(self.master_recon['clearnet_links'])}{RESET}")
+        print(f"{CYAN}  SSH Keys:          {len(self.master_recon['ssh_keys'])}{RESET}")
+        print(f"{CYAN}  API Keys:          {len(self.master_recon['api_keys_found'])}{RESET}")
+        print(f"{CYAN}  Forms:             {len(self.master_recon['forms'])}{RESET}")
+        print(f"{CYAN}  HTML Comments:     {len(self.master_recon['comments'])}{RESET}")
+        print(f"{CYAN}  Technologies:      {len(self.master_recon['technologies'])}{RESET}")
+        print(f"{CYAN}  Security Headers:  {len(self.master_recon['security_headers'])}{RESET}")
+        print(f"{GREEN}  Report: {report_path}{RESET}")
+        print(f"{BOLD}{GREEN}{'=' * 60}{RESET}")
+
+    def start(self):
+        self.start_time = time.time()
+        print(f"{GREEN}[+] Target Configured{RESET}")
+        print(f"{CYAN}    Target:     {self.target}{RESET}")
+        print(f"{CYAN}    Domain:     {self.domain}{RESET}")
+        print(f"{CYAN}    Depth:      {self.depth}{RESET}")
+        print(f"{CYAN}    Workers:    {self.threads}{RESET}")
+        print(f"{CYAN}    Sleep:      {self.sleep_time}s{RESET}")
+        print(f"{CYAN}    Max Pages:  {self.max_pages if self.max_pages > 0 else 'unlimited'}{RESET}")
+        print(f"{CYAN}    Assets:     {'yes' if self.assets else 'no'}{RESET}")
+        print()
+
+        self.fetch_robots_txt()
+        self.fetch_sitemap()
+
+        print(f"\n{YELLOW}[*] Starting deep crawl...{RESET}\n")
+        self.archive_page(self.target, 0)
+        self.save_recon_report()
+        print(f"\n{GREEN}[+] Wormtipede completed.{RESET}")
+
+
+def main():
+    banner()
+    parser = argparse.ArgumentParser(
+        description=f"Wormtipede v{VERSION} - Deep Web Recon & Onion Archiver",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  wormtipede -u http://example.onion
+  wormtipede -u http://example.onion -d 3 -a -t 5
+  wormtipede -u http://example.onion --max-pages 100
+  wormtipede -u http://example.onion --no-verify"""
+    )
+    parser.add_argument("-u", "--url", required=True, help="Target URL")
+    parser.add_argument("-d", "--depth", type=int, default=2, help="Max recursion depth (default: 2)")
+    parser.add_argument("-a", "--assets", action="store_true", help="Download assets (CSS, JS, images)")
+    parser.add_argument("-t", "--threads", type=int, default=3, help="Concurrent download workers (default: 3)")
+    parser.add_argument("-s", "--sleep", type=float, default=0.5, help="Sleep between requests in seconds (default: 0.5)")
+    parser.add_argument("-r", "--retries", type=int, default=3, help="Max retry attempts (default: 3)")
+    parser.add_argument("-o", "--output", default="wormtipede_vault", help="Output directory (default: wormtipede_vault)")
+    parser.add_argument("--proxy-host", default="127.0.0.1", help="SOCKS5 proxy host (default: 127.0.0.1)")
+    parser.add_argument("--proxy-port", type=int, default=9050, help="SOCKS5 proxy port (default: 9050)")
+    parser.add_argument("--max-pages", type=int, default=0, help="Maximum pages to crawl (0=unlimited)")
+    parser.add_argument("--no-verify", action="store_true", help="Skip Tor verification check")
+    parser.add_argument("--version", action="version", version=f"Wormtipede v{VERSION}")
+
+    args = parser.parse_args()
+
+    setup_tor(args.proxy_host, args.proxy_port)
+
+    if not args.no_verify:
+        verify_tor()
+
+    crawler = Wormtipede(
+        args.url, args.depth, args.assets, args.sleep,
+        args.threads, args.output, args.retries, args.max_pages
+    )
+    crawler.start()
+
+
+if __name__ == "__main__":
+    main()

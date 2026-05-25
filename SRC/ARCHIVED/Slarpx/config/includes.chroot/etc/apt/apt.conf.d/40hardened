@@ -1,0 +1,28 @@
+## Hardened APT Configuration
+
+## 1. Network & Auth Security
+## Force strict chain verification
+Acquire::https::Verify-Peer "true";
+Acquire::https::Verify-Host "true";
+
+## Never allow unauthenticated packages
+APT::Get::AllowUnauthenticated "false";
+Acquire::AllowInsecureRepositories "false";
+Acquire::AllowDowngradeToInsecureRepositories "false";
+
+## 2. Sandbox & Isolation
+## Use seccomp sandbox for apt methods to limit syscalls
+# APT::Sandbox::Seccomp "true";
+
+## Drop privileges to '_apt' user for downloading
+APT::Sandbox::User "_apt";
+
+## 3. Supply Chain / Integrity
+## Do not use PDiffs, always download full indices for integrity
+Acquire::PDiffs "false";
+Acquire::IndexTargets::deb::Header "Signed-By";
+
+## 4. Cleanup
+## Do not keep local copies of downloaded debs
+APT::Keep-Downloaded-Packages "false";
+APT::Clean-Installed "true";

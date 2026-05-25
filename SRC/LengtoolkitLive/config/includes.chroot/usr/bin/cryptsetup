@@ -1,0 +1,11 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - cryptsetup Helper"
+echo "--------------------------------------------------------"
+echo "LUKS Disk Encryption Management Tool:"
+echo ""
+echo "  sudo cryptsetup luksFormat /dev/sdX  : Format partition as LUKS"
+echo "  sudo cryptsetup luksOpen /dev/sdX cr : Open encrypted partition"
+echo "  sudo cryptsetup luksClose cr         : Close encrypted partition"
+echo "  sudo cryptsetup luksDump /dev/sdX    : Show LUKS header info"
+echo "--------------------------------------------------------"

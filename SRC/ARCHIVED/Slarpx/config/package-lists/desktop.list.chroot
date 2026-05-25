@@ -1,0 +1,17 @@
+# Core Applications 
+network-manager
+isc-dhcp-client
+ipset
+haveged
+lynx
+
+# --- System Utilities ---
+vim
+nano
+net-tools
+gpg
+gnupg
+ca-certificates
+apt-transport-https
+htop
+ncurses-term

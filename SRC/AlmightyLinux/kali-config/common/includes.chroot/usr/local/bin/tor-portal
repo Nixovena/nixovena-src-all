@@ -1,0 +1,1352 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import socket
+import subprocess
+import time
+from datetime import datetime
+
+# Optional imports
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+    print("[WARNING] requests library not found. IP detection may be limited.")
+
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
+    print("[WARNING] psutil library not found. Process monitoring will be limited.")
+
+try:
+    import stem
+    import stem.connection
+    import stem.control
+    HAS_STEM = True
+except ImportError:
+    HAS_STEM = False
+    print("[WARNING] stem library not found. Circuit information will be limited.")
+
+# ANSI Color codes for better CLI output
+class Colors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+class TorMonitor:
+    def __init__(self):
+        self.debug_mode = False
+        self.tor_ports = [9040, 9050, 9051, 8080, 8118, 9001, 9030, 9101, 9053, 9054, 9055]
+        self.last_data = {}
+    
+    def collect_all_data(self):
+        data = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'tor_connections': self.get_tor_connections(),
+            'network_stats': self.get_network_stats(),
+            'tor_circuit': self.get_tor_circuit_info(),
+            'public_ip': self.get_public_ip(),
+            'tor_status': self.check_tor_status(),
+            'performance_data': self.get_performance_data(),
+            'tor_config': self.get_tor_config_info()
+        }
+        self.last_data = data
+        return data
+    
+    def get_tor_connections(self):
+        connections = []
+        
+        if self.debug_mode:
+            print(f"{Colors.OKCYAN}[DEBUG] Detecting Tor connections...{Colors.ENDC}")
+        
+        # Method 1: netstat
+        try:
+            result = subprocess.run(['netstat', '-aon'], 
+                                  capture_output=True, text=True, shell=True, timeout=10)
+            
+            if result.returncode == 0:
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line or 'Proto' in line:
+                        continue
+                    
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        protocol = parts[0]
+                        local_addr = parts[1]
+                        remote_addr = parts[2] if len(parts) > 2 else ''
+                        state = parts[3] if len(parts) > 3 else 'UNKNOWN'
+                        
+                        for port in self.tor_ports:
+                            port_str = f':{port}'
+                            if port_str in local_addr or port_str in remote_addr:
+                                if any(s in state for s in ['LISTENING', 'ESTABLISHED', 'TIME_WAIT', 'CLOSE_WAIT']):
+                                    connections.append({
+                                        'port': port,
+                                        'status': state,
+                                        'protocol': protocol,
+                                        'local_addr': local_addr,
+                                        'remote_addr': remote_addr,
+                                        'method': 'netstat'
+                                    })
+        except Exception as e:
+            if self.debug_mode:
+                print(f"{Colors.WARNING}[DEBUG] Netstat error: {e}{Colors.ENDC}")
+        
+        # Method 2: Direct port testing
+        for port in self.tor_ports:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1.0)
+                result = sock.connect_ex(('127.0.0.1', port))
+                if result == 0:
+                    # Test if it's a SOCKS proxy
+                    is_socks = False
+                    if port in [9050, 9040, 9150]:
+                        try:
+                            sock.send(b'\x05\x01\x00')
+                            response = sock.recv(2)
+                            if len(response) == 2 and response[0] == 5:
+                                is_socks = True
+                        except Exception:
+                            pass
+                    
+                    conn_status = 'SOCKS_ACTIVE' if is_socks else 'LISTENING'
+                    if not any(c['port'] == port for c in connections):
+                        connections.append({
+                            'port': port,
+                            'status': conn_status,
+                            'protocol': 'TCP',
+                            'local_addr': f'127.0.0.1:{port}',
+                            'remote_addr': '',
+                            'method': 'port_scan'
+                        })
+                sock.close()
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Port {port} test error: {e}{Colors.ENDC}")
+        
+        # Method 3: psutil (if available)
+        if HAS_PSUTIL:
+            try:
+                all_connections = psutil.net_connections()
+                for conn in all_connections:
+                    if conn.laddr and conn.laddr.port in self.tor_ports:
+                        if not any(c['port'] == conn.laddr.port and c['method'] == 'psutil' for c in connections):
+                            connections.append({
+                                'port': conn.laddr.port,
+                                'status': conn.status,
+                                'protocol': 'TCP' if conn.type == 1 else 'UDP',
+                                'local_addr': f"{conn.laddr.ip}:{conn.laddr.port}",
+                                'remote_addr': f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else '',
+                                'method': 'psutil'
+                            })
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] PSUtil error: {e}{Colors.ENDC}")
+        
+        return connections
+    
+    def get_network_stats(self):
+        stats = {
+            'bytes_sent': 0,
+            'bytes_recv': 0,
+            'packets_sent': 0,
+            'packets_recv': 0,
+            'tor_connections_count': 0,
+            'active_interfaces': [],
+            'connection_states': {}
+        }
+        
+        if HAS_PSUTIL:
+            try:
+                # Overall network stats
+                net_io = psutil.net_io_counters()
+                stats.update({
+                    'bytes_sent': net_io.bytes_sent,
+                    'bytes_recv': net_io.bytes_recv,
+                    'packets_sent': net_io.packets_sent,
+                    'packets_recv': net_io.packets_recv,
+                    'errors_in': net_io.errin,
+                    'errors_out': net_io.errout,
+                    'drop_in': net_io.dropin,
+                    'drop_out': net_io.dropout
+                })
+                
+                # Per-interface stats
+                net_io_per_interface = psutil.net_io_counters(pernic=True)
+                for interface, io_stats in net_io_per_interface.items():
+                    if io_stats.bytes_sent > 0 or io_stats.bytes_recv > 0:
+                        stats['active_interfaces'].append({
+                            'name': interface,
+                            'bytes_sent': io_stats.bytes_sent,
+                            'bytes_recv': io_stats.bytes_recv,
+                            'packets_sent': io_stats.packets_sent,
+                            'packets_recv': io_stats.packets_recv
+                        })
+                
+                # Count connections by state
+                connections = psutil.net_connections()
+                state_count = {}
+                tor_conn_count = 0
+                
+                for conn in connections:
+                    state = conn.status
+                    state_count[state] = state_count.get(state, 0) + 1
+                    
+                    if (conn.laddr and conn.laddr.port in self.tor_ports) or \
+                       (conn.raddr and conn.raddr.port in self.tor_ports):
+                        tor_conn_count += 1
+                
+                stats['tor_connections_count'] = tor_conn_count
+                stats['connection_states'] = state_count
+                
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Network stats error: {e}{Colors.ENDC}")
+        else:
+            # Fallback: netstat
+            try:
+                result = subprocess.run(['netstat', '-e'], 
+                                      capture_output=True, text=True, shell=True, timeout=10)
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'Bytes' in line:
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                try:
+                                    stats['bytes_recv'] = int(parts[1].replace(',', ''))
+                                    stats['bytes_sent'] = int(parts[2].replace(',', ''))
+                                except Exception:
+                                    pass
+            except Exception:
+                pass
+        
+        return stats
+    
+    def get_tor_circuit_info(self):
+        circuit_info = []
+        
+        if not HAS_STEM:
+            if self.debug_mode:
+                print(f"{Colors.WARNING}[DEBUG] Stem library not available for circuit info{Colors.ENDC}")
+            return circuit_info
+        
+        try:
+            controller = self.connect_to_tor_with_stem()
+            if controller:
+                circuits = controller.get_circuits()
+                
+                for circuit in circuits:
+                    if circuit.path:
+                        for i, (fingerprint, nickname) in enumerate(circuit.path):
+                            if i == 0:
+                                node_type = 'Guard Node'
+                            elif i == len(circuit.path) - 1:
+                                node_type = 'Exit Node'
+                            else:
+                                node_type = 'Middle Node'
+                            
+                            node_info = self.get_node_details_with_stem(controller, fingerprint, nickname)
+                            
+                            circuit_info.append({
+                                'node': f'{nickname or "Unknown"} ({fingerprint[:8]}...)',
+                                'status': str(circuit.status).capitalize(),
+                                'type': node_type,
+                                'circuit_id': circuit.id,
+                                'nickname': nickname or 'Unknown',
+                                'fingerprint': fingerprint,
+                                'country': node_info.get('country', 'Unknown'),
+                                'ip': node_info.get('ip', 'Unknown'),
+                                'bandwidth': node_info.get('bandwidth', 'Unknown'),
+                                'flags': node_info.get('flags', [])
+                            })
+                
+                controller.close()
+        except Exception as e:
+            if self.debug_mode:
+                print(f"{Colors.WARNING}[DEBUG] Circuit info error: {e}{Colors.ENDC}")
+        
+        return circuit_info
+    
+    def connect_to_tor_with_stem(self):
+        if not HAS_STEM:
+            return None
+        
+        connection_methods = [
+            {'control_port': ('127.0.0.1', 9051)},
+            {'control_port': ('127.0.0.1', 9151)},
+            {'control_port': ('127.0.0.1', 9052)}
+        ]
+        
+        for method in connection_methods:
+            try:
+                controller = stem.connection.connect(**method)
+                if controller:
+                    return controller
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Failed to connect with {method}: {e}{Colors.ENDC}")
+                continue
+        
+        return None
+    
+    def get_node_details_with_stem(self, controller, fingerprint, nickname):
+        node_info = {
+            'ip': 'Unknown',
+            'country': 'Unknown',
+            'bandwidth': 'Unknown',
+            'flags': []
+        }
+        
+        try:
+            status_entry = controller.get_network_status(fingerprint)
+            if status_entry:
+                node_info['ip'] = str(status_entry.address)
+                
+                try:
+                    country_code = controller.get_info(f"ip-to-country/{status_entry.address}")
+                    if country_code and country_code != '??':
+                        node_info['country'] = self.get_country_name(country_code)
+                except Exception:
+                    pass
+                
+                # Get bandwidth info
+                try:
+                    desc = controller.get_server_descriptor(fingerprint)
+                    if desc:
+                        node_info['bandwidth'] = f"{desc.observed_bandwidth / 1024 / 1024:.2f} MB/s"
+                except Exception:
+                    pass
+        except Exception as e:
+            if self.debug_mode:
+                print(f"{Colors.WARNING}[DEBUG] Node details error: {e}{Colors.ENDC}")
+        
+        return node_info
+    
+    def get_country_name(self, country_code):
+        country_map = {
+            'US': 'United States', 'DE': 'Germany', 'NL': 'Netherlands', 'FR': 'France',
+            'GB': 'United Kingdom', 'CA': 'Canada', 'SE': 'Sweden', 'CH': 'Switzerland',
+            'NO': 'Norway', 'FI': 'Finland', 'DK': 'Denmark', 'IS': 'Iceland',
+            'IT': 'Italy', 'ES': 'Spain', 'PT': 'Portugal', 'GR': 'Greece',
+            'PL': 'Poland', 'RO': 'Romania', 'CZ': 'Czech Republic', 'HU': 'Hungary',
+            'AT': 'Austria', 'BE': 'Belgium', 'BG': 'Bulgaria', 'HR': 'Croatia',
+            'RU': 'Russia', 'UA': 'Ukraine', 'TR': 'Turkey', 'IL': 'Israel',
+            'JP': 'Japan', 'KR': 'South Korea', 'CN': 'China', 'IN': 'India',
+            'SG': 'Singapore', 'HK': 'Hong Kong', 'TW': 'Taiwan', 'TH': 'Thailand',
+            'VN': 'Vietnam', 'ID': 'Indonesia', 'MY': 'Malaysia', 'PH': 'Philippines',
+            'AU': 'Australia', 'NZ': 'New Zealand', 'BR': 'Brazil', 'AR': 'Argentina',
+            'MX': 'Mexico', 'CL': 'Chile', 'CO': 'Colombia', 'PE': 'Peru',
+            'ZA': 'South Africa', 'EG': 'Egypt', 'KE': 'Kenya', 'NG': 'Nigeria',
+            'AE': 'United Arab Emirates', 'SA': 'Saudi Arabia', 'IR': 'Iran', 'IQ': 'Iraq'
+        }
+        return country_map.get(country_code.upper(), country_code.upper())
+    
+    def get_public_ip(self):
+        ip_info = {
+            'ip': 'Unknown',
+            'is_tor': False,
+            'tor_detected': False,
+            'exit_node': 'Unknown'
+        }
+        
+        if not HAS_REQUESTS:
+            if self.debug_mode:
+                print(f"{Colors.WARNING}[DEBUG] Requests library not available{Colors.ENDC}")
+            return ip_info
+        
+        # List of IP detection services to try
+        ip_services = [
+            {
+                'url': 'https://check.torproject.org/api/ip',
+                'type': 'tor_check',
+                'timeout': 10
+            },
+            {
+                'url': 'https://check.torproject.org/',
+                'type': 'tor_html',
+                'timeout': 10
+            },
+            {
+                'url': 'https://httpbin.org/ip',
+                'type': 'json',
+                'timeout': 5
+            },
+            {
+                'url': 'https://api.ipify.org',
+                'type': 'text',
+                'timeout': 5
+            },
+            {
+                'url': 'https://icanhazip.com',
+                'type': 'text',
+                'timeout': 5
+            }
+        ]
+        
+        # Headers to avoid being blocked
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        for service in ip_services:
+            try:
+                if self.debug_mode:
+                    print(f"{Colors.OKCYAN}[DEBUG] Trying {service['url']}{Colors.ENDC}")
+                
+                response = requests.get(service['url'], timeout=service['timeout'], headers=headers)
+                if response.status_code == 200:
+                    
+                    if service['type'] == 'tor_check':
+                        # Direct IP from Tor Project API
+                        text = response.text.strip()
+                        if text and '.' in text and len(text) < 20:
+                            ip_info['ip'] = text
+                            # Now check if using Tor
+                            try:
+                                tor_response = requests.get('https://check.torproject.org/', timeout=10, headers=headers)
+                                if tor_response.status_code == 200:
+                                    content = tor_response.text.lower()
+                                    if 'congratulations' in content and 'tor' in content:
+                                        ip_info['is_tor'] = True
+                                        ip_info['tor_detected'] = True
+                                    elif 'sorry' in content or 'not using tor' in content:
+                                        ip_info['is_tor'] = False
+                                        ip_info['tor_detected'] = True
+                            except Exception:
+                                pass
+                            break
+                    
+                    elif service['type'] == 'tor_html':
+                        # Parse Tor Project HTML page
+                        content = response.text.lower()
+                        if 'congratulations' in content and 'tor' in content:
+                            ip_info['is_tor'] = True
+                            ip_info['tor_detected'] = True
+                        elif 'sorry' in content or 'not using tor' in content:
+                            ip_info['is_tor'] = False
+                            ip_info['tor_detected'] = True
+                        
+                        # Extract IP from HTML
+                        import re
+                        ip_patterns = [
+                            r'your ip address appears to be:\s*([0-9.]+)',
+                            r'your ip address is:\s*([0-9.]+)',
+                            r'ip:\s*([0-9.]+)'
+                        ]
+                        
+                        for pattern in ip_patterns:
+                            ip_match = re.search(pattern, content)
+                            if ip_match:
+                                ip_info['ip'] = ip_match.group(1)
+                                break
+                        
+                        if ip_info['ip'] != 'Unknown':
+                            break
+                    
+                    elif service['type'] == 'json':
+                        # JSON response (like httpbin)
+                        try:
+                            import json
+                            data = json.loads(response.text)
+                            if 'origin' in data:
+                                ip_info['ip'] = data['origin'].split(',')[0].strip()
+                            elif 'ip' in data:
+                                ip_info['ip'] = data['ip']
+                            if ip_info['ip'] != 'Unknown':
+                                break
+                        except Exception:
+                            continue
+                    
+                    elif service['type'] == 'text':
+                        # Plain text IP response
+                        text = response.text.strip()
+                        if text and '.' in text and len(text) < 20:
+                            # Validate it looks like an IP
+                            import re
+                            if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', text):
+                                ip_info['ip'] = text
+                                break
+                
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Error with {service['url']}: {e}{Colors.ENDC}")
+                continue
+        
+        # Get exit node info if using Tor and we have an IP
+        if ip_info['is_tor'] and ip_info['ip'] != 'Unknown':
+            try:
+                response = requests.get(f"https://check.torproject.org/torbulkexitlist?ip={ip_info['ip']}", timeout=5, headers=headers)
+                if response.status_code == 200:
+                    ip_info['exit_node'] = 'Verified Exit Node'
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Exit node check error: {e}{Colors.ENDC}")
+        
+        if self.debug_mode:
+            print(f"{Colors.OKGREEN}[DEBUG] Final IP info: {ip_info}{Colors.ENDC}")
+        
+        return ip_info
+    
+    def check_tor_status(self):
+        tor_running = False
+        tor_processes = []
+        
+        if HAS_PSUTIL:
+            try:
+                for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'cpu_percent', 'memory_percent']):
+                    try:
+                        proc_name = proc.info['name'].lower()
+                        cmdline = ' '.join(proc.info['cmdline'] or [])
+                        
+                        is_tor = (
+                            'tor' in proc_name or
+                            'tor.exe' in proc_name or
+                            'tor-browser' in proc_name or
+                            'tor' in cmdline.lower()
+                        )
+                        
+                        if is_tor:
+                            tor_running = True
+                            
+                            # Get process ports
+                            process_ports = []
+                            try:
+                                proc_connections = proc.connections()
+                                for conn in proc_connections:
+                                    if conn.laddr and conn.laddr.port in self.tor_ports:
+                                        process_ports.append(conn.laddr.port)
+                            except Exception:
+                                pass
+                            
+                            tor_processes.append({
+                                'pid': proc.info['pid'],
+                                'name': proc.info['name'],
+                                'ports': process_ports,
+                                'cpu_percent': proc.info.get('cpu_percent', 0),
+                                'memory_percent': proc.info.get('memory_percent', 0),
+                                'cmdline': cmdline[:150]
+                            })
+                            
+                            if len(tor_processes) >= 5:
+                                break
+                    except (psutil.AccessDenied, psutil.NoSuchProcess):
+                        continue
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Process check error: {e}{Colors.ENDC}")
+        else:
+            # Fallback: tasklist
+            try:
+                result = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq tor*'], 
+                                      capture_output=True, text=True, shell=True, timeout=10)
+                if result.returncode == 0 and 'tor' in result.stdout.lower():
+                    tor_running = True
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'tor' in line.lower() and len(line.split()) >= 2:
+                            parts = line.split()
+                            tor_processes.append({
+                                'pid': parts[1] if len(parts) > 1 else 'Unknown',
+                                'name': parts[0],
+                                'ports': [],
+                                'cpu_percent': 0,
+                                'memory_percent': 0,
+                                'cmdline': 'N/A'
+                            })
+            except Exception:
+                pass
+        
+        # Check ports as fallback
+        if not tor_running:
+            for port in [9050, 9051, 9040, 9150]:
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(0.5)
+                    result = sock.connect_ex(('127.0.0.1', port))
+                    if result == 0:
+                        tor_running = True
+                        tor_processes.append({
+                            'pid': 'Unknown',
+                            'name': f'Tor (port {port})',
+                            'ports': [port],
+                            'cpu_percent': 0,
+                            'memory_percent': 0,
+                            'cmdline': 'Detected via port scan'
+                        })
+                    sock.close()
+                except Exception:
+                    pass
+        
+        return {
+            'running': tor_running,
+            'processes': tor_processes,
+            'process_count': len(tor_processes)
+        }
+    
+    def get_performance_data(self):
+        perf_data = {
+            'cpu_usage': 0,
+            'memory_usage': 0,
+            'disk_usage': 0,
+            'tor_cpu': 0,
+            'tor_memory': 0,
+            'uptime': 'Unknown'
+        }
+        
+        if HAS_PSUTIL:
+            try:
+                # System performance
+                perf_data['cpu_usage'] = psutil.cpu_percent(interval=0.1)
+                perf_data['cpu_count'] = psutil.cpu_count()
+                perf_data['cpu_freq'] = psutil.cpu_freq().current if psutil.cpu_freq() else 0
+                
+                # Memory
+                memory = psutil.virtual_memory()
+                perf_data['memory_usage'] = memory.percent
+                perf_data['memory_total'] = memory.total
+                perf_data['memory_available'] = memory.available
+                perf_data['memory_used'] = memory.used
+                
+                # Disk
+                disk = psutil.disk_usage('/')
+                perf_data['disk_usage'] = disk.percent
+                perf_data['disk_total'] = disk.total
+                perf_data['disk_free'] = disk.free
+                
+                # Network
+                net_io = psutil.net_io_counters()
+                perf_data['bytes_sent'] = net_io.bytes_sent
+                perf_data['bytes_recv'] = net_io.bytes_recv
+                
+                # System uptime
+                boot_time = psutil.boot_time()
+                uptime_seconds = time.time() - boot_time
+                hours = int(uptime_seconds // 3600)
+                minutes = int((uptime_seconds % 3600) // 60)
+                perf_data['uptime'] = f"{hours}h {minutes}m"
+                
+                # Tor process specific
+                tor_cpu = 0
+                tor_memory = 0
+                for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+                    try:
+                        if 'tor' in proc.info['name'].lower():
+                            tor_cpu += proc.info['cpu_percent'] or 0
+                            tor_memory += proc.info['memory_percent'] or 0
+                    except Exception:
+                        continue
+                
+                perf_data['tor_cpu'] = tor_cpu
+                perf_data['tor_memory'] = tor_memory
+                
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Performance data error: {e}{Colors.ENDC}")
+        
+        return perf_data
+    
+    def get_tor_config_info(self):
+        config_info = {
+            'control_port': 'Not detected',
+            'socks_port': 'Not detected',
+            'data_directory': 'Unknown',
+            'exit_policy': 'Unknown',
+            'detected_ports': [],
+            'config_file': 'Not found'
+        }
+        
+        # Test ports
+        port_types = {
+            9050: 'SOCKS',
+            9051: 'Control',
+            9040: 'Trans Proxy',
+            8118: 'Privoxy HTTP',
+            8080: 'HTTP Proxy',
+            9001: 'ORPort',
+            9030: 'DirPort'
+        }
+        
+        for port, port_type in port_types.items():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1.0)
+                result = sock.connect_ex(('127.0.0.1', port))
+                if result == 0:
+                    config_info['detected_ports'].append({
+                        'port': port,
+                        'type': port_type,
+                        'status': 'Active'
+                    })
+                    
+                    if port in [9051, 9151]:
+                        config_info['control_port'] = f"127.0.0.1:{port}"
+                    elif port in [9050, 9040, 9150]:
+                        config_info['socks_port'] = f"127.0.0.1:{port}"
+                
+                sock.close()
+            except Exception as e:
+                if self.debug_mode:
+                    print(f"{Colors.WARNING}[DEBUG] Port {port} test error: {e}{Colors.ENDC}")
+        
+        # Try to find config file
+        potential_config_paths = [
+            os.path.expanduser('~/.tor/torrc'),
+            '/etc/tor/torrc',
+            '/usr/local/etc/tor/torrc',
+            '/var/lib/tor/torrc'
+        ]
+        
+        for config_path in potential_config_paths:
+            if os.path.exists(config_path):
+                config_info['config_file'] = config_path
+                try:
+                    with open(config_path, 'r') as f:
+                        content = f.read()
+                        for line in content.split('\n'):
+                            line = line.strip()
+                            if line.startswith('DataDirectory'):
+                                config_info['data_directory'] = line.split()[1]
+                            elif line.startswith('ExitPolicy'):
+                                config_info['exit_policy'] = ' '.join(line.split()[1:])
+                    break
+                except Exception as e:
+                    if self.debug_mode:
+                        print(f"{Colors.WARNING}[DEBUG] Cannot read config {config_path}: {e}{Colors.ENDC}")
+        
+        return config_info
+
+
+class TorPortalCLI:
+    def __init__(self):
+        self.monitor = TorMonitor()
+        self.running = True
+    
+    def clear_screen(self):
+        os.system('clear')
+    
+    def print_header(self):
+        header = f"""
+{Colors.BOLD}{Colors.OKBLUE}
+ _____               ___           _        _ 
+/__   \___  _ __    / _ \___  _ __| |_ __ _| |
+  / /\/ _ \| '__|  / /_)/ _ \| '__| __/ _` | |
+ / / | (_) | |    / ___/ (_) | |  | || (_| | |
+ \/   \___/|_|    \/    \___/|_|   \__\__,_|_|
+                                     
+{Colors.ENDC}
+"""
+        print(header)
+
+    def print_menu(self):
+        menu = f"""
+{Colors.BOLD}{Colors.OKGREEN}AVAILABLE OPTIONS:{Colors.ENDC}
+  {Colors.OKCYAN}1.{Colors.ENDC} Status Overview
+  {Colors.OKCYAN}2.{Colors.ENDC} Connection Details
+  {Colors.OKCYAN}3.{Colors.ENDC} Tor Circuit Info
+  {Colors.OKCYAN}4.{Colors.ENDC} Network Statistics
+  {Colors.OKCYAN}5.{Colors.ENDC} Security Status
+  {Colors.OKCYAN}6.{Colors.ENDC} Performance Monitor
+  {Colors.OKCYAN}7.{Colors.ENDC} Tor Configuration
+  {Colors.OKCYAN}8.{Colors.ENDC} Continuous Monitor Mode
+  {Colors.OKCYAN}9.{Colors.ENDC} Full Detailed Report
+  
+  {Colors.WARNING}d.{Colors.ENDC} Toggle Debug Mode
+  {Colors.WARNING}r.{Colors.ENDC} Refresh Data
+  {Colors.FAIL}q.{Colors.ENDC} Quit
+"""
+        print(menu)
+    
+    def format_bytes(self, bytes_val):
+        if bytes_val == 0:
+            return "0 B"
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if bytes_val < 1024.0:
+                return f"{bytes_val:.2f} {unit}"
+            bytes_val /= 1024.0
+        return f"{bytes_val:.2f} PB"
+    
+    def show_overview(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[1] STATUS OVERVIEW{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        # Tor Status
+        tor_status = data.get('tor_status', {})
+        public_ip = data.get('public_ip', {})
+        connections = data.get('tor_connections', [])
+        circuit = data.get('tor_circuit', [])
+        
+        tor_running = tor_status.get('running', False)
+        is_tor_traffic = public_ip.get('is_tor', False) if isinstance(public_ip, dict) else False
+        
+        status_color = Colors.OKGREEN if tor_running else Colors.FAIL
+        status_text = "RUNNING" if tor_running else "NOT RUNNING"
+        
+        print(f"{Colors.BOLD}Tor Status:{Colors.ENDC} {status_color}{status_text}{Colors.ENDC}")
+        print(f"{Colors.BOLD}Traffic Status:{Colors.ENDC} {'Via Tor' if is_tor_traffic else 'Direct connection'}")
+        
+        ip_addr = public_ip.get('ip', 'Unknown') if isinstance(public_ip, dict) else public_ip
+        print(f"{Colors.BOLD}Public IP:{Colors.ENDC} {Colors.WARNING}{ip_addr}{Colors.ENDC}")
+        print(f"{Colors.BOLD}Active Ports:{Colors.ENDC} {len(connections)}")
+        print(f"{Colors.BOLD}Circuit Nodes:{Colors.ENDC} {len(circuit)}")
+        print(f"{Colors.BOLD}Tor Processes:{Colors.ENDC} {tor_status.get('process_count', 0)}")
+        print(f"{Colors.BOLD}Timestamp:{Colors.ENDC} {data.get('timestamp', 'N/A')}\n")
+        
+        # Process details
+        if tor_status.get('processes'):
+            print(f"{Colors.BOLD}Tor Processes:{Colors.ENDC}")
+            for proc in tor_status['processes'][:3]:
+                print(f"  • PID: {proc.get('pid')} | {proc.get('name')} | CPU: {proc.get('cpu_percent', 0):.1f}% | Mem: {proc.get('memory_percent', 0):.1f}%")
+                if proc.get('ports'):
+                    print(f"    Ports: {', '.join(map(str, proc['ports']))}")
+        
+        # Quick stats
+        stats = data.get('network_stats', {})
+        print(f"\n{Colors.BOLD}Network Traffic:{Colors.ENDC}")
+        print(f"  Sent: {self.format_bytes(stats.get('bytes_sent', 0))}")
+        print(f"  Received: {self.format_bytes(stats.get('bytes_recv', 0))}")
+        
+        self.wait_for_key()
+    
+    def show_connections(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[2] CONNECTION DETAILS{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        connections = data.get('tor_connections', [])
+        
+        if not connections:
+            print(f"{Colors.WARNING}No active Tor connections found!{Colors.ENDC}\n")
+        else:
+            print(f"{Colors.BOLD}Total Connections:{Colors.ENDC} {len(connections)}\n")
+            
+            for i, conn in enumerate(connections, 1):
+                print(f"{Colors.BOLD}Connection #{i}:{Colors.ENDC}")
+                print(f"  Port: {Colors.OKCYAN}{conn.get('port')}{Colors.ENDC}")
+                print(f"  Protocol: {conn.get('protocol')}")
+                print(f"  Status: {Colors.OKGREEN}{conn.get('status')}{Colors.ENDC}")
+                print(f"  Local Address: {conn.get('local_addr', 'N/A')}")
+                print(f"  Remote Address: {conn.get('remote_addr', 'N/A')}")
+                print(f"  Detection Method: {conn.get('method')}")
+                print()
+        
+        # Port explanation
+        print(f"{Colors.BOLD}Port Descriptions:{Colors.ENDC}")
+        port_info = {
+            9050: "SOCKS5 Proxy Port",
+            9051: "Control Port",
+            9040: "Transparent Proxy Port",
+            8118: "Privoxy HTTP Proxy",
+            8080: "Alternative HTTP Proxy",
+            9001: "ORPort (Relay)",
+            9030: "DirPort (Directory)"
+        }
+        
+        active_ports = [c['port'] for c in connections]
+        for port in active_ports:
+            if port in port_info:
+                print(f"  • Port {port}: {port_info[port]}")
+        
+        self.wait_for_key()
+    
+    def show_circuit(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[3] TOR CIRCUIT INFO{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        circuit = data.get('tor_circuit', [])
+        
+        if not circuit:
+            print(f"{Colors.WARNING}Circuit information not available!{Colors.ENDC}")
+            print(f"{Colors.WARNING}Stem library not installed or Tor control port not open.{Colors.ENDC}\n")
+            print("Solutions:")
+            print("  1. Install stem library: pip install stem")
+            print("  2. Ensure Tor control port (9051) is open")
+            print("  3. Add 'ControlPort 9051' to torrc file\n")
+        else:
+            print(f"{Colors.BOLD}Total Nodes:{Colors.ENDC} {len(circuit)}\n")
+            
+            # Group by circuit
+            circuits = {}
+            for node in circuit:
+                cid = node.get('circuit_id', 'Unknown')
+                if cid not in circuits:
+                    circuits[cid] = []
+                circuits[cid].append(node)
+            
+            for cid, nodes in circuits.items():
+                print(f"{Colors.BOLD}Circuit ID: {cid}{Colors.ENDC}")
+                print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}")
+                
+                for node in nodes:
+                    node_type = node.get('type', 'Unknown')
+                    type_color = Colors.OKGREEN if 'Guard' in node_type else (Colors.WARNING if 'Exit' in node_type else Colors.OKCYAN)
+                    
+                    print(f"\n  {type_color}[{node_type}]{Colors.ENDC}")
+                    print(f"  Nickname: {Colors.BOLD}{node.get('nickname', 'Unknown')}{Colors.ENDC}")
+                    print(f"  IP Address: {node.get('ip', 'Unknown')}")
+                    print(f"  Country: {node.get('country', 'Unknown')}")
+                    print(f"  Fingerprint: {node.get('fingerprint', 'N/A')[:16]}...")
+                    print(f"  Status: {node.get('status', 'Unknown')}")
+                    
+                    if node.get('bandwidth') != 'Unknown':
+                        print(f"  Bandwidth: {node.get('bandwidth')}")
+                    
+                    if node.get('flags'):
+                        print(f"  Flags: {', '.join(node.get('flags', []))}")
+                
+                print(f"\n{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        self.wait_for_key()
+    
+    def show_network_stats(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[4] NETWORK STATISTICS{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        stats = data.get('network_stats', {})
+        
+        print(f"{Colors.BOLD}General Network Traffic:{Colors.ENDC}")
+        print(f"  Sent: {Colors.OKGREEN}{self.format_bytes(stats.get('bytes_sent', 0))}{Colors.ENDC}")
+        print(f"  Received: {Colors.OKGREEN}{self.format_bytes(stats.get('bytes_recv', 0))}{Colors.ENDC}")
+        print(f"  Packets Sent: {stats.get('packets_sent', 0):,}")
+        print(f"  Packets Received: {stats.get('packets_recv', 0):,}")
+        
+        if stats.get('errors_in') is not None:
+            print(f"\n{Colors.BOLD}Error Statistics:{Colors.ENDC}")
+            print(f"  Errors In: {stats.get('errors_in', 0)}")
+            print(f"  Errors Out: {stats.get('errors_out', 0)}")
+            print(f"  Drops In: {stats.get('drop_in', 0)}")
+            print(f"  Drops Out: {stats.get('drop_out', 0)}")
+        
+        print(f"\n{Colors.BOLD}Tor Connections:{Colors.ENDC}")
+        print(f"  Total Tor Connections: {stats.get('tor_connections_count', 0)}")
+        
+        if stats.get('connection_states'):
+            print(f"\n{Colors.BOLD}Connection States:{Colors.ENDC}")
+            for state, count in stats['connection_states'].items():
+                print(f"  {state}: {count}")
+        
+        if stats.get('active_interfaces'):
+            print(f"\n{Colors.BOLD}Active Network Interfaces:{Colors.ENDC}")
+            for iface in stats['active_interfaces']:
+                print(f"\n  {Colors.OKCYAN}{iface['name']}{Colors.ENDC}")
+                print(f"    Sent: {self.format_bytes(iface.get('bytes_sent', 0))}")
+                print(f"    Received: {self.format_bytes(iface.get('bytes_recv', 0))}")
+                print(f"    Packets Sent: {iface.get('packets_sent', 0):,}")
+                print(f"    Packets Received: {iface.get('packets_recv', 0):,}")
+        
+        self.wait_for_key()
+    
+    def show_security(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[5] SECURITY STATUS{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        public_ip = data.get('public_ip', {})
+        tor_status = data.get('tor_status', {})
+        connections = data.get('tor_connections', [])
+        
+        tor_running = tor_status.get('running', False)
+        is_tor_traffic = public_ip.get('is_tor', False) if isinstance(public_ip, dict) else False
+        ip_addr = public_ip.get('ip', 'Unknown') if isinstance(public_ip, dict) else public_ip
+        
+        # Security Level
+        if is_tor_traffic and tor_running:
+            security_level = "SECURE"
+            security_color = Colors.OKGREEN
+            anonymization = "YES - Your traffic is routed through Tor"
+        elif tor_running and not is_tor_traffic:
+            security_level = "PARTIALLY SECURE"
+            security_color = Colors.WARNING
+            anonymization = "NO - Tor running but traffic not routed"
+        else:
+            security_level = "INSECURE"
+            security_color = Colors.FAIL
+            anonymization = "NO - Tor not running"
+        
+        print(f"{Colors.BOLD}Security Level:{Colors.ENDC} {security_color}{security_level}{Colors.ENDC}")
+        print(f"{Colors.BOLD}IP Anonymized:{Colors.ENDC} {anonymization}")
+        print(f"{Colors.BOLD}Current IP:{Colors.ENDC} {Colors.WARNING}{ip_addr}{Colors.ENDC}")
+        
+        if isinstance(public_ip, dict):
+            print(f"{Colors.BOLD}Tor Detection:{Colors.ENDC} {'✓ Verified' if public_ip.get('tor_detected') else '✗ Not verified'}")
+            if public_ip.get('exit_node') != 'Unknown':
+                print(f"{Colors.BOLD}Exit Node:{Colors.ENDC} {public_ip['exit_node']}")
+        
+        print(f"\n{Colors.BOLD}Tor Status Check:{Colors.ENDC}")
+        print(f"  Tor Service: {Colors.OKGREEN if tor_running else Colors.FAIL}{'Running' if tor_running else 'Not Running'}{Colors.ENDC}")
+        print(f"  Active Ports: {len(connections)}")
+        print(f"  Active Processes: {tor_status.get('process_count', 0)}")
+        
+        # Recommendations
+        print(f"\n{Colors.BOLD}Recommendations:{Colors.ENDC}")
+        if not tor_running:
+            print(f"  {Colors.FAIL}✗{Colors.ENDC} Tor service not running - Start Tor")
+        elif not is_tor_traffic:
+            print(f"  {Colors.WARNING}!{Colors.ENDC} Tor is running but your traffic is not routed")
+            print(f"    • Configure your browser/application to use Tor proxy")
+            print(f"    • SOCKS5 Proxy: 127.0.0.1:9050")
+        else:
+            print(f"  {Colors.OKGREEN}✓{Colors.ENDC} All checks successful - Your traffic is routed through Tor")
+        
+        # Connection security
+        print(f"\n{Colors.BOLD}Connection Security:{Colors.ENDC}")
+        for conn in connections[:5]:
+            port_type = "SOCKS5" if conn['port'] == 9050 else ("Control" if conn['port'] == 9051 else "Other")
+            print(f"  Port {conn['port']} ({port_type}): {Colors.OKGREEN}{conn['status']}{Colors.ENDC}")
+        
+        self.wait_for_key()
+    
+    def show_performance(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[6] PERFORMANCE MONITOR{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        perf = data.get('performance_data', {})
+        
+        print(f"{Colors.BOLD}System Performance:{Colors.ENDC}")
+        print(f"  CPU Usage: {Colors.OKCYAN}{perf.get('cpu_usage', 0):.1f}%{Colors.ENDC}")
+        
+        if perf.get('cpu_count'):
+            print(f"  CPU Cores: {perf['cpu_count']}")
+        if perf.get('cpu_freq'):
+            print(f"  CPU Frequency: {perf['cpu_freq']:.0f} MHz")
+        
+        print(f"  Memory Usage: {Colors.OKCYAN}{perf.get('memory_usage', 0):.1f}%{Colors.ENDC}")
+        
+        if perf.get('memory_total'):
+            print(f"  Total Memory: {self.format_bytes(perf['memory_total'])}")
+            print(f"  Used Memory: {self.format_bytes(perf.get('memory_used', 0))}")
+            print(f"  Available Memory: {self.format_bytes(perf.get('memory_available', 0))}")
+        
+        if perf.get('disk_usage') is not None:
+            print(f"  Disk Usage: {Colors.OKCYAN}{perf['disk_usage']:.1f}%{Colors.ENDC}")
+            if perf.get('disk_total'):
+                print(f"  Total Disk: {self.format_bytes(perf['disk_total'])}")
+                print(f"  Free Disk: {self.format_bytes(perf.get('disk_free', 0))}")
+        
+        if perf.get('uptime') != 'Unknown':
+            print(f"  System Uptime: {perf['uptime']}")
+        
+        print(f"\n{Colors.BOLD}Tor Process Performance:{Colors.ENDC}")
+        print(f"  Tor CPU: {Colors.WARNING}{perf.get('tor_cpu', 0):.2f}%{Colors.ENDC}")
+        print(f"  Tor Memory: {Colors.WARNING}{perf.get('tor_memory', 0):.2f}%{Colors.ENDC}")
+        
+        print(f"\n{Colors.BOLD}Network Performance:{Colors.ENDC}")
+        if perf.get('bytes_sent'):
+            print(f"  Total Sent: {self.format_bytes(perf['bytes_sent'])}")
+            print(f"  Total Received: {self.format_bytes(perf['bytes_recv'])}")
+        
+        # Performance rating
+        cpu = perf.get('cpu_usage', 0)
+        mem = perf.get('memory_usage', 0)
+        
+        print(f"\n{Colors.BOLD}Performance Rating:{Colors.ENDC}")
+        if cpu < 30 and mem < 50:
+            print(f"  {Colors.OKGREEN}✓ Excellent - System running smoothly{Colors.ENDC}")
+        elif cpu < 60 and mem < 70:
+            print(f"  {Colors.WARNING}! Normal - System at acceptable level{Colors.ENDC}")
+        else:
+            print(f"  {Colors.FAIL}✗ High - System under heavy load{Colors.ENDC}")
+        
+        self.wait_for_key()
+    
+    def show_config(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[7] TOR CONFIGURATION{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        config = data.get('tor_config', {})
+        
+        print(f"{Colors.BOLD}Basic Configuration:{Colors.ENDC}")
+        print(f"  Control Port: {Colors.OKCYAN}{config.get('control_port', 'Not detected')}{Colors.ENDC}")
+        print(f"  SOCKS Port: {Colors.OKCYAN}{config.get('socks_port', 'Not detected')}{Colors.ENDC}")
+        print(f"  Data Directory: {config.get('data_directory', 'Unknown')}")
+        print(f"  Exit Policy: {config.get('exit_policy', 'Unknown')}")
+        print(f"  Config File: {config.get('config_file', 'Not found')}")
+        
+        detected_ports = config.get('detected_ports', [])
+        if detected_ports:
+            print(f"\n{Colors.BOLD}Detected Ports: ({len(detected_ports)}){Colors.ENDC}")
+            for port_info in detected_ports:
+                status_color = Colors.OKGREEN if port_info['status'] == 'Active' else Colors.FAIL
+                print(f"  • Port {port_info['port']:5} - {port_info['type']:20} [{status_color}{port_info['status']}{Colors.ENDC}]")
+        
+        print(f"\n{Colors.BOLD}Port Descriptions:{Colors.ENDC}")
+        print(f"  9050  - SOCKS5 proxy (standard Tor proxy)")
+        print(f"  9051  - Control port (for Tor control)")
+        print(f"  9040  - Transparent proxy port")
+        print(f"  ")
+        print(f"  8118  - Privoxy HTTP proxy")
+        print(f"  9001  - ORPort (for relay)")
+        print(f"  9030  - DirPort (for directory info)")
+        
+        print(f"\n{Colors.BOLD}Recommendations:{Colors.ENDC}")
+        if config.get('control_port') == 'Not detected':
+            print(f"  {Colors.WARNING}!{Colors.ENDC} Control port not detected")
+            print(f"    • Add 'ControlPort 9051' to torrc file")
+        if config.get('socks_port') == 'Not detected':
+            print(f"  {Colors.FAIL}✗{Colors.ENDC} SOCKS port not detected")
+            print(f"    • Ensure Tor service is running")
+        
+        self.wait_for_key()
+    
+    def show_continuous_monitor(self, data):
+        print(f"\n{Colors.BOLD}{Colors.OKGREEN}[8] CONTINUOUS MONITOR MODE{Colors.ENDC}")
+        print(f"{Colors.WARNING}Starting real-time monitoring... (CTRL+C to exit){Colors.ENDC}\n")
+        
+        try:
+            while True:
+                self.clear_screen()
+                self.print_header()
+                
+                print(f"{Colors.BOLD}{Colors.OKGREEN}[CONTINUOUS MONITOR]{Colors.ENDC} - {datetime.now().strftime('%H:%M:%S')}")
+                print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+                
+                # Refresh data
+                data = self.monitor.collect_all_data()
+                
+                tor_status = data.get('tor_status', {})
+                public_ip = data.get('public_ip', {})
+                connections = data.get('tor_connections', [])
+                stats = data.get('network_stats', {})
+                perf = data.get('performance_data', {})
+                
+                # Status
+                tor_running = tor_status.get('running', False)
+                is_tor = public_ip.get('is_tor', False) if isinstance(public_ip, dict) else False
+                
+                status_icon = f"{Colors.OKGREEN}●{Colors.ENDC}" if tor_running else f"{Colors.FAIL}●{Colors.ENDC}"
+                print(f"{status_icon} Tor Status: {'RUNNING' if tor_running else 'NOT RUNNING'}")
+                print(f"  Traffic: {'Via Tor' if is_tor else 'Direct'}")
+                print(f"  IP: {public_ip.get('ip', 'Unknown') if isinstance(public_ip, dict) else public_ip}")
+                
+                # Connections
+                print(f"\n{Colors.BOLD}Connections:{Colors.ENDC}")
+                print(f"  Active Ports: {len(connections)}")
+                for conn in connections[:5]:
+                    print(f"  • Port {conn['port']} ({conn['protocol']}) - {conn['status']}")
+                
+                # Performance
+                print(f"\n{Colors.BOLD}Performance:{Colors.ENDC}")
+                print(f"  CPU: {perf.get('cpu_usage', 0):.1f}% | Mem: {perf.get('memory_usage', 0):.1f}%")
+                print(f"  Tor CPU: {perf.get('tor_cpu', 0):.2f}% | Tor Mem: {perf.get('tor_memory', 0):.2f}%")
+                
+                # Network
+                print(f"\n{Colors.BOLD}Network Traffic:{Colors.ENDC}")
+                print(f"  ↑ {self.format_bytes(stats.get('bytes_sent', 0))} | ↓ {self.format_bytes(stats.get('bytes_recv', 0))}")
+                
+                print(f"\n{Colors.OKCYAN}Updating... (5 seconds){Colors.ENDC}")
+                time.sleep(5)
+                
+        except KeyboardInterrupt:
+            print(f"\n{Colors.WARNING}Continuous monitor stopped.{Colors.ENDC}")
+            time.sleep(2)
+    
+    def show_full_report(self, data):
+        self.clear_screen()
+        self.print_header()
+        
+        print(f"{Colors.BOLD}{Colors.OKGREEN}[9] FULL DETAILED REPORT{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}\n")
+        
+        print(f"{Colors.BOLD}Report Time:{Colors.ENDC} {data.get('timestamp')}\n")
+        
+        # All sections compact
+        sections = [
+            ("TOR STATUS", self._report_tor_status, data),
+            ("CONNECTIONS", self._report_connections, data),
+            ("CIRCUIT INFO", self._report_circuit, data),
+            ("NETWORK STATISTICS", self._report_network, data),
+            ("SECURITY", self._report_security, data),
+            ("PERFORMANCE", self._report_performance, data),
+            ("CONFIGURATION", self._report_config, data)
+        ]
+        
+        for title, func, d in sections:
+            print(f"{Colors.BOLD}{Colors.OKBLUE}[{title}]{Colors.ENDC}")
+            func(d)
+            print()
+        
+        self.wait_for_key()
+    
+    def _report_tor_status(self, data):
+        tor_status = data.get('tor_status', {})
+        print(f"  Running: {tor_status.get('running')}")
+        print(f"  Process Count: {tor_status.get('process_count', 0)}")
+    
+    def _report_connections(self, data):
+        connections = data.get('tor_connections', [])
+        print(f"  Total: {len(connections)}")
+        for conn in connections[:3]:
+            print(f"  • {conn['port']} ({conn['protocol']}) - {conn['status']}")
+    
+    def _report_circuit(self, data):
+        circuit = data.get('tor_circuit', [])
+        print(f"  Total Nodes: {len(circuit)}")
+        for node in circuit[:3]:
+            print(f"  • {node.get('type')}: {node.get('country')} ({node.get('ip')})")
+    
+    def _report_network(self, data):
+        stats = data.get('network_stats', {})
+        print(f"  Sent: {self.format_bytes(stats.get('bytes_sent', 0))}")
+        print(f"  Received: {self.format_bytes(stats.get('bytes_recv', 0))}")
+    
+    def _report_security(self, data):
+        public_ip = data.get('public_ip', {})
+        is_tor = public_ip.get('is_tor', False) if isinstance(public_ip, dict) else False
+        print(f"  Tor Traffic: {is_tor}")
+        print(f"  IP: {public_ip.get('ip', 'Unknown') if isinstance(public_ip, dict) else public_ip}")
+    
+    def _report_performance(self, data):
+        perf = data.get('performance_data', {})
+        print(f"  CPU: {perf.get('cpu_usage', 0):.1f}%")
+        print(f"  Memory: {perf.get('memory_usage', 0):.1f}%")
+        print(f"  Tor CPU: {perf.get('tor_cpu', 0):.2f}%")
+    
+    def _report_config(self, data):
+        config = data.get('tor_config', {})
+        print(f"  Control Port: {config.get('control_port', 'N/A')}")
+        print(f"  SOCKS Port: {config.get('socks_port', 'N/A')}")
+        print(f"  Active Ports: {len(config.get('detected_ports', []))}")
+    
+    def wait_for_key(self):
+        print(f"\n{Colors.OKCYAN}{'─' * 70}{Colors.ENDC}")
+        input(f"{Colors.BOLD}Press Enter to continue...{Colors.ENDC}")
+    
+    def toggle_debug(self):
+        self.monitor.debug_mode = not self.monitor.debug_mode
+        status = "ON" if self.monitor.debug_mode else "OFF"
+        print(f"\n{Colors.WARNING}Debug mode: {status}{Colors.ENDC}")
+        time.sleep(1)
+    
+    def run(self):
+        print(f"{Colors.BOLD}{Colors.OKGREEN}Tor Portal CLI starting...{Colors.ENDC}")
+        print(f"{Colors.OKCYAN}Collecting data, please wait...{Colors.ENDC}\n")
+        
+        # Initial data collection
+        data = self.monitor.collect_all_data()
+        
+        while self.running:
+            self.clear_screen()
+            self.print_header()
+            self.print_menu()
+            
+            try:
+                choice = input(f"{Colors.BOLD}Your choice: {Colors.ENDC}").strip().lower()
+                
+                if choice == '1':
+                    self.show_overview(data)
+                elif choice == '2':
+                    self.show_connections(data)
+                elif choice == '3':
+                    self.show_circuit(data)
+                elif choice == '4':
+                    self.show_network_stats(data)
+                elif choice == '5':
+                    self.show_security(data)
+                elif choice == '6':
+                    self.show_performance(data)
+                elif choice == '7':
+                    self.show_config(data)
+                elif choice == '8':
+                    self.show_continuous_monitor(data)
+                elif choice == '9':
+                    self.show_full_report(data)
+                elif choice == 'd':
+                    self.toggle_debug()
+                elif choice == 'r':
+                    print(f"\n{Colors.OKCYAN}Refreshing data...{Colors.ENDC}")
+                    data = self.monitor.collect_all_data()
+                    print(f"{Colors.OKGREEN}Data updated!{Colors.ENDC}")
+                    time.sleep(1)
+                elif choice == 'q':
+                    print(f"\n{Colors.WARNING}Tor Portal CLI closing...{Colors.ENDC}")
+                    self.running = False
+                else:
+                    print(f"\n{Colors.FAIL}Invalid choice! Please try again.{Colors.ENDC}")
+                    time.sleep(1)
+                    
+            except KeyboardInterrupt:
+                print(f"\n\n{Colors.WARNING}Exiting...{Colors.ENDC}")
+                self.running = False
+            except Exception as e:
+                print(f"\n{Colors.FAIL}Error: {e}{Colors.ENDC}")
+                time.sleep(2)
+        
+        print(f"\n{Colors.OKGREEN}Tor Portal CLI closed.{Colors.ENDC}\n")
+
+
+def main():
+    try:
+        # Check if running with root privileges
+        if os.geteuid() != 0:
+            print(f"{Colors.WARNING}Warning: Some features may not work without root privileges.{Colors.ENDC}\n")
+        
+        # Show library status
+        print(f"{Colors.BOLD}Library Status:{Colors.ENDC}")
+        print(f"  requests: {Colors.OKGREEN if HAS_REQUESTS else Colors.FAIL}{'✓' if HAS_REQUESTS else '✗'}{Colors.ENDC}")
+        print(f"  psutil:   {Colors.OKGREEN if HAS_PSUTIL else Colors.FAIL}{'✓' if HAS_PSUTIL else '✗'}{Colors.ENDC}")
+        print(f"  stem:     {Colors.OKGREEN if HAS_STEM else Colors.FAIL}{'✓' if HAS_STEM else '✗'}{Colors.ENDC}")
+        
+        if not HAS_REQUESTS or not HAS_PSUTIL or not HAS_STEM:
+            print(f"\n{Colors.WARNING}Missing libraries detected. For full functionality:{Colors.ENDC}")
+            if not HAS_REQUESTS:
+                print(f"  pip install requests")
+            if not HAS_PSUTIL:
+                print(f"  pip install psutil")
+            if not HAS_STEM:
+                print(f"  pip install stem")
+            print()
+            
+            choice = input(f"{Colors.BOLD}Do you want to continue? (y/n): {Colors.ENDC}").strip().lower()
+            if choice != 'y':
+                print(f"{Colors.FAIL}Exiting...{Colors.ENDC}")
+                return
+        
+        print()
+        
+        # Start CLI
+        cli = TorPortalCLI()
+        cli.run()
+        
+    except KeyboardInterrupt:
+        print(f"\n\n{Colors.WARNING}Program stopped by user.{Colors.ENDC}\n")
+    except Exception as e:
+        print(f"\n{Colors.FAIL}Critical error: {e}{Colors.ENDC}\n")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == '__main__':
+    main()

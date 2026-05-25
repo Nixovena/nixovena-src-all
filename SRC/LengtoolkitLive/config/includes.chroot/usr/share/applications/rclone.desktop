@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Rclone
+Comment=LengToolkit - rclone
+Exec=mate-terminal -- bash -c "rclone --help; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

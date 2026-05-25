@@ -1,0 +1,9 @@
+PRETTY_NAME="Megamix Classic Edition"
+NAME="Megamix"
+ID=debian
+ID_LIKE=debian
+RELEASE_TYPE=stable
+VERSION="2.0"
+VERSION_ID="2.0"
+
+

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Wormtipede
+Comment=Deep Onion site archiver
+Comment[tr]=Derin Onion site arşivleyici
+Comment[es]=Archivador profundo de sitios Onion
+Comment[fr]=Archiveur profond de sites Onion
+Comment[de]=Tiefenarchivierer für Onion-Sites
+Comment[ar]=أداة أرشفة عميقة لمواقع Onion
+Comment[ru]=Глубокий архиватор Onion-сайтов
+Comment[zh]=深度 Onion 网站存档器
+Comment[ja]=ディープOnionサイトアーカイバー
+Comment[ko]=딥 Onion 사이트 아카이버
+Comment[pt]=Arquivador profundo de sites Onion
+Comment[it]=Archiviatore profondo di siti Onion
+Comment[nl]=Diepe Onion site archiveerder
+Comment[sv]=Djup Onion-platsarkiverare
+Comment[pl]=Głęboki archiwizator stron Onion
+Exec=mate-terminal -- bash -c "wormtipede --help; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/worm.png
+Categories=Darknet;
+StartupNotify=false

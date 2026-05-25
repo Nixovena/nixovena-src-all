@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Apply Default Wallpaper
+Exec=sh -c 'sleep 1; if ! grep -q "overkill-wallpaper-applied=true" ~/.config/plasmarc 2>/dev/null; then plasma-apply-wallpaperimage /usr/share/backgrounds/overkill.png && kwriteconfig6 --file ~/.config/plasmarc --group Overkill --key overkill-wallpaper-applied true; fi'
+Hidden=false
+NoDisplay=true
+X-KDE-autostart-after=panel

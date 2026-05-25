@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=fbosint
+Comment=Facebook OSINT and information gathering tool
+Comment[tr]=Facebook OSINT ve bilgi toplama aracı
+Comment[es]=Facebook OSINT y herramienta de recopilación de información
+Comment[fr]=Outil de collecte d'informations et OSINT Facebook
+Comment[de]=Facebook OSINT und Informationsbeschaffungstool
+Comment[ar]=أداة OSINT لجمع المعلومات من فيسبوك
+Comment[ru]=Инструмент OSINT и сбора информации Facebook
+Comment[zh]=Facebook OSINT和信息收集工具
+Comment[ja]=Facebook OSINTおよび情報収集ツール
+Comment[ko]=Facebook OSINT 및 정보 수집 도구
+Comment[pt]=OSINT do Facebook e ferramenta de coleta de informações
+Comment[it]=Strumento OSINT di Facebook e raccolta di informazioni
+Comment[nl]=Facebook OSINT en informatieverzamelingshulpmiddel
+Comment[sv]=Facebook OSINT och informationsinsamlingsverktyg
+Comment[pl]=Narzędzie OSINT i zbierania informacji z Facebooka
+Exec=mate-terminal -- bash -c "fbosint; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/fb.png
+Categories=Social;
+StartupNotify=false

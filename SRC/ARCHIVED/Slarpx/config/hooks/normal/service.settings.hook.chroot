@@ -1,0 +1,9 @@
+#!/bin/bash
+set -e
+
+# Mask unnecessary services for a security-focused distribution
+systemctl mask avahi-daemon.service 2>/dev/null || true
+systemctl mask avahi-daemon.socket 2>/dev/null || true
+systemctl mask cups.service 2>/dev/null || true
+systemctl mask cups-browsed.service 2>/dev/null || true
+systemctl mask bluetooth.service 2>/dev/null || true

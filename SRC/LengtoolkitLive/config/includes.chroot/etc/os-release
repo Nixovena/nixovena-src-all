@@ -1,0 +1,9 @@
+PRETTY_NAME="Linux Engineer Toolkit (LengToolkit) Live"
+NAME="Linux Engineer Toolkit Live"
+ID=debian
+ID_LIKE=debian
+RELEASE_TYPE=stable
+VERSION="1.0"
+VERSION_ID="1.0"
+
+

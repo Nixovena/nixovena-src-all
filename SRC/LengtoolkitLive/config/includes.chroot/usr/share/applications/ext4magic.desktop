@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Ext4magic
+Comment=LengToolkit - ext4magic
+Exec=mate-terminal -- bash -c "ext4magicguide; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

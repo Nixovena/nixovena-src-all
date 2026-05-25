@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Almighty Panel
+Comment=System Management Panel for Almighty Linux
+Comment[tr]=Almighty Linux Sistem Yonetim Paneli
+Comment[es]=Panel de gestion del sistema Almighty Linux
+Comment[fr]=Panneau de gestion du systeme Almighty Linux
+Comment[de]=Systemverwaltungspanel fuer Almighty Linux
+Comment[ar]=لوحة إدارة نظام Almighty Linux
+Comment[ru]=Панель управления системой Almighty Linux
+Comment[zh]=Almighty Linux 系统管理面板
+Comment[ja]=Almighty Linux システム管理パネル
+Comment[ko]=Almighty Linux 시스템 관리 패널
+Comment[pt]=Painel de gerenciamento do sistema Almighty Linux
+Comment[it]=Pannello di gestione del sistema Almighty Linux
+Comment[nl]=Systeembeheerpaneel voor Almighty Linux
+Comment[sv]=Systemhanteringspanel foer Almighty Linux
+Comment[pl]=Panel zarzadzania systemem Almighty Linux
+Exec=mate-terminal -- bash -c "sudo almighty-panel; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=System;
+StartupNotify=false

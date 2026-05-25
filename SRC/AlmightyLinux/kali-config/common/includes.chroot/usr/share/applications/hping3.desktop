@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=hping3
+Comment=Active Network Smashing and Penetration Tool
+Comment[tr]=Aktif Ağ Parçalama ve Sızma Aracı
+Comment[es]=Herramienta de penetración y destrucción activa de redes
+Comment[fr]=Outil de destruction et de pénétration active du réseau
+Comment[de]=Aktives Network Smashing und Penetration Tool
+Comment[ar]=أداة تدمير واختراق الشبكة النشطة
+Comment[ru]=Активный инструмент разрушения и проникновения в сеть
+Comment[zh]=主动网络粉碎和渗透工具
+Comment[ja]=アクティブネットワークスマッシングおよびペネトレーションツール
+Comment[ko]=활성 네트워크 스매싱 및 침투 도구
+Comment[pt]=Ferramenta Ativa de Quebra de Rede e Penetração
+Comment[it]=Strumento attivo di distruzione e penetrazione della rete
+Comment[nl]=Actief Network Smashing en Penetratie Tool
+Comment[sv]=Aktivt nätverkskross- och penetrationsverktyg
+Comment[pl]=Aktywne narzędzie do niszczenia sieci i penetracji
+Exec=mate-terminal -- bash -c "hping3 -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=NetworkOSINT;
+StartupNotify=false

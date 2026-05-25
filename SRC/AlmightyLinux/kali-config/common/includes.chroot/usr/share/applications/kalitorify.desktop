@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Kalitorify
+Comment=Transparent proxy through Tor
+Comment[tr]=Tor üzerinden şeffaf proxy
+Comment[es]=Proxy transparente a través de Tor
+Comment[fr]=Proxy transparent via Tor
+Comment[de]=Transparenter Proxy über Tor
+Comment[ar]=بروكسي شفاف عبر Tor
+Comment[ru]=Прозрачный прокси через Tor
+Comment[zh]=通过Tor提供的透明代理
+Comment[ja]=Tor経由の透過プロキシ
+Comment[ko]=Tor를 통한 투명 프록시
+Comment[pt]=Proxy transparente através do Tor
+Comment[it]=Proxy trasparente tramite Tor
+Comment[nl]=Transparante proxy via Tor
+Comment[sv]=Transparent proxy via Tor
+Comment[pl]=Przezroczyste proxy przez sieć Tor
+Exec=mate-terminal -- bash -c "kalitorify -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

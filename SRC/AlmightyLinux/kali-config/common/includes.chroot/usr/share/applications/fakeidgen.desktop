@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Fake ID Generator
+Comment=Generate fake identities for testing and privacy
+Comment[tr]=Test ve gizlilik için sahte kimlikler oluştur
+Comment[es]=Genera identidades falsas para pruebas y privacidad
+Comment[fr]=Génère de fausses identités pour tests et confidentialité
+Comment[de]=Erstellt gefälschte Identitäten für Tests und Datenschutz
+Comment[ar]=توليد هويات مزيفة للاختبار والخصوصية
+Comment[ru]=Генерация поддельных личностей для тестирования и конфиденциальности
+Comment[zh]=生成用于测试和隐私的虚假身份
+Comment[ja]=テストとプライバシーのための偽の身元を生成
+Comment[ko]=테스트 및 개인정보 보호를 위한 가짜 신원 생성
+Comment[pt]=Gera identidades falsas para testes e privacidade
+Comment[it]=Genera identità false per test e privacy
+Comment[nl]=Genereer valse identiteiten voor testen en privacy
+Comment[sv]=Generera falska identiteter för testning och sekretess
+Comment[pl]=Generuj fałszywe tożsamości do testowania i prywatności
+Exec=mate-terminal -- bash -c "fakeidgen; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

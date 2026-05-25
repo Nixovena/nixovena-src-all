@@ -1,0 +1,43 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${CYAN}========================================================${NC}"
+echo -e "           RESCUEXY CHROOT HELPER"
+echo -e "${CYAN}========================================================${NC}"
+
+if [ -z "$1" ]; then
+    echo -e "${YELLOW}Usage:${NC} sudo rescuexy-chroot /dev/sdXY"
+    echo ""
+    echo "Available root partitions:"
+    lsblk -o NAME,SIZE,FSTYPE | grep -E "ext4|btrfs|xfs"
+    exit 1
+fi
+
+TARGET=$1
+MOUNT_DIR="/mnt/rescue"
+
+mkdir -p $MOUNT_DIR
+echo -e "${GREEN}[+]${NC} Mounting $TARGET to $MOUNT_DIR..."
+mount $TARGET $MOUNT_DIR || { echo -e "${RED}Mount failed!${NC}"; exit 1; }
+
+echo -e "${GREEN}[+]${NC} Binding system dirs..."
+mount --bind /dev $MOUNT_DIR/dev
+mount --bind /proc $MOUNT_DIR/proc
+mount --bind /sys $MOUNT_DIR/sys
+mount --bind /run $MOUNT_DIR/run
+
+if [ -d /sys/firmware/efi ]; then
+    EFI=$(lsblk -o NAME,FSTYPE | grep vfat | awk '{print "/dev/"$1}' | head -1)
+    [ -n "$EFI" ] && mount $EFI $MOUNT_DIR/boot/efi 2>/dev/null
+fi
+
+echo -e "${GREEN}[+]${NC} Entering chroot..."
+chroot $MOUNT_DIR /bin/bash
+
+echo -e "${YELLOW}[*]${NC} Cleaning up..."
+umount -R $MOUNT_DIR
+echo -e "${GREEN}Done!${NC}"

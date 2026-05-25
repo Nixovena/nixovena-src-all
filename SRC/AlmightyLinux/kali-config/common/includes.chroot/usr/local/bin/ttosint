@@ -1,0 +1,415 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import re
+import json
+import time
+import hashlib
+import argparse
+from datetime import datetime, timezone
+from urllib.parse import quote_plus
+from typing import Optional, Dict, List, Any
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] Requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+try:
+    import requests
+except ImportError:
+    sys.exit("[!] Missing: requests\n    pip install requests")
+
+sys.dont_write_bytecode = True
+
+VERSION = "1.0.0"
+REPORT_DIR = os.path.expanduser("~/.tiktokosint/reports")
+
+
+class C:
+    RST = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"
+    RED = "\033[38;2;255;85;85m"; GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"; BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"; PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"; CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"; GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color, text):
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = f"""
+   {C.GRAY}v{VERSION} ttosint - TikTok Intelligence Gathering{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+
+class Log:
+    @staticmethod
+    def info(msg): print(f"  {C.BLUE}[*]{C.RST} {msg}")
+    @staticmethod
+    def success(msg): print(f"  {C.GREEN}[+]{C.RST} {msg}")
+    @staticmethod
+    def warn(msg): print(f"  {C.YELLOW}[!]{C.RST} {msg}")
+    @staticmethod
+    def error(msg): print(f"  {C.RED}[-]{C.RST} {msg}")
+    @staticmethod
+    def header(title):
+        print(f"\n  {C.PINK}{'=' * 55}{C.RST}")
+        print(f"  {C.PINK}|{C.RST}  {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f"  {C.PINK}{'=' * 55}{C.RST}")
+    @staticmethod
+    def subheader(title): print(f"\n  {C.PURPLE}-- {title} --{C.RST}")
+    @staticmethod
+    def kv(key, value): print(f"  {C.GREEN}[+]{C.RST} {C.BOLD}{key:<28}{C.RST} {C.WHITE}{value}{C.RST}")
+    @staticmethod
+    def detail(key, value, indent=2):
+        pad = "  " * indent
+        print(f"{pad}{C.GRAY}|-- {C.CYAN}{key}{C.RST}: {value}")
+
+
+class HTTPClient:
+    def __init__(self):
+        self._session = requests.Session()
+        self._session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
+
+    def get(self, url, params=None, headers=None, timeout=15):
+        try:
+            time.sleep(1.5)
+            h = dict(self._session.headers)
+            if headers:
+                h.update(headers)
+            resp = self._session.get(url, params=params, headers=h, timeout=timeout)
+            return resp
+        except Exception:
+            return None
+
+    def get_json(self, url, params=None, headers=None):
+        resp = self.get(url, params=params, headers=headers)
+        if resp and resp.status_code == 200:
+            try:
+                return resp.json()
+            except Exception:
+                return None
+        return None
+
+
+class TikTokProfiler:
+
+    def __init__(self, http):
+        self.http = http
+
+    def investigate(self, username):
+        Log.header("TIKTOK PROFILE INTELLIGENCE")
+        username = username.lstrip("@").strip()
+        Log.info(f"Target: {_c(C.WHITE, '@' + username)}")
+
+        profile = self._fetch_profile(username)
+
+        Log.subheader("Profile Data")
+        if profile:
+            for key, value in profile.items():
+                if key not in ("raw",):
+                    Log.kv(key, str(value))
+        else:
+            Log.warn("Could not fetch profile data via web scraping")
+            Log.info("TikTok may be blocking automated requests")
+
+        Log.subheader("Profile URLs")
+        urls = {
+            "TikTok Profile": f"https://www.tiktok.com/@{username}",
+            "TikTok (Mobile)": f"https://m.tiktok.com/h5/share/usr/{username}",
+            "Archive.org": f"https://web.archive.org/web/*/tiktok.com/@{username}",
+        }
+        for name, url in urls.items():
+            Log.detail(name, url)
+
+        Log.subheader("Cross-Platform Check")
+        platforms = [
+            ("Instagram", f"https://www.instagram.com/{username}/"),
+            ("Twitter/X", f"https://twitter.com/{username}"),
+            ("YouTube", f"https://www.youtube.com/@{username}"),
+            ("GitHub", f"https://github.com/{username}"),
+            ("Reddit", f"https://www.reddit.com/user/{username}"),
+            ("Snapchat", f"https://www.snapchat.com/add/{username}"),
+            ("Pinterest", f"https://www.pinterest.com/{username}/"),
+            ("Twitch", f"https://www.twitch.tv/{username}"),
+            ("Spotify", f"https://open.spotify.com/user/{username}"),
+            ("SoundCloud", f"https://soundcloud.com/{username}"),
+            ("Medium", f"https://medium.com/@{username}"),
+            ("Linktree", f"https://linktr.ee/{username}"),
+        ]
+        for name, url in platforms:
+            resp = self.http.get(url, timeout=8)
+            if resp and resp.status_code == 200:
+                Log.success(f"{name}: {_c(C.GREEN, 'FOUND')} - {url}")
+            else:
+                print(f"    {C.DARK}[x] {name}: not found{C.RST}")
+
+        dorks = self._generate_dorks(username)
+        Log.subheader("Google Dorks")
+        for desc, query in dorks[:15]:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+
+        return {
+            "target": username,
+            "profile": profile,
+            "urls": urls,
+            "dorks": [{"desc": d, "query": q} for d, q in dorks],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _fetch_profile(self, username):
+        resp = self.http.get(
+            f"https://www.tiktok.com/@{username}",
+            headers={"Accept": "text/html"}
+        )
+        if not resp or resp.status_code != 200:
+            return None
+
+        html = resp.text
+        profile = {"username": username}
+
+        json_match = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>', html, re.DOTALL)
+        if json_match:
+            try:
+                data = json.loads(json_match.group(1))
+                default_scope = data.get("__DEFAULT_SCOPE__", {})
+                user_detail = default_scope.get("webapp.user-detail", {})
+                user_info = user_detail.get("userInfo", {})
+                user = user_info.get("user", {})
+                stats = user_info.get("stats", {})
+
+                if user:
+                    profile["nickname"] = user.get("nickname", "")
+                    profile["verified"] = user.get("verified", False)
+                    profile["private"] = user.get("privateAccount", False)
+                    profile["bio"] = user.get("signature", "")
+                    profile["avatar"] = user.get("avatarLarger", "")
+                    profile["region"] = user.get("region", "")
+                    profile["language"] = user.get("language", "")
+                    profile["create_time"] = user.get("createTime", "")
+                    bio_link = user.get("bioLink", {})
+                    if bio_link and bio_link.get("link"):
+                        profile["bio_link"] = bio_link["link"]
+
+                if stats:
+                    profile["followers"] = stats.get("followerCount", 0)
+                    profile["following"] = stats.get("followingCount", 0)
+                    profile["likes"] = stats.get("heartCount", 0)
+                    profile["videos"] = stats.get("videoCount", 0)
+                    profile["friends"] = stats.get("friendCount", 0)
+
+                return profile
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        nickname = re.search(r'"nickname":"([^"]*)"', html)
+        if nickname:
+            profile["nickname"] = nickname.group(1)
+        follower = re.search(r'"followerCount":(\d+)', html)
+        if follower:
+            profile["followers"] = int(follower.group(1))
+        following = re.search(r'"followingCount":(\d+)', html)
+        if following:
+            profile["following"] = int(following.group(1))
+        hearts = re.search(r'"heartCount":(\d+)', html)
+        if hearts:
+            profile["likes"] = int(hearts.group(1))
+        videos = re.search(r'"videoCount":(\d+)', html)
+        if videos:
+            profile["videos"] = int(videos.group(1))
+        verified = re.search(r'"verified":(true|false)', html)
+        if verified:
+            profile["verified"] = verified.group(1) == "true"
+        bio = re.search(r'"signature":"([^"]*)"', html)
+        if bio:
+            profile["bio"] = bio.group(1).encode().decode("unicode_escape", errors="replace")
+
+        return profile if len(profile) > 1 else None
+
+    def _generate_dorks(self, username):
+        return [
+            ("All mentions", f'"@{username}" site:tiktok.com'),
+            ("Reddit mentions", f'"@{username}" tiktok site:reddit.com'),
+            ("Twitter mentions", f'"@{username}" tiktok site:twitter.com'),
+            ("News coverage", f'"@{username}" tiktok news'),
+            ("Leaked data", f'"@{username}" tiktok "leak" OR "exposed" OR "doxxed"'),
+            ("Contact info", f'"@{username}" tiktok email OR phone OR contact'),
+            ("Real name", f'"@{username}" tiktok "real name" OR "name is"'),
+            ("Location", f'"@{username}" tiktok location OR city OR country OR "lives in"'),
+            ("Controversies", f'"@{username}" tiktok scandal OR controversy OR banned'),
+            ("Other platforms", f'"@{username}" instagram OR youtube OR twitter OR snapchat'),
+            ("Cached pages", f'cache:tiktok.com/@{username}'),
+            ("Archive", f'site:web.archive.org "tiktok.com/@{username}"'),
+            ("Forum posts", f'"@{username}" tiktok site:forum* OR site:community*'),
+            ("Business inquiries", f'"@{username}" tiktok business OR sponsor OR brand OR collab'),
+        ]
+
+
+class HashtagAnalyzer:
+
+    def __init__(self, http):
+        self.http = http
+
+    def analyze(self, hashtag):
+        Log.header("HASHTAG ANALYSIS")
+        hashtag = hashtag.lstrip("#").strip()
+        Log.info(f"Target: {_c(C.WHITE, '#' + hashtag)}")
+
+        Log.subheader("Hashtag URLs")
+        urls = {
+            "TikTok": f"https://www.tiktok.com/tag/{hashtag}",
+            "Instagram": f"https://www.instagram.com/explore/tags/{hashtag}/",
+            "Twitter": f"https://twitter.com/hashtag/{hashtag}",
+            "YouTube": f"https://www.youtube.com/hashtag/{hashtag}",
+        }
+        for name, url in urls.items():
+            Log.detail(name, url)
+
+        Log.subheader("Investigation Dorks")
+        dorks = [
+            (f'"#{hashtag}" site:tiktok.com', "TikTok posts"),
+            (f'"#{hashtag}" tiktok viral', "Viral content"),
+            (f'"#{hashtag}" tiktok challenge', "Challenge content"),
+            (f'"#{hashtag}" tiktok trend', "Trending analysis"),
+            (f'"#{hashtag}" banned OR removed OR violation', "Violations"),
+        ]
+        for query, desc in dorks:
+            Log.detail(desc, f"https://www.google.com/search?q={quote_plus(query)}")
+
+        return {"hashtag": hashtag, "urls": urls}
+
+
+class SoundTracker:
+
+    def __init__(self, http):
+        self.http = http
+
+    def track(self, sound_id):
+        Log.header("SOUND/MUSIC TRACKING")
+        Log.info(f"Sound ID: {_c(C.WHITE, sound_id)}")
+
+        Log.subheader("Sound URLs")
+        urls = {
+            "TikTok Sound": f"https://www.tiktok.com/music/-{sound_id}",
+            "Search Videos": f"https://www.google.com/search?q=site:tiktok.com+music+{sound_id}",
+        }
+        for name, url in urls.items():
+            Log.detail(name, url)
+
+        return {"sound_id": sound_id, "urls": urls}
+
+
+class VideoAnalyzer:
+
+    def __init__(self, http):
+        self.http = http
+
+    def analyze(self, video_url):
+        Log.header("VIDEO ANALYSIS")
+        Log.info(f"URL: {_c(C.WHITE, video_url)}")
+
+        video_id = None
+        match = re.search(r'/video/(\d+)', video_url)
+        if match:
+            video_id = match.group(1)
+        match2 = re.search(r'tiktok\.com/@[\w.]+/video/(\d+)', video_url)
+        if match2:
+            video_id = match2.group(1)
+
+        if video_id:
+            Log.kv("Video ID", video_id)
+            ts = int(video_id) >> 32
+            try:
+                upload_time = datetime.fromtimestamp(ts, tz=timezone.utc)
+                Log.kv("Upload Time (approx)", upload_time.strftime("%Y-%m-%d %H:%M:%S UTC"))
+            except Exception:
+                pass
+
+        Log.subheader("Investigation URLs")
+        Log.detail("Archive.org", f"https://web.archive.org/web/*/{video_url}")
+        if video_id:
+            Log.detail("Google Cache", f"https://www.google.com/search?q=cache:{video_url}")
+
+        return {"video_url": video_url, "video_id": video_id}
+
+
+class ReportExporter:
+    @staticmethod
+    def ensure_dir():
+        os.makedirs(REPORT_DIR, exist_ok=True)
+
+    @staticmethod
+    def export_json(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"tiktok_{safe}_{ts}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return path
+
+    @staticmethod
+    def export_txt(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"tiktok_{safe}_{ts}.txt")
+        lines = ["=" * 60, f"  TikTokOSINT v{VERSION} Report", "=" * 60, f"  Target: {target}", ""]
+        profile = data.get("profile", {})
+        if profile:
+            for k, v in profile.items():
+                if k != "raw":
+                    lines.append(f"  {k}: {v}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return path
+
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="ttosint", description=f"TikTokOSINT v{VERSION}")
+    p.add_argument("-u", "--username", help="Investigate TikTok username")
+    p.add_argument("-t", "--hashtag", help="Analyze hashtag")
+    p.add_argument("-v", "--video", help="Analyze video URL")
+    p.add_argument("--export", choices=["json", "txt", "all"], help="Export format")
+    p.add_argument("--version", action="version", version=f"TikTokOSINT v{VERSION}")
+    return p
+
+
+def main():
+    parser = build_parser()
+    try:
+        args = parser.parse_args()
+        if len(sys.argv) == 1:
+            parser.print_help()
+            sys.exit(1)
+            
+        print(BANNER)
+        http = HTTPClient()
+        result = None
+        if args.username:
+            result = TikTokProfiler(http).investigate(args.username)
+        elif args.hashtag:
+            result = HashtagAnalyzer(http).analyze(args.hashtag)
+        elif args.video:
+            result = VideoAnalyzer(http).analyze(args.video)
+        if result and args.export:
+            t = result.get("target", "output")
+            if args.export in ("json", "all"):
+                Log.success(f"Saved: {ReportExporter.export_json(result, t)}")
+            if args.export in ("txt", "all"):
+                Log.success(f"Saved: {ReportExporter.export_txt(result, t)}")
+    except KeyboardInterrupt:
+        print(f"\n  {C.GRAY}Exiting...{C.RST}")
+
+if __name__ == "__main__":
+    main()

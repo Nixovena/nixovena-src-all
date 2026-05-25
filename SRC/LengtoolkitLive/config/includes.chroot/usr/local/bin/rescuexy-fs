@@ -1,0 +1,26 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${CYAN}========================================================${NC}"
+echo -e "           RESCUEXY FILESYSTEM ANALYZER"
+echo -e "${CYAN}========================================================${NC}"
+
+echo -e "\n${YELLOW}[ PARTITION TABLE ]${NC}"
+lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
+
+echo -e "\n${YELLOW}[ FILESYSTEM TYPES ]${NC}"
+blkid | awk -F: '{print $1}' | while read part; do
+    fstype=$(blkid -s TYPE -o value $part 2>/dev/null)
+    label=$(blkid -s LABEL -o value $part 2>/dev/null)
+    [ -n "$fstype" ] && echo -e "$part: ${GREEN}$fstype${NC} ${label:+($label)}"
+done
+
+echo -e "\n${YELLOW}[ LVM STATUS ]${NC}"
+which vgs &>/dev/null && vgs 2>/dev/null || echo "No LVM detected"
+
+echo -e "\n${YELLOW}[ RAID STATUS ]${NC}"
+cat /proc/mdstat 2>/dev/null | head -5 || echo "No software RAID"

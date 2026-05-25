@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+SERVICES=(
+    bluetooth.service
+    cups.service
+    avahi-daemon.service
+    avahi-daemon.socket
+    ModemManager.service
+    geoclue.service
+    speech-dispatcher.service
+)
+
+for svc in "${SERVICES[@]}"; do
+    systemctl mask "$svc" 2>/dev/null || true
+done

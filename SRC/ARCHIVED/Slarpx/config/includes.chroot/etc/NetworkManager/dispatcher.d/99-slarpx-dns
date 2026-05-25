@@ -1,0 +1,9 @@
+#!/bin/sh
+# Slarpx DNS Dispatcher
+# Ensures DNS remains locked even after NetworkManager events
+
+case "$2" in
+    up|down|vpn-up|vpn-down|hostname)
+        /usr/bin/slarpx-dns
+        ;;
+esac

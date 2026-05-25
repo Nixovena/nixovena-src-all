@@ -1,0 +1,39 @@
+[Unit]
+Description=SILENCER - Kernel Info Leak Prevention Engine
+After=local-fs.target
+Before=network.target
+DefaultDependencies=no
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/silencer
+Restart=always
+RestartSec=3
+
+# Must run as root to enforce permissions
+User=root
+
+# Security hardening
+# Note: ProtectKernelModules is NOT used because Silencer needs mount() for hidepid
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=none
+IPAddressDeny=any
+MemoryDenyWriteExecute=yes
+
+# Resource limits
+MemoryMax=16M
+TasksMax=4
+
+# Silent operation
+StandardOutput=null
+StandardError=journal
+SyslogIdentifier=silencer
+
+[Install]
+WantedBy=multi-user.target

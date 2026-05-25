@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=NodeRAT
+Comment=Darkweb web information gathering
+Comment[tr]=Darkweb web bilgi toplama
+Comment[es]=Recopilación de información web de Darkweb
+Comment[fr]=Collecte d'informations web Darkweb
+Comment[de]=Darkweb-Web-Informationsbeschaffung
+Comment[ar]=جمع معلومات الويب داركويب
+Comment[ru]=Сбор веб-информации из Darkweb
+Comment[zh]=Darkweb网络信息收集
+Comment[ja]=ダークウェブウェブ情報収集
+Comment[ko]=다크웹 웹 정보 수집
+Comment[pt]=Coleta de informações web da Darkweb
+Comment[it]=Raccolta di informazioni web Darkweb
+Comment[nl]=Darkweb web-informatieverzameling
+Comment[sv]=Darkweb webbinformationssamling
+Comment[pl]=Zbieranie informacji web z Darkweb
+Exec=mate-terminal -- bash -c "noderat; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/noderat.png
+Categories=Darknet;
+StartupNotify=false

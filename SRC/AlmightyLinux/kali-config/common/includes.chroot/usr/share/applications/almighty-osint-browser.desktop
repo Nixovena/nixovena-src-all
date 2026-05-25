@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Almighty OSINT Browser
+Comment=Chromium/Python based OSINT Web Browser
+Comment[tr]=Chromium/Python tabanlı OSINT Web tarayıcısı
+Comment[es]=Navegador web OSINT basado en Chromium/Python
+Comment[fr]=Navigateur Web OSINT basé sur Chromium/Python
+Comment[de]=Chromium/Python-basierter OSINT-Webbrowser
+Comment[ar]=متصفح ويب OSINT قائم على Chromium/Python
+Comment[ru]=Веб-браузер OSINT на базе Chromium/Python
+Comment[zh]=基于 Chromium/Python 的开源情报网络浏览器
+Comment[ja]=Chromium/PythonベースのOSINTウェブブラウザ
+Comment[ko]=Chromium/Python 기반 OSINT 웹 브라우저
+Comment[pt]=Navegador Web OSINT baseado em Chromium/Python
+Comment[it]=Browser Web OSINT basato su Chromium/Python
+Comment[nl]=Op Chromium/Python gebaseerde OSINT-webbrowser
+Comment[sv]=Chromium/Python-baserad OSINT-webbläsare
+Comment[pl]=Przeglądarka internetowa OSINT oparta na Chromium/Python
+Exec=python3 /opt/almighty-osint-browser/main.py
+Terminal=false
+Type=Application
+Icon=/usr/share/icons/almighty/browser.png
+Categories=Network;WebBrowser;
+StartupNotify=true

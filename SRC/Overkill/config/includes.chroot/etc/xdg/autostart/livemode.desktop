@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Disable Screen Lock
+Comment=Disables screensaver and power sleep in live mode
+Exec=/usr/bin/liveboot
+X-GNOME-Autostart-enabled=true
+X-MATE-Autostart-enabled=true
+NoDisplay=false

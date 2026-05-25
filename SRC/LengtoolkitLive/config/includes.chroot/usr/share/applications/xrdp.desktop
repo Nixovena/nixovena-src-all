@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=xRDP Server
+Comment=LengToolkit - Start/Stop Remote Desktop Server
+Exec=mate-terminal -- bash -c "echo 'xRDP Manager'; echo '----------------'; echo '1) Start xrdp'; echo '2) Stop xrdp'; echo '3) Status'; read -p 'Choice: ' c; case \$c in 1) sudo systemctl start xrdp ;; 2) sudo systemctl stop xrdp ;; 3) systemctl status xrdp ;; esac; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=false
+Type=Application
+Categories=Network;

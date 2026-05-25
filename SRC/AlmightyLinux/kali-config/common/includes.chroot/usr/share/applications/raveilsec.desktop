@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=RaveilSec
+Comment=Detailed email intelligence
+Comment[tr]=Detaylı eposta istihbaratı
+Comment[es]=Inteligencia de correo electrónico detallada
+Comment[fr]=Intelligence email détaillée
+Comment[de]=Detaillierte E-Mail-Intelligenz
+Comment[ar]=استخبارات البريد الإلكتروني المفصلة
+Comment[ru]=Подробная электронная почта интеллект
+Comment[zh]=详细电子邮件情报
+Comment[ja]=詳細な電子メールインテリジェンス
+Comment[ko]=상세한 이메일 인텔리전스
+Comment[pt]=Inteligência de e-mail detalhada
+Comment[it]=Intelligenza e-mail dettagliata
+Comment[nl]=Gedetailleerde e-mailintelligentie
+Comment[sv]=Detaljerad e-postintelligens
+Comment[pl]=Szczegółowa inteligencja e-mail
+Exec=mate-terminal -- bash -c "raveilsec -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/raveilsec.png
+Categories=Emails;
+StartupNotify=false

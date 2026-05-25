@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+import os
+import sys
+import time
+import json
+import re
+try:
+    import requests
+except ImportError:
+    import sys; sys.exit("[!] Missing: requests")
+try:
+    import socks
+except ImportError:
+    import sys; sys.exit("[!] Missing: PySocks")
+import socket
+from datetime import datetime
+
+RED = "\033[91m"
+GREEN = "\033[92m"
+CYAN = "\033[96m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+
+# To maximize privacy over Tor, we blend in with the majority of Tor users:
+# Using the exact Tor Browser User-Agent and removing randomized agents that create unique fingerprints.
+TOR_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0"
+
+def banner():
+    print(f"""{CYAN}{BOLD}
+⠀⠀⠀⠀⣀⣀⣀⣀⡀⠀⠀⠀
+⠀⢠⡞⠋⠁⠀⠀⠈⠙⠳⡄⠀
+⠐⡏⠀⠀⠀⠀⠀⠀⠀⠈⢻⡆
+⠰⡁⠀⠀⠀⠀⠀⠀⠀⠀⢸⡀
+⠘⠅⢢⣤⣤⣤⣠⣤⣠⠠⣾⠃
+⠀⠈⠦⡻⣿⣿⣿⡿⣫⡿⠃⠀
+⠀⠀⠀⠀⠈⢛⣱⡶⠋⠀⠀⠀
+⠀⠀⠀⣠⡾⠛⠉⠀⡀⠀⠀⠀
+⠀⣠⡾⠋⠀⠀⠂⠀⠈⢢⢀⠀
+⢀⣞⠁⠀⠀⢘⡁⠀⠀⠈⢣⠀
+⢸⣇⣠⣤⣾⣿⣿⣶⣄⣀⢸⡆
+⠸⣇⢿⣿⣿⣿⣿⣿⣿⡿⣻⠁
+⠀⠙⢷⣻⡻⠿⠿⢟⣿⠾⠁⠀
+⠀⠀⠀⠀⠉⠉⠉⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+    {RED}FASTARCHV | ONION SITE ARCHIVER {RESET}
+    """)
+
+def setup_tor():
+    try:
+        socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", 9050)
+        socket.socket = socks.socksocket
+        
+        print(f"{YELLOW} [*] Verifying Tor connection...{RESET}")
+        res = requests.get("https://check.torproject.org/api/ip", timeout=15)
+        
+        try:
+            data = res.json()
+        except ValueError:
+            data = {}
+            
+        if data.get("IsTor"):
+            print(f"{GREEN}[+] Tor connection established! (IP: {data.get('IP', 'Unknown')}){RESET}")
+        else:
+            print(f"{RED}[!] Connected to proxy but you are not routing through Tor.{RESET}")
+            sys.exit(1)
+            
+    except Exception:
+        print(f"{RED}[!] Connection Error: Could not connect to Tor proxy (127.0.0.1:9050).{RESET}")
+        print(f"{YELLOW} [*] Hint: Ensure the Tor service is running (e.g., 'sudo systemctl start tor').{RESET}")
+        sys.exit(1)
+
+def archive_site(url, output_dir="fastarchv_archives"):
+    if not url.startswith("http"):
+        url = "http://" + url
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    domain = url.split("//")[-1].split("/")[0]
+    base_name = f"{domain}_{timestamp}"
+    
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    print(f"{YELLOW}[*] Target: {url}{RESET}")
+    print(f"{YELLOW}[*] Time: {timestamp}{RESET}")
+    print(f"{YELLOW}[*] User-Agent: Tor Browser standard profile{RESET}")
+
+    # Enhanced privacy headers mirroring Tor Browser to prevent fingerprinting
+    headers = {
+        'User-Agent': TOR_USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'DNT': '1'
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=45)
+        
+        page_title = "Unknown"
+        title_match = re.search(r'<title>(.*?)</title>', response.text, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            page_title = title_match.group(1).strip()
+
+        server_header = response.headers.get('Server', 'Hidden')
+        
+        html_filename = f"{output_dir}/{base_name}.html"
+        json_filename = f"{output_dir}/{base_name}.json"
+
+        with open(html_filename, "w", encoding="utf-8") as f:
+            f.write(response.text)
+            
+        metadata = {
+            "target_url": url,
+            "timestamp": timestamp,
+            "status_code": response.status_code,
+            "content_length": len(response.content),
+            "page_title": page_title,
+            "server": server_header,
+            "response_headers": dict(response.headers),
+            "cookies": dict(response.cookies)
+        }
+        
+        with open(json_filename, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=4)
+
+        if response.status_code == 200:
+            print(f"{GREEN}[+] Archive Successful{RESET}")
+            print(f"{CYAN}    Title: {page_title}{RESET}")
+            print(f"{CYAN}    Server: {server_header}{RESET}")
+            print(f"{CYAN}    Size: {len(response.content)} bytes{RESET}")
+            print(f"{CYAN}    HTML: {html_filename}{RESET}")
+            print(f"{CYAN}    Metadata: {json_filename}{RESET}")
+        else:
+            print(f"{RED}[!] Response Code: {response.status_code}{RESET}")
+            
+    except Exception as e:
+        print(f"{RED}[!] Connection Error: {e}{RESET}")
+
+if __name__ == "__main__":
+    banner()
+    setup_tor()
+    
+    if len(sys.argv) < 2:
+        target_url = input(f"{BOLD}Enter .onion URL > {RESET}")
+    else:
+        target_url = sys.argv[1]
+        
+    archive_site(target_url)

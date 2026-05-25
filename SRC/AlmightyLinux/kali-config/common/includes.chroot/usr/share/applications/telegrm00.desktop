@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=telegrm00
+Comment=Telegram OSINT and intelligence gathering tool
+Comment[tr]=Telegram OSINT ve istihbarat toplama aracı
+Comment[es]=Herramienta de OSINT e inteligencia de Telegram
+Comment[fr]=Outil d'OSINT et de renseignement Telegram
+Comment[de]=Telegram-OSINT- und Informationsbeschaffungstool
+Comment[ar]=أداة OSINT واستخبارات تيليغرام
+Comment[ru]=Инструмент OSINT и разведки Telegram
+Comment[zh]=Telegram OSINT和情报收集工具
+Comment[ja]=Telegram OSINTおよびインテリジェンス収集ツール
+Comment[ko]=텔레그램 OSINT 및 인텔리전스 수집 도구
+Comment[pt]=Ferramenta de OSINT e coleta de inteligência do Telegram
+Comment[it]=Strumento di OSINT e raccolta di intelligence di Telegram
+Comment[nl]=Telegram OSINT- en intelligenceverzamelingshulpmiddel
+Comment[sv]=Telegram OSINT- och underrättelseinsamlingsverktyg
+Comment[pl]=Narzędzie do OSINT i zbierania wywiadu Telegram
+Exec=mate-terminal -- bash -c "telegrm00 -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/telegrm00.png
+Categories=Social;
+StartupNotify=false

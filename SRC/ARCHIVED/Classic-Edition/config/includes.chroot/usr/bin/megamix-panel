@@ -1,0 +1,960 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.prompt import Prompt, Confirm
+from rich.text import Text
+from rich import print as rprint
+
+console = Console()
+
+# ==============================================================================
+# TRANSLATIONS (12 Languages)
+# ==============================================================================
+TRANSLATIONS = {
+    "en": {
+        "title": "Megamix System Management Panel",
+        "menu_update": "System Update & Cleanup",
+        "menu_nvidia": "Install NVIDIA Drivers",
+        "menu_sysinfo": "System Information",
+        "menu_logs": "View System Logs",
+        "menu_services": "Systemd Service Management",
+        "menu_packages": "List Installed Packages",
+        "menu_network": "Network Management",
+        "menu_users": "User Management",
+        "menu_disk": "Disk Information",
+        "menu_clean": "Clean System Caches & Trash",
+        "menu_dns": "Change DNS Settings",
+        "menu_hostname": "Change Hostname",
+        "menu_zram": "ZRAM Manager",
+        "menu_deb": "DEB Installer",
+        "menu_apt": "APT Package Installer",
+        "menu_flatpak": "Flatpak Installer",
+        "menu_settings": "Language Settings",
+        "menu_exit": "Exit",
+        "select_option": "Select an option",
+        "invalid_option": "Invalid option!",
+        "goodbye": "Goodbye!",
+        "press_enter": "Press Enter to return to menu...",
+        "are_you_sure": "Are you sure?",
+        "live_mode_error": "Live Mode detected. Cannot proceed.",
+        "success": "Operation completed successfully!",
+        "cancelled": "Operation cancelled."
+    },
+    "tr": {
+        "title": "Megamix Sistem Yönetim Paneli",
+        "menu_update": "Sistem Güncelleme ve Temizlik",
+        "menu_nvidia": "NVIDIA Sürücülerini Kur",
+        "menu_sysinfo": "Sistem Bilgisi",
+        "menu_logs": "Sistem Loglarını Görüntüle",
+        "menu_services": "Systemd Servis Yönetimi",
+        "menu_packages": "Yüklü Paketleri Listele",
+        "menu_network": "Ağ Yönetimi",
+        "menu_users": "Kullanıcı Yönetimi",
+        "menu_disk": "Disk Bilgisi",
+        "menu_clean": "Sistem Önbelleği ve Çöp Kutusunu Temizle",
+        "menu_dns": "DNS Ayarlarını Değiştir",
+        "menu_hostname": "Makine Adını Değiştir",
+        "menu_zram": "ZRAM Yöneticisi",
+        "menu_deb": "DEB Yükleyici",
+        "menu_apt": "APT Paket Yükleyici",
+        "menu_flatpak": "Flatpak Yükleyici",
+        "menu_settings": "Dil Ayarları",
+        "menu_exit": "Çıkış",
+        "select_option": "Bir seçenek belirleyin",
+        "invalid_option": "Geçersiz seçenek!",
+        "goodbye": "Görüşmek üzere!",
+        "press_enter": "Menüye dönmek için Enter'a basın...",
+        "are_you_sure": "Emin misiniz?",
+        "live_mode_error": "Canlı (Live) mod tespit edildi. İşlem yapılamaz.",
+        "success": "İşlem başarıyla tamamlandı!",
+        "cancelled": "İşlem iptal edildi."
+    },
+    "de": {
+        "title": "Megamix Systemverwaltungs-Panel",
+        "menu_update": "System-Update & Bereinigung",
+        "menu_nvidia": "NVIDIA-Treiber installieren",
+        "menu_sysinfo": "Systeminformationen",
+        "menu_logs": "Systemprotokolle anzeigen",
+        "menu_services": "Systemd-Dienstverwaltung",
+        "menu_packages": "Installierte Pakete auflisten",
+        "menu_network": "Netzwerkverwaltung",
+        "menu_users": "Benutzerverwaltung",
+        "menu_disk": "Datenträgerinformationen",
+        "menu_clean": "System-Caches & Papierkorb leeren",
+        "menu_dns": "DNS-Einstellungen ändern",
+        "menu_hostname": "Hostname ändern",
+        "menu_zram": "ZRAM-Manager",
+        "menu_deb": "DEB-Installationsprogramm",
+        "menu_apt": "APT-Paket-Installationsprogramm",
+        "menu_flatpak": "Flatpak-Installationsprogramm",
+        "menu_exit": "Beenden",
+        "select_option": "Wählen Sie eine Option",
+        "invalid_option": "Ungültige Option!",
+        "goodbye": "Auf Wiedersehen!",
+        "press_enter": "Drücken Sie die Eingabetaste, um zurückzukehren...",
+        "are_you_sure": "Sind Sie sicher?",
+        "live_mode_error": "Live-Modus erkannt. Fortfahren nicht möglich.",
+        "success": "Vorgang erfolgreich abgeschlossen!",
+        "cancelled": "Vorgang abgebrochen."
+    },
+    "fr": {
+        "title": "Panneau de gestion du système Megamix",
+        "menu_update": "Mise à jour et nettoyage du système",
+        "menu_nvidia": "Installer les pilotes NVIDIA",
+        "menu_sysinfo": "Informations système",
+        "menu_logs": "Afficher les journaux système",
+        "menu_services": "Gestion des services Systemd",
+        "menu_packages": "Lister les paquets installés",
+        "menu_network": "Gestion du réseau",
+        "menu_users": "Gestion des utilisateurs",
+        "menu_disk": "Informations sur le disque",
+        "menu_clean": "Nettoyer les caches et la corbeille",
+        "menu_dns": "Modifier les paramètres DNS",
+        "menu_hostname": "Modifier le nom d'hôte",
+        "menu_zram": "Gestionnaire ZRAM",
+        "menu_deb": "Installateur DEB",
+        "menu_apt": "Installateur de paquets APT",
+        "menu_flatpak": "Installateur Flatpak",
+        "menu_exit": "Quitter",
+        "select_option": "Sélectionnez une option",
+        "invalid_option": "Option invalide!",
+        "goodbye": "Au revoir!",
+        "press_enter": "Appuyez sur Entrée pour revenir au menu...",
+        "are_you_sure": "Êtes-vous sûr?",
+        "live_mode_error": "Mode Live détecté. Impossible de continuer.",
+        "success": "Opération terminée avec succès!",
+        "cancelled": "Opération annulée."
+    },
+    "es": {
+        "title": "Panel de gestión del sistema Megamix",
+        "menu_update": "Actualización y limpieza del sistema",
+        "menu_nvidia": "Instalar controladores NVIDIA",
+        "menu_sysinfo": "Información del sistema",
+        "menu_logs": "Ver registros del sistema",
+        "menu_services": "Gestión de servicios Systemd",
+        "menu_packages": "Listar paquetes instalados",
+        "menu_network": "Gestión de redes",
+        "menu_users": "Gestión de usuarios",
+        "menu_disk": "Información del disco",
+        "menu_clean": "Limpiar cachés y papelera",
+        "menu_dns": "Cambiar la configuración de DNS",
+        "menu_hostname": "Cambiar nombre de host",
+        "menu_zram": "Administrador de ZRAM",
+        "menu_deb": "Instalador DEB",
+        "menu_apt": "Instalador de paquetes APT",
+        "menu_flatpak": "Instalador Flatpak",
+        "menu_exit": "Salir",
+        "select_option": "Seleccione una opción",
+        "invalid_option": "¡Opción inválida!",
+        "goodbye": "¡Adiós!",
+        "press_enter": "Presione Enter para regresar al menú...",
+        "are_you_sure": "¿Está seguro?",
+        "live_mode_error": "Modo Live detectado. No se puede continuar.",
+        "success": "¡Operación completada con éxito!",
+        "cancelled": "Operación cancelada."
+    },
+    "it": {
+        "title": "Pannello di gestione del sistema Megamix",
+        "menu_update": "Aggiornamento e pulizia del sistema",
+        "menu_nvidia": "Installa driver NVIDIA",
+        "menu_sysinfo": "Informazioni di sistema",
+        "menu_logs": "Visualizza log di sistema",
+        "menu_services": "Gestione dei servizi Systemd",
+        "menu_packages": "Elenca pacchetti installati",
+        "menu_network": "Gestione della rete",
+        "menu_users": "Gestione degli utenti",
+        "menu_disk": "Informazioni sul disco",
+        "menu_clean": "Pulisci cache e cestino",
+        "menu_dns": "Modifica impostazioni DNS",
+        "menu_hostname": "Modifica nome host",
+        "menu_zram": "Gestore ZRAM",
+        "menu_deb": "Programma di installazione DEB",
+        "menu_apt": "Programma di installazione APT",
+        "menu_flatpak": "Programma di installazione Flatpak",
+        "menu_exit": "Esci",
+        "select_option": "Seleziona un'opzione",
+        "invalid_option": "Opzione non valida!",
+        "goodbye": "Arrivederci!",
+        "press_enter": "Premi Invio per tornare al menu...",
+        "are_you_sure": "Sei sicuro?",
+        "live_mode_error": "Rilevata modalità Live. Impossibile procedere.",
+        "success": "Operazione completata con successo!",
+        "cancelled": "Operazione annullata."
+    },
+    "pt": {
+        "title": "Painel de Gerenciamento do Sistema Megamix",
+        "menu_update": "Atualização e limpeza do sistema",
+        "menu_nvidia": "Instalar drivers NVIDIA",
+        "menu_sysinfo": "Informações do sistema",
+        "menu_logs": "Ver logs do sistema",
+        "menu_services": "Gerenciamento de serviços Systemd",
+        "menu_packages": "Listar pacotes instalados",
+        "menu_network": "Gerenciamento de rede",
+        "menu_users": "Gerenciamento de usuários",
+        "menu_disk": "Informações do disco",
+        "menu_clean": "Limpar caches do sistema e lixeira",
+        "menu_dns": "Alterar configurações de DNS",
+        "menu_hostname": "Alterar nome do host",
+        "menu_zram": "Gerenciador ZRAM",
+        "menu_deb": "Instalador DEB",
+        "menu_apt": "Instalador de pacotes APT",
+        "menu_flatpak": "Instalador Flatpak",
+        "menu_exit": "Sair",
+        "select_option": "Selecione uma opção",
+        "invalid_option": "Opção inválida!",
+        "goodbye": "Adeus!",
+        "press_enter": "Pressione Enter para retornar ao menu...",
+        "are_you_sure": "Você tem certeza?",
+        "live_mode_error": "Modo Live detectado. Não é possível prosseguir.",
+        "success": "Operação concluída com sucesso!",
+        "cancelled": "Operação cancelada."
+    },
+    "ru": {
+        "title": "Панель управления системой Megamix",
+        "menu_update": "Обновление и очистка системы",
+        "menu_nvidia": "Установить драйверы NVIDIA",
+        "menu_sysinfo": "Информация о системе",
+        "menu_logs": "Просмотр системных журналов",
+        "menu_services": "Управление службами Systemd",
+        "menu_packages": "Список установленных пакетов",
+        "menu_network": "Управление сетью",
+        "menu_users": "Управление пользователями",
+        "menu_disk": "Информация о диске",
+        "menu_clean": "Очистить системный кэш и корзину",
+        "menu_dns": "Изменить настройки DNS",
+        "menu_hostname": "Изменить имя хоста",
+        "menu_zram": "Менеджер ZRAM",
+        "menu_deb": "Установщик DEB",
+        "menu_apt": "Установщик пакетов APT",
+        "menu_flatpak": "Установщик Flatpak",
+        "menu_exit": "Выход",
+        "select_option": "Выберите опцию",
+        "invalid_option": "Недопустимая опция!",
+        "goodbye": "До свидания!",
+        "press_enter": "Нажмите Enter, чтобы вернуться в меню...",
+        "are_you_sure": "Вы уверены?",
+        "live_mode_error": "Обнаружен Live Mode. Продолжение невозможно.",
+        "success": "Операция успешно завершена!",
+        "cancelled": "Операция отменена."
+    },
+    "zh": {
+        "title": "Megamix 系统管理面板",
+        "menu_update": "系统更新与清理",
+        "menu_nvidia": "安装 NVIDIA 驱动程序",
+        "menu_sysinfo": "系统信息",
+        "menu_logs": "查看系统日志",
+        "menu_services": "Systemd 服务管理",
+        "menu_packages": "列出已安装的包",
+        "menu_network": "网络管理",
+        "menu_users": "用户管理",
+        "menu_disk": "磁盘信息",
+        "menu_clean": "清理系统缓存和垃圾桶",
+        "menu_dns": "更改 DNS 设置",
+        "menu_hostname": "更改主机名",
+        "menu_zram": "ZRAM 管理器",
+        "menu_deb": "DEB 安装器",
+        "menu_apt": "APT 包安装器",
+        "menu_flatpak": "Flatpak 安装器",
+        "menu_exit": "退出",
+        "select_option": "选择一个选项",
+        "invalid_option": "无效的选项！",
+        "goodbye": "再见！",
+        "press_enter": "按 Enter 返回菜单...",
+        "are_you_sure": "你确定吗？",
+        "live_mode_error": "检测到 Live 模式。无法继续。",
+        "success": "操作成功完成！",
+        "cancelled": "操作已取消。"
+    },
+    "ja": {
+        "title": "Megamix システム管理パネル",
+        "menu_update": "システム更新とクリーンアップ",
+        "menu_nvidia": "NVIDIA ドライバーのインストール",
+        "menu_sysinfo": "システム情報",
+        "menu_logs": "システムログの表示",
+        "menu_services": "Systemd サービス管理",
+        "menu_packages": "インストール済みパッケージ一覧",
+        "menu_network": "ネットワーク管理",
+        "menu_users": "ユーザー管理",
+        "menu_disk": "ディスク情報",
+        "menu_clean": "システムキャッシュとゴミ箱をクリア",
+        "menu_dns": "DNS 設定の変更",
+        "menu_hostname": "ホスト名の変更",
+        "menu_zram": "ZRAM マネージャー",
+        "menu_deb": "DEB インストーラー",
+        "menu_apt": "APT パッケージインストーラー",
+        "menu_flatpak": "Flatpak インストーラー",
+        "menu_exit": "終了",
+        "select_option": "オプションを選択",
+        "invalid_option": "無効なオプションです！",
+        "goodbye": "さようなら！",
+        "press_enter": "Enter を押してメニューに戻ります...",
+        "are_you_sure": "よろしいですか？",
+        "live_mode_error": "Live モードが検出されました。続行できません。",
+        "success": "操作が正常に完了しました！",
+        "cancelled": "操作がキャンセルされました。"
+    },
+    "ko": {
+        "title": "Megamix 시스템 관리 패널",
+        "menu_update": "시스템 업데이트 및 정리",
+        "menu_nvidia": "NVIDIA 드라이버 설치",
+        "menu_sysinfo": "시스템 정보",
+        "menu_logs": "시스템 로그 보기",
+        "menu_services": "Systemd 서비스 관리",
+        "menu_packages": "설치된 패키지 목록",
+        "menu_network": "네트워크 관리",
+        "menu_users": "사용자 관리",
+        "menu_disk": "디스크 정보",
+        "menu_clean": "시스템 캐시 및 휴지통 비우기",
+        "menu_dns": "DNS 설정 변경",
+        "menu_hostname": "호스트 이름 변경",
+        "menu_zram": "ZRAM 관리자",
+        "menu_deb": "DEB 설치 프로그램",
+        "menu_apt": "APT 패키지 설치 프로그램",
+        "menu_flatpak": "Flatpak 설치 프로그램",
+        "menu_exit": "종료",
+        "select_option": "옵션 선택",
+        "invalid_option": "잘못된 옵션입니다!",
+        "goodbye": "안녕히 가세요!",
+        "press_enter": "Enter를 눌러 메뉴로 돌아가기...",
+        "are_you_sure": "확실합니까?",
+        "live_mode_error": "Live 모드가 감지되었습니다. 진행할 수 없습니다.",
+        "success": "작업이 성공적으로 완료되었습니다!",
+        "cancelled": "작업이 취소되었습니다."
+    },
+    "ar": {
+        "title": "لوحة إدارة نظام Megamix",
+        "menu_update": "تحديث وتنظيف النظام",
+        "menu_nvidia": "تثبيت برامج تشغيل NVIDIA",
+        "menu_sysinfo": "معلومات النظام",
+        "menu_logs": "عرض سجلات النظام",
+        "menu_services": "إدارة خدمات Systemd",
+        "menu_packages": "قائمة الحزم المثبتة",
+        "menu_network": "إدارة الشبكة",
+        "menu_users": "إدارة المستخدمين",
+        "menu_disk": "معلومات القرص",
+        "menu_clean": "تنظيف ذاكرة التخزين المؤقت للنظام وسلة المهملات",
+        "menu_dns": "تغيير إعدادات DNS",
+        "menu_hostname": "تغيير اسم المضيف",
+        "menu_zram": "مدير ZRAM",
+        "menu_deb": "مثبت DEB",
+        "menu_apt": "مثبت حزم APT",
+        "menu_flatpak": "مثبت Flatpak",
+        "menu_exit": "خروج",
+        "select_option": "حدد خياراً",
+        "invalid_option": "خيار غير صالح!",
+        "goodbye": "وداعاً!",
+        "press_enter": "اضغط Enter للعودة إلى القائمة...",
+        "are_you_sure": "هل أنت متأكد؟",
+        "live_mode_error": "تم اكتشاف وضع Live. لا يمكن المتابعة.",
+        "success": "اكتملت العملية بنجاح!",
+        "cancelled": "تم إلغاء العملية."
+    }
+}
+
+CURRENT_LANG = "en"
+
+def _t(key):
+    return TRANSLATIONS.get(CURRENT_LANG, TRANSLATIONS["en"]).get(key, TRANSLATIONS["en"].get(key, key))
+
+ASCII_ART = """[bold cyan]
+
+███╗   ███╗███████╗ ██████╗  █████╗ ███╗   ███╗██╗██╗  ██╗
+████╗ ████║██╔════╝██╔════╝ ██╔══██╗████╗ ████║██║╚██╗██╔╝
+██╔████╔██║█████╗  ██║  ███╗███████║██╔████╔██║██║ ╚███╔╝ 
+██║╚██╔╝██║██╔══╝  ██║   ██║██╔══██║██║╚██╔╝██║██║ ██╔██╗ 
+██║ ╚═╝ ██║███████╗╚██████╔╝██║  ██║██║ ╚═╝ ██║██║██╔╝ ██╗
+╚═╝     ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═╝
+[/bold cyan]"""
+
+def run_cmd(cmd, shell=False, capture=False):
+    if capture:
+        return subprocess.run(cmd, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    return subprocess.run(cmd, shell=shell)
+
+def press_enter():
+    console.print(f"\n[dim]{_t('press_enter')}[/dim]")
+    input()
+    show_menu()
+
+def is_live_mode():
+    try:
+        with open("/proc/mounts", "r") as f:
+            return "overlay" in f.read()
+    except:
+        return False
+
+# ==============================================================================
+# ACTIONS
+# ==============================================================================
+
+def system_update():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_update')}[/bold yellow]"))
+    os.environ["DEBIAN_FRONTEND"] = "noninteractive"
+    
+    console.print("[bold cyan][1/4][/bold cyan] Updating package lists...")
+    run_cmd(["sudo", "apt-get", "update"])
+    
+    console.print("[bold cyan][2/4][/bold cyan] Upgrading packages...")
+    run_cmd(["sudo", "apt-get", "upgrade", "-y"])
+    run_cmd(["sudo", "apt-get", "full-upgrade", "-y"])
+    
+    console.print("[bold cyan][3/4][/bold cyan] Removing unnecessary packages...")
+    run_cmd(["sudo", "apt-get", "autoremove", "--purge", "-y"])
+    run_cmd(["sudo", "apt-get", "clean"])
+    
+    console.print("[bold cyan][4/4][/bold cyan] Checking for Flatpak...")
+    if shutil.which("flatpak"):
+        console.print("Updating Flatpak applications...")
+        run_cmd(["flatpak", "update", "-y"])
+        run_cmd(["flatpak", "uninstall", "--unused", "-y"])
+    else:
+        console.print("Flatpak not installed, skipping.")
+        
+    console.print(f"[bold green]✓ {_t('success')}[/bold green]")
+    press_enter()
+
+def install_nvidia():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_nvidia')}[/bold yellow]"))
+    if is_live_mode():
+        console.print(f"[bold red]✗ {_t('live_mode_error')}[/bold red]")
+        press_enter()
+        return
+        
+    console.print("Scanning for NVIDIA GPU...")
+    res = run_cmd("lspci | grep -i nvidia", shell=True)
+    if res.returncode != 0:
+        console.print("[bold red]✗ No NVIDIA GPU detected on this system.[/bold red]")
+        if not Confirm.ask(_t("are_you_sure")):
+            console.print(_t("cancelled"))
+            press_enter()
+            return
+    else:
+        console.print("[bold green]✓ NVIDIA GPU found.[/bold green]")
+        
+    console.print("Installing NVIDIA drivers...")
+    run_cmd(["sudo", "apt-get", "update"])
+    kernel = run_cmd(["uname", "-r"], capture=True).stdout.strip()
+    run_cmd(["sudo", "apt-get", "install", "-y", "nvidia-driver", "nvidia-smi", f"linux-headers-{kernel}"])
+    
+    console.print(f"[bold green]✓ Installation complete! Please reboot your system.[/bold green]")
+    press_enter()
+
+def sys_info():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_sysinfo')}[/bold yellow]"))
+    
+    # OS
+    os_name = "Unknown"
+    if os.path.exists("/etc/os-release"):
+        with open("/etc/os-release", "r") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    os_name = line.split("=")[1].strip().strip('"')
+                    break
+    
+    # Kernel
+    kernel = run_cmd(["uname", "-r"], capture=True).stdout.strip()
+    
+    # Uptime
+    uptime = "Unknown"
+    if os.path.exists("/proc/uptime"):
+        with open("/proc/uptime", "r") as f:
+            up_s = float(f.read().split()[0])
+            hours, rem = divmod(up_s, 3600)
+            mins, secs = divmod(rem, 60)
+            uptime = f"{int(hours)}h {int(mins)}m {int(secs)}s"
+            
+    # CPU
+    cpu_name = "Unknown"
+    if os.path.exists("/proc/cpuinfo"):
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    cpu_name = line.split(":")[1].strip()
+                    break
+                    
+    # RAM
+    ram_total = "Unknown"
+    ram_free = "Unknown"
+    if os.path.exists("/proc/meminfo"):
+        with open("/proc/meminfo", "r") as f:
+            meminfo = f.read()
+        for line in meminfo.splitlines():
+            if line.startswith("MemTotal:"):
+                ram_total = f"{int(line.split()[1]) // 1024} MB"
+            elif line.startswith("MemAvailable:"):
+                ram_free = f"{int(line.split()[1]) // 1024} MB"
+                
+    # Disk
+    disk = "Unknown"
+    try:
+        st = os.statvfs("/")
+        total = (st.f_blocks * st.f_frsize) / (1024**3)
+        free = (st.f_bavail * st.f_frsize) / (1024**3)
+        used = total - free
+        disk = f"{used:.1f} GB / {total:.1f} GB"
+    except:
+        pass
+    
+    table = Table(show_header=False, box=None)
+    table.add_row("[bold cyan]OS[/bold cyan]", os_name)
+    table.add_row("[bold cyan]Kernel[/bold cyan]", kernel)
+    table.add_row("[bold cyan]Uptime[/bold cyan]", uptime)
+    table.add_row("[bold cyan]CPU[/bold cyan]", cpu_name)
+    table.add_row("[bold cyan]RAM (Available/Total)[/bold cyan]", f"{ram_free} / {ram_total}")
+    table.add_row("[bold cyan]Disk (Root)[/bold cyan]", disk)
+    
+    console.print(Panel(table, border_style="green"))
+    press_enter()
+
+def view_logs():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_logs')}[/bold yellow]"))
+    table = Table(show_header=False, box=None)
+    table.add_row("1", "System Logs (journalctl)")
+    table.add_row("2", "Kernel Logs (dmesg)")
+    table.add_row("3", "Xorg / Wayland Logs")
+    table.add_row("0", "Back")
+    console.print(table)
+    
+    choice = Prompt.ask("Selection")
+    if choice == "1":
+        run_cmd("sudo journalctl -xe | less", shell=True)
+    elif choice == "2":
+        run_cmd("sudo dmesg -H | less", shell=True)
+    elif choice == "3":
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland":
+            run_cmd("sudo journalctl -b 0 _COMM=kwin_wayland | less", shell=True)
+        else:
+            if os.path.exists("/var/log/Xorg.0.log"):
+                run_cmd("less /var/log/Xorg.0.log", shell=True)
+            else:
+                console.print("[bold red]Xorg log not found.[/bold red]")
+    elif choice == "0":
+        show_menu()
+        return
+    else:
+        console.print(f"[bold red]{_t('invalid_option')}[/bold red]")
+    press_enter()
+
+def manage_services():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_services')}[/bold yellow]"))
+    srv = Prompt.ask("Service name (e.g. ssh, bluetooth)")
+    if not srv:
+        press_enter()
+        return
+    action = Prompt.ask("Action", choices=["start", "stop", "restart", "status", "enable", "disable"])
+    run_cmd(["sudo", "systemctl", action, srv])
+    if action != "status":
+        console.print(f"[bold green]✓ systemctl {action} {srv}[/bold green]")
+    press_enter()
+
+def list_packages():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_packages')}[/bold yellow]"))
+    run_cmd("dpkg-query -W -f='${binary:Package}\t${Version}\t${Status}\n' | column -t | less", shell=True)
+    press_enter()
+
+def manage_network():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_network')}[/bold yellow]"))
+    table = Table(show_header=False, box=None)
+    table.add_row("1", "Show IP Addresses")
+    table.add_row("2", "Show Routing Table")
+    table.add_row("3", "Ping Test (google.com)")
+    table.add_row("4", "Restart NetworkManager")
+    table.add_row("0", "Back")
+    console.print(table)
+    
+    choice = Prompt.ask("Select option")
+    if choice == "1":
+        run_cmd(["ip", "-br", "a"])
+    elif choice == "2":
+        run_cmd(["ip", "route"])
+    elif choice == "3":
+        run_cmd(["ping", "-c", "4", "google.com"])
+    elif choice == "4":
+        run_cmd(["sudo", "systemctl", "restart", "NetworkManager"])
+        console.print("[bold green]✓ NetworkManager restarted.[/bold green]")
+    elif choice == "0":
+        show_menu()
+        return
+    press_enter()
+
+def manage_users():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_users')}[/bold yellow]"))
+    table = Table(show_header=False, box=None)
+    table.add_row("1", "Add new user")
+    table.add_row("2", "Change user password")
+    table.add_row("3", "Delete user")
+    table.add_row("4", "List users")
+    table.add_row("0", "Back")
+    console.print(table)
+    
+    choice = Prompt.ask("Select option")
+    if choice == "1":
+        uname = Prompt.ask("New username")
+        if uname: run_cmd(["sudo", "adduser", uname])
+    elif choice == "2":
+        uname = Prompt.ask("Username")
+        if uname: run_cmd(["sudo", "passwd", uname])
+    elif choice == "3":
+        uname = Prompt.ask("Username to delete")
+        if uname and Confirm.ask(f"Delete user '{uname}'?"):
+            run_cmd(["sudo", "deluser", uname])
+            console.print("[bold green]✓ User deleted.[/bold green]")
+    elif choice == "4":
+        run_cmd("awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd", shell=True)
+    elif choice == "0":
+        show_menu()
+        return
+    press_enter()
+
+def disk_info():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_disk')}[/bold yellow]"))
+    table = Table(show_header=False, box=None)
+    table.add_row("1", "Block Devices (lsblk)")
+    table.add_row("2", "Disk Space Usage (df -h)")
+    table.add_row("3", "Disk I/O Stats (iostat)")
+    table.add_row("0", "Back")
+    console.print(table)
+    
+    choice = Prompt.ask("Select option")
+    if choice == "1":
+        run_cmd(["lsblk", "-o", "NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT"])
+    elif choice == "2":
+        run_cmd(["df", "-h", "--exclude-type=tmpfs", "--exclude-type=devtmpfs"])
+    elif choice == "3":
+        if shutil.which("iostat"):
+            run_cmd(["iostat", "-xh", "1", "3"])
+        else:
+            console.print("[bold yellow]iostat not found. Install with: sudo apt install sysstat[/bold yellow]")
+    elif choice == "0":
+        show_menu()
+        return
+    press_enter()
+
+def clean_temp():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_clean')}[/bold yellow]"))
+    console.print("This will clear: user cache, thumbnails, apt cache, old journals, trash.")
+    if Confirm.ask(_t("are_you_sure")):
+        console.print("[cyan]Clearing thumbnail cache...[/cyan]")
+        os.system("rm -rf ~/.cache/thumbnails/* 2>/dev/null")
+        
+        console.print("[cyan]Emptying trash...[/cyan]")
+        os.system("rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null")
+        
+        console.print("[cyan]Cleaning APT cache...[/cyan]")
+        run_cmd(["sudo", "apt-get", "clean"])
+        
+        console.print("[cyan]Vacuuming journal logs (keeping last 3 days)...[/cyan]")
+        run_cmd(["sudo", "journalctl", "--vacuum-time=3d"])
+        
+        console.print(f"[bold green]✓ {_t('success')}[/bold green]")
+    else:
+        console.print(_t("cancelled"))
+    press_enter()
+
+def change_dns():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_dns')}[/bold yellow]"))
+    console.print("Current DNS servers:")
+    os.system("grep '^nameserver' /etc/resolv.conf 2>/dev/null || echo '  (none found)'")
+    console.print("\nCommon DNS servers:\n  1.1.1.1      - Cloudflare\n  8.8.8.8      - Google\n  9.9.9.9      - Quad9\n  208.67.222.222 - OpenDNS\n")
+    
+    new_dns = Prompt.ask("Enter new DNS IP (leave empty to cancel)")
+    if new_dns:
+        nm_conf_dir = "/etc/NetworkManager/conf.d"
+        run_cmd(["sudo", "mkdir", "-p", nm_conf_dir])
+        os.system(f"echo -e '[main]\\ndns=none' | sudo tee {nm_conf_dir}/90-dns-none.conf > /dev/null")
+        run_cmd(["sudo", "systemctl", "restart", "NetworkManager"])
+        
+        run_cmd(["sudo", "chattr", "-i", "/etc/resolv.conf"])
+        os.system(f"echo 'nameserver {new_dns}' | sudo tee /etc/resolv.conf > /dev/null")
+        run_cmd(["sudo", "chattr", "+i", "/etc/resolv.conf"])
+        console.print(f"[bold green]✓ DNS set to {new_dns} (NetworkManager patched to not override it).[/bold green]")
+    press_enter()
+
+def change_hostname():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_hostname')}[/bold yellow]"))
+    current = run_cmd(["hostname"], capture=True).stdout.strip()
+    console.print(f"Current hostname: [cyan]{current}[/cyan]\n")
+    
+    new_host = Prompt.ask("Enter new hostname (leave empty to cancel)")
+    if new_host:
+        run_cmd(["sudo", "hostnamectl", "set-hostname", new_host])
+        run_cmd(["sudo", "sed", "-i", f"s/\\b{current}\\b/{new_host}/g", "/etc/hosts"])
+        console.print(f"[bold green]✓ Hostname changed to '{new_host}'. Re-login to see the effect in prompt.[/bold green]")
+    press_enter()
+
+def zram_manager():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_zram')}[/bold yellow]"))
+    table = Table(show_header=False, box=None)
+    table.add_row("1", "Install ZRAM tools")
+    table.add_row("2", "Enable ZRAM")
+    table.add_row("3", "Disable ZRAM")
+    table.add_row("4", "Status")
+    table.add_row("5", "About ZRAM")
+    table.add_row("0", "Back")
+    console.print(table)
+    
+    choice = Prompt.ask("Select option")
+    if choice == "1":
+        run_cmd(["sudo", "apt-get", "update"])
+        run_cmd(["sudo", "apt-get", "install", "-y", "zram-tools"])
+        console.print("[bold green]✓ ZRAM tools installed.[/bold green]")
+    elif choice == "2":
+        run_cmd(["sudo", "systemctl", "enable", "zramswap"])
+        run_cmd(["sudo", "systemctl", "start", "zramswap"])
+        console.print("[bold green]✓ ZRAM enabled.[/bold green]")
+    elif choice == "3":
+        run_cmd(["sudo", "systemctl", "stop", "zramswap"])
+        run_cmd(["sudo", "systemctl", "disable", "zramswap"])
+        console.print("[bold green]✓ ZRAM disabled.[/bold green]")
+    elif choice == "4":
+        if run_cmd(["systemctl", "is-active", "--quiet", "zramswap"]).returncode == 0:
+            console.print("Status: [bold green]ACTIVE[/bold green]")
+            os.system("zramctl 2>/dev/null || swapon --show")
+        else:
+            console.print("Status: [bold red]INACTIVE[/bold red]")
+    elif choice == "5":
+        console.print("\nZRAM creates a compressed block device in RAM used as swap space.\n\nBenefits:\n  • Much faster than disk swap\n  • Reduces SSD write cycles\n  • Effective on systems with 2-8 GB RAM\n\nTypical compression ratio: 2:1 to 3:1 (LZ4 algorithm)")
+    elif choice == "0":
+        show_menu()
+        return
+    press_enter()
+
+def deb_installer():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_deb')}[/bold yellow]"))
+    table = Table(show_header=False, box=None)
+    table.add_row("1", "Install .deb from local path")
+    table.add_row("2", "Install .deb from URL")
+    table.add_row("3", "Recently installed packages")
+    table.add_row("0", "Back")
+    console.print(table)
+    
+    choice = Prompt.ask("Select option")
+    if choice == "1":
+        path = Prompt.ask("Path to .deb file").replace("~", os.environ.get("HOME", "~"))
+        if not os.path.isfile(path):
+            console.print(f"[bold red]✗ File not found: {path}[/bold red]")
+        else:
+            console.print(f"Installing {path}...")
+            run_cmd(["sudo", "dpkg", "-i", path])
+            run_cmd(["sudo", "apt-get", "install", "-f", "-y"])
+            console.print("[bold green]✓ Installation complete.[/bold green]")
+    elif choice == "2":
+        url = Prompt.ask("URL of .deb file")
+        if url:
+            tmp = "/tmp/megamix_install.deb"
+            console.print("Downloading...")
+            if run_cmd(["wget", "-q", "--show-progress", "-O", tmp, url]).returncode == 0:
+                console.print("Installing...")
+                run_cmd(["sudo", "dpkg", "-i", tmp])
+                run_cmd(["sudo", "apt-get", "install", "-f", "-y"])
+                os.remove(tmp)
+                console.print("[bold green]✓ Installation complete.[/bold green]")
+            else:
+                console.print("[bold red]✗ Download failed.[/bold red]")
+                if os.path.exists(tmp): os.remove(tmp)
+    elif choice == "3":
+        console.print("\n[cyan]Recently installed packages:[/cyan]")
+        os.system("grep ' install ' /var/log/dpkg.log 2>/dev/null | tail -30 || echo 'Log not available.'")
+    elif choice == "0":
+        show_menu()
+        return
+    press_enter()
+
+def apt_installer():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_apt')}[/bold yellow]"))
+    pkg = Prompt.ask("Package name to install (leave empty to cancel)")
+    if pkg:
+        console.print(f"Searching for '{pkg}'...")
+        if run_cmd(["apt-cache", "show", pkg], capture=True).returncode == 0:
+            run_cmd(["sudo", "apt-get", "update"])
+            run_cmd(["sudo", "apt-get", "install", "-y", pkg])
+            console.print(f"[bold green]✓ '{pkg}' installed successfully.[/bold green]")
+        else:
+            console.print(f"[bold red]✗ Package '{pkg}' not found.[/bold red]\nTry: apt-cache search <keyword>")
+    press_enter()
+
+def flatpak_installer():
+    console.clear()
+    console.print(Panel(f"[bold yellow]{_t('menu_flatpak')}[/bold yellow]"))
+    if not shutil.which("flatpak"):
+        console.print("[bold red]✗ Flatpak is not installed.[/bold red]")
+        if Confirm.ask("Install Flatpak now?"):
+            run_cmd(["sudo", "apt-get", "install", "-y", "flatpak"])
+            run_cmd(["flatpak", "remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"])
+            console.print("[bold green]✓ Flatpak installed. Please reboot before installing apps.[/bold green]")
+        press_enter()
+        return
+        
+    table = Table(show_header=False, box=None)
+    table.add_row("1", "Install app by ID")
+    table.add_row("2", "Search for an app")
+    table.add_row("3", "List installed Flatpak apps")
+    table.add_row("4", "Remove a Flatpak app")
+    table.add_row("0", "Back")
+    console.print(table)
+    
+    choice = Prompt.ask("Select option")
+    if choice == "1":
+        appid = Prompt.ask("Flatpak app ID (e.g. com.spotify.Client)")
+        if appid:
+            run_cmd(["flatpak", "install", "-y", "flathub", appid])
+            console.print("[bold green]✓ Done.[/bold green]")
+    elif choice == "2":
+        term = Prompt.ask("Search term")
+        if term: run_cmd(["flatpak", "search", term])
+    elif choice == "3":
+        run_cmd(["flatpak", "list", "--app", "--columns=name,application,version"])
+    elif choice == "4":
+        appid = Prompt.ask("App ID to remove")
+        if appid:
+            run_cmd(["flatpak", "uninstall", appid, "-y"])
+            console.print("[bold green]✓ Removed.[/bold green]")
+    elif choice == "0":
+        show_menu()
+        return
+    press_enter()
+
+# ==============================================================================
+# MENU
+# ==============================================================================
+
+def show_menu():
+    console.clear()
+    console.print(ASCII_ART)
+    
+    table = Table(title=_t("title"), title_style="bold yellow", show_header=False, box=None, padding=(0, 2))
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Action", style="white")
+    
+    table.add_row(" 1.", _t("menu_update"))
+    table.add_row(" 2.", _t("menu_nvidia"))
+    table.add_row(" 3.", _t("menu_sysinfo"))
+    table.add_row(" 4.", _t("menu_logs"))
+    table.add_row(" 5.", _t("menu_services"))
+    table.add_row(" 6.", _t("menu_packages"))
+    table.add_row(" 7.", _t("menu_network"))
+    table.add_row(" 8.", _t("menu_users"))
+    table.add_row(" 9.", _t("menu_disk"))
+    table.add_row("10.", _t("menu_clean"))
+    table.add_row("11.", _t("menu_dns"))
+    table.add_row("12.", _t("menu_hostname"))
+    table.add_row("13.", _t("menu_zram"))
+    table.add_row("14.", _t("menu_deb"))
+    table.add_row("15.", _t("menu_apt"))
+    table.add_row("16.", _t("menu_flatpak"))
+    table.add_row("17.", _t("menu_settings"))
+    table.add_row(" 0.", f"[bold red]{_t('menu_exit')}[/bold red]")
+    
+    console.print(Panel(table, border_style="blue"))
+    
+    choice = Prompt.ask(f"[bold cyan]{_t('select_option')}[/bold cyan]")
+    
+    actions = {
+        "1": system_update,
+        "2": install_nvidia,
+        "3": sys_info,
+        "4": view_logs,
+        "5": manage_services,
+        "6": list_packages,
+        "7": manage_network,
+        "8": manage_users,
+        "9": disk_info,
+        "10": clean_temp,
+        "11": change_dns,
+        "12": change_hostname,
+        "13": zram_manager,
+        "14": deb_installer,
+        "15": apt_installer,
+        "16": flatpak_installer,
+        "17": change_language_setting
+    }
+    
+    if choice == "0":
+        console.print(f"[bold green]{_t('goodbye')}[/bold green]")
+        sys.exit(0)
+    elif choice in actions:
+        actions[choice]()
+    else:
+        console.print(f"[bold red]{_t('invalid_option')}[/bold red]")
+        import time
+        time.sleep(1)
+        show_menu()
+
+LANG_FILE = "/etc/megamix/language"
+
+def save_language(lang):
+    run_cmd(["sudo", "mkdir", "-p", "/etc/megamix"])
+    os.system(f"echo '{lang}' | sudo tee {LANG_FILE} > /dev/null")
+
+def load_language():
+    global CURRENT_LANG
+    try:
+        if os.path.exists(LANG_FILE):
+            with open(LANG_FILE, "r") as f:
+                CURRENT_LANG = f.read().strip()
+                return True
+    except:
+        pass
+    return False
+
+def select_language(force=False):
+    global CURRENT_LANG
+    if not force and load_language():
+        return
+        
+    console.clear()
+    console.print(ASCII_ART)
+    
+    console.print("[bold yellow]Select Language / Dil Seçin / Choisissez la langue:[/bold yellow]\n")
+    langs = list(TRANSLATIONS.keys())
+    
+    table = Table(show_header=False, box=None)
+    for i in range(0, len(langs), 4):
+        row = []
+        for j in range(4):
+            if i+j < len(langs):
+                row.append(f"{i+j+1}. {langs[i+j]}")
+            else:
+                row.append("")
+        table.add_row(*row)
+    console.print(table)
+    
+    choice = Prompt.ask("\nLanguage", default="1")
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(langs):
+            CURRENT_LANG = langs[idx]
+            save_language(CURRENT_LANG)
+    except ValueError:
+        pass
+
+def change_language_setting():
+    select_language(force=True)
+    show_menu()
+
+if __name__ == "__main__":
+    try:
+        select_language()
+        show_menu()
+    except KeyboardInterrupt:
+        console.print(f"\n[bold green]{_t('goodbye')}[/bold green]")
+        sys.exit(0)

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Partclone
+Comment=LengToolkit - partclone
+Exec=mate-terminal -- bash -c "partclone; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

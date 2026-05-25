@@ -1,0 +1,896 @@
+#!/usr/bin/env python3
+
+# ================================================
+#       Almighty System Management Panel
+# ================================================
+
+import subprocess
+import shutil
+import os
+import sys
+import platform
+import time
+import signal
+import json
+
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.prompt import Prompt, Confirm
+    from rich.text import Text
+    from rich.columns import Columns
+    from rich.align import Align
+    from rich.live import Live
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich import box
+except ImportError:
+    print("[!] python3-rich is required. Install with: sudo apt install python3-rich")
+    sys.exit(1)
+
+console = Console()
+
+ALMIGHTY_RED = "red"
+ALMIGHTY_DARK = "bright_black"
+ALMIGHTY_WHITE = "white"
+ALMIGHTY_CYAN = "cyan"
+ALMIGHTY_GREEN = "green"
+ALMIGHTY_YELLOW = "yellow"
+
+ASCII_BANNER = r"""
+     ___    __          _       __    __
+    /   |  / /___ ___  (_)___ _/ /_  / /___  __
+   / /| | / / __ `__ \/ / __ `/ __ \/ __/ / / /
+  / ___ |/ / / / / / / / /_/ / / / / /_/ /_/ /
+ /_/  |_/_/_/ /_/ /_/_/\__, /_/ /_/\__/\__, /
+                      /____/          /____/
+⢠⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢸⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠸⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⢣⠈⠻⣿⣷⣦⣤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠐⣄⠀
+⢸⣶⣄⡀⠉⡝⣽⣿⣾⣦⣤⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣧⠀
+⢰⠙⢿⣿⣷⣶⣏⣙⡛⠿⢿⣿⣿⣿⣶⣶⣀⣀⣰⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀⠀⠀⠀⣰⣿⢏⡆
+⠈⢷⣤⡈⠙⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣾⣾⣤⣴⣶⣿⠿⢋⡾⠀
+⠀⠀⠻⣿⣷⣦⣤⣤⣈⣩⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀⠀⠀⣀⣼⣿⣿⣿⣿⣿⣿⣿⣧⣦⡷⠁⠀
+⠀⠀⠙⢦⣍⣉⡛⠻⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⡄⠀⠀⠀⠀⠀⣰⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣯⠵⠂⠀⠀
+⠀⠀⠀⠀⠉⠛⠻⠿⠿⠿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡄⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠋⠉⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⡿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣦⣶⣾⣿⣿⣿⣿⡿⠿⠿⠿⠿⠟⠋⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢹⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢿⣷⡄⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣿⠟⠋⠀⠈⠙⠻⣦⣿⣇⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⡟⠀⠀⠀⠀⠀⠀⠀⠈⣷⣿⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣾⣿⣿⣿⣿⣿⣿⠿⠿⣆⡀⠀⠀⠀⠀⠀⠀⠀⢿⢹⡇⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⠙⠲⢄⠀⠉⣳⠦⢤⡠⣤⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡝⣹⣿⣿⣿⣿⣿⣿⡆⠀⢬⡛⡇⠇⠀⠸⠆⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠟⣿⣿⣿⣿⡟⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⢿⣿⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+
+"""
+
+# ------------------------------------------------
+# HELPERS
+# ------------------------------------------------
+
+def run_cmd(cmd, capture=False, shell=True):
+    try:
+        if capture:
+            result = subprocess.run(cmd, shell=shell, capture_output=True, text=True, timeout=60)
+            return result.stdout.strip()
+        else:
+            subprocess.run(cmd, shell=shell, timeout=300)
+    except subprocess.TimeoutExpired:
+        console.print("[red]Command timed out.[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+    return ""
+
+def run_cmd_live(cmd):
+    try:
+        subprocess.run(cmd, shell=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        console.print("[red]Command timed out.[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+
+def press_enter():
+    console.print()
+    Prompt.ask("[dim]Press Enter to return to menu[/dim]", default="")
+
+def is_root():
+    return os.geteuid() == 0
+
+def require_root():
+    if not is_root():
+        console.print("[red]This operation requires root privileges.[/red]")
+        console.print("[yellow]Run with: sudo almighty-panel[/yellow]")
+        return False
+    return True
+
+def is_live_mode():
+    try:
+        with open("/proc/mounts", "r") as f:
+            return "overlay" in f.read()
+    except Exception:
+        return False
+
+# ------------------------------------------------
+# HEADER
+# ------------------------------------------------
+
+def show_header():
+    os.system("clear")
+    banner_text = Text(ASCII_BANNER, style="bold red")
+    console.print(Align.center(banner_text))
+    subtitle = Text("System Management Panel", style="bold white")
+    console.print(Align.center(subtitle))
+    console.print()
+
+# ------------------------------------------------
+# MAIN MENU
+# ------------------------------------------------
+
+def show_menu():
+    show_header()
+
+    menu_table = Table(
+        show_header=False,
+        box=box.ROUNDED,
+        border_style="red",
+        padding=(0, 2),
+        expand=False,
+    )
+    menu_table.add_column("No", style="bold red", width=4)
+    menu_table.add_column("Option", style="white", width=38)
+
+    menu_items = [
+        ("1", "System Update & Cleanup"),
+        ("2", "System Information"),
+        ("3", "View System Logs"),
+        ("4", "Systemd Service Management"),
+        ("5", "List Installed Packages"),
+        ("6", "Network Management"),
+        ("7", "User Management"),
+        ("8", "Disk Information"),
+        ("9", "Clean System Caches & Trash"),
+        ("10", "Change DNS Settings"),
+        ("11", "Change Hostname"),
+        ("12", "ZRAM Manager"),
+        ("13", "Kernel Parameters"),
+        ("14", "Firewall Manager"),
+        ("15", "Swap Manager"),
+        ("16", "Hardware Diagnostics"),
+        ("17", "Update Python Libraries"),
+        ("0", "Exit"),
+    ]
+
+    for num, label in menu_items:
+        style = "bold red" if num == "0" else "white"
+        menu_table.add_row(num, Text(label, style=style))
+
+    console.print(Align.center(menu_table))
+    console.print()
+    choice = Prompt.ask("[bold red]Select an option[/bold red]", default="0")
+    return choice
+
+# ------------------------------------------------
+# 1. SYSTEM UPDATE & CLEANUP
+# ------------------------------------------------
+
+def system_update():
+    show_header()
+    console.print(Panel("[bold]System Update & Cleanup[/bold]", border_style="red"))
+
+    if not require_root():
+        press_enter()
+        return
+
+    os.environ["DEBIAN_FRONTEND"] = "noninteractive"
+
+    steps = [
+        ("Updating package lists...", "apt-get update"),
+        ("Upgrading packages...", "apt-get upgrade -y"),
+        ("Full upgrade...", "apt-get full-upgrade -y"),
+        ("Removing unnecessary packages...", "apt-get autoremove --purge -y"),
+        ("Cleaning APT cache...", "apt-get clean"),
+    ]
+
+    for i, (msg, cmd) in enumerate(steps, 1):
+        console.print(f"[cyan][{i}/{len(steps)}] {msg}[/cyan]")
+        run_cmd_live(cmd)
+
+    if shutil.which("flatpak"):
+        console.print("[cyan]Updating Flatpak applications...[/cyan]")
+        run_cmd_live("flatpak update -y")
+        run_cmd_live("flatpak uninstall --unused -y")
+    else:
+        console.print("[dim]Flatpak not installed, skipping.[/dim]")
+
+    console.print("[green]System update completed successfully.[/green]")
+    press_enter()
+
+# ------------------------------------------------
+# 3. SYSTEM INFORMATION
+# ------------------------------------------------
+
+def sys_info():
+    show_header()
+    console.print(Panel("[bold]System Information[/bold]", border_style="red"))
+
+    if shutil.which("almighty-fetch"):
+        os.system("almighty-fetch")
+    elif shutil.which("fastfetch"):
+        os.system("fastfetch")
+    elif shutil.which("neofetch"):
+        os.system("neofetch")
+    else:
+        info_table = Table(show_header=False, box=box.SIMPLE, border_style="red")
+        info_table.add_column("Key", style="bold cyan", width=12)
+        info_table.add_column("Value", style="white")
+
+        distro = run_cmd("grep '^PRETTY_NAME=' /etc/os-release | cut -d'\"' -f2", capture=True) or "Unknown"
+        kernel = run_cmd("uname -r", capture=True)
+        cpu = run_cmd("lscpu | awk -F: '/^Model name/{gsub(/^[ \\t]+/, \"\", $2); print $2}'", capture=True)
+        ram = run_cmd("free -h | awk '/^Mem:/{print $3 \"/\" $2}'", capture=True)
+        disk = run_cmd("df -h / | awk 'NR==2{print $3 \"/\" $2 \" (\" $5 \" used)\"}'", capture=True)
+        uptime = run_cmd("uptime -p", capture=True)
+
+        info_table.add_row("OS", distro)
+        info_table.add_row("Kernel", kernel)
+        info_table.add_row("CPU", cpu)
+        info_table.add_row("RAM", ram)
+        info_table.add_row("Disk", disk)
+        info_table.add_row("Uptime", uptime)
+        console.print(info_table)
+
+    press_enter()
+
+# ------------------------------------------------
+# 4. VIEW SYSTEM LOGS
+# ------------------------------------------------
+
+def view_logs():
+    show_header()
+    console.print(Panel("[bold]Log Viewer[/bold]", border_style="red"))
+
+    log_table = Table(show_header=False, box=box.SIMPLE)
+    log_table.add_column("No", style="bold red", width=4)
+    log_table.add_column("Option", style="white")
+    log_table.add_row("1", "System Logs (journalctl)")
+    log_table.add_row("2", "Kernel Logs (dmesg)")
+    log_table.add_row("3", "Xorg / Wayland Logs")
+    log_table.add_row("4", "Auth Logs")
+    log_table.add_row("5", "Boot Messages")
+    log_table.add_row("0", "Back")
+    console.print(log_table)
+
+    choice = Prompt.ask("[bold red]Selection[/bold red]", default="0")
+    if choice == "1":
+        os.system("sudo journalctl -xe | less")
+    elif choice == "2":
+        os.system("sudo dmesg -H | less")
+    elif choice == "3":
+        session = os.environ.get("XDG_SESSION_TYPE", "")
+        if session == "wayland":
+            os.system("sudo journalctl -b 0 _COMM=kwin_wayland | less")
+        elif os.path.isfile("/var/log/Xorg.0.log"):
+            os.system("less /var/log/Xorg.0.log")
+        else:
+            console.print("[red]Display log not found.[/red]")
+    elif choice == "4":
+        os.system("sudo journalctl _COMM=sshd + _COMM=sudo + _COMM=login | less")
+    elif choice == "5":
+        os.system("sudo journalctl -b 0 --no-pager | less")
+    elif choice == "0":
+        return
+    press_enter()
+
+# ------------------------------------------------
+# 5. SERVICE MANAGEMENT
+# ------------------------------------------------
+
+def manage_services():
+    show_header()
+    console.print(Panel("[bold]Systemd Service Management[/bold]", border_style="red"))
+
+    srv = Prompt.ask("[cyan]Service name (e.g. ssh, bluetooth)[/cyan]", default="")
+    if not srv:
+        console.print("[red]Service name cannot be empty.[/red]")
+        press_enter()
+        return
+
+    status = run_cmd(f"systemctl is-active {srv} 2>/dev/null", capture=True)
+    enabled = run_cmd(f"systemctl is-enabled {srv} 2>/dev/null", capture=True)
+    console.print(f"[cyan]Status:[/cyan] {status}  [cyan]Enabled:[/cyan] {enabled}")
+    console.print()
+
+    actions = "start | stop | restart | status | enable | disable"
+    console.print(f"[dim]Actions: {actions}[/dim]")
+    action = Prompt.ask("[cyan]Action[/cyan]", default="status")
+
+    if action in ("start", "stop", "restart", "status", "enable", "disable"):
+        run_cmd_live(f"sudo systemctl {action} {srv}")
+        if action != "status":
+            console.print(f"[green]systemctl {action} {srv} executed.[/green]")
+    else:
+        console.print(f"[red]Invalid action: {action}[/red]")
+    press_enter()
+
+# ------------------------------------------------
+# 6. LIST INSTALLED PACKAGES
+# ------------------------------------------------
+
+def list_packages():
+    show_header()
+    console.print(Panel("[bold]Installed Packages[/bold]", border_style="red"))
+
+    total = run_cmd("dpkg -l | grep '^ii' | wc -l", capture=True)
+    console.print(f"[cyan]Total installed packages:[/cyan] {total}")
+    console.print("[dim]Press q to quit the pager.[/dim]")
+    time.sleep(1)
+    os.system("dpkg-query -W -f='${binary:Package}\t${Version}\t${Status}\n' | column -t | less")
+    press_enter()
+
+# ------------------------------------------------
+# 7. NETWORK MANAGEMENT
+# ------------------------------------------------
+
+def manage_network():
+    show_header()
+    console.print(Panel("[bold]Network Management[/bold]", border_style="red"))
+
+    net_table = Table(show_header=False, box=box.SIMPLE)
+    net_table.add_column("No", style="bold red", width=4)
+    net_table.add_column("Option", style="white")
+    net_table.add_row("1", "Show IP Addresses")
+    net_table.add_row("2", "Show Routing Table")
+    net_table.add_row("3", "Ping Test (google.com)")
+    net_table.add_row("4", "Restart NetworkManager")
+    net_table.add_row("5", "Show Active Connections")
+    net_table.add_row("6", "Show Listening Ports")
+    net_table.add_row("0", "Back")
+    console.print(net_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+    if choice == "1":
+        os.system("ip -br a")
+    elif choice == "2":
+        os.system("ip route")
+    elif choice == "3":
+        os.system("ping -c 4 google.com")
+    elif choice == "4":
+        run_cmd_live("sudo systemctl restart NetworkManager")
+        console.print("[green]NetworkManager restarted.[/green]")
+    elif choice == "5":
+        os.system("ss -tunap 2>/dev/null | head -30")
+    elif choice == "6":
+        os.system("ss -tlnp 2>/dev/null")
+    elif choice == "0":
+        return
+    press_enter()
+
+# ------------------------------------------------
+# 8. USER MANAGEMENT
+# ------------------------------------------------
+
+def manage_users():
+    show_header()
+    console.print(Panel("[bold]User Management[/bold]", border_style="red"))
+
+    user_table = Table(show_header=False, box=box.SIMPLE)
+    user_table.add_column("No", style="bold red", width=4)
+    user_table.add_column("Option", style="white")
+    user_table.add_row("1", "Add new user")
+    user_table.add_row("2", "Change user password")
+    user_table.add_row("3", "Delete user")
+    user_table.add_row("4", "List users")
+    user_table.add_row("5", "Show user groups")
+    user_table.add_row("0", "Back")
+    console.print(user_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+    if choice == "1":
+        u_name = Prompt.ask("[cyan]New username[/cyan]", default="")
+        if u_name:
+            os.system(f"sudo adduser {u_name}")
+    elif choice == "2":
+        u_name = Prompt.ask("[cyan]Username[/cyan]", default="")
+        if u_name:
+            os.system(f"sudo passwd {u_name}")
+    elif choice == "3":
+        u_name = Prompt.ask("[cyan]Username to delete[/cyan]", default="")
+        if u_name and Confirm.ask(f"Delete user '{u_name}'?", default=False):
+            run_cmd_live(f"sudo deluser {u_name}")
+            console.print("[green]User deleted.[/green]")
+    elif choice == "4":
+        os.system("awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd")
+    elif choice == "5":
+        u_name = Prompt.ask("[cyan]Username[/cyan]", default="")
+        if u_name:
+            os.system(f"groups {u_name}")
+    elif choice == "0":
+        return
+    press_enter()
+
+# ------------------------------------------------
+# 9. DISK INFORMATION
+# ------------------------------------------------
+
+def disk_info():
+    show_header()
+    console.print(Panel("[bold]Disk Information[/bold]", border_style="red"))
+
+    disk_table = Table(show_header=False, box=box.SIMPLE)
+    disk_table.add_column("No", style="bold red", width=4)
+    disk_table.add_column("Option", style="white")
+    disk_table.add_row("1", "Block Devices (lsblk)")
+    disk_table.add_row("2", "Disk Space Usage (df -h)")
+    disk_table.add_row("3", "Disk I/O Stats (iostat)")
+    disk_table.add_row("4", "SMART Health Status")
+    disk_table.add_row("0", "Back")
+    console.print(disk_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+    if choice == "1":
+        os.system("lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT")
+    elif choice == "2":
+        os.system("df -h --exclude-type=tmpfs --exclude-type=devtmpfs")
+    elif choice == "3":
+        if shutil.which("iostat"):
+            os.system("iostat -xh 1 3")
+        else:
+            console.print("[yellow]iostat not found. Install with: sudo apt install sysstat[/yellow]")
+    elif choice == "4":
+        if shutil.which("smartctl"):
+            disk_dev = Prompt.ask("[cyan]Device (e.g. /dev/sda)[/cyan]", default="/dev/sda")
+            os.system(f"sudo smartctl -H {disk_dev}")
+        else:
+            console.print("[yellow]smartctl not found. Install with: sudo apt install smartmontools[/yellow]")
+    elif choice == "0":
+        return
+    press_enter()
+
+# ------------------------------------------------
+# 10. CLEAN CACHES & TRASH
+# ------------------------------------------------
+
+def clean_temp():
+    show_header()
+    console.print(Panel("[bold]Clean System Caches & Trash[/bold]", border_style="red"))
+
+    console.print("[dim]This will clear: user cache, thumbnails, apt cache, old journals, trash.[/dim]")
+    if not Confirm.ask("Are you sure?", default=False):
+        console.print("Operation cancelled.")
+        press_enter()
+        return
+
+    home = os.path.expanduser("~")
+    steps = [
+        ("Clearing thumbnail cache...", f"rm -rf {home}/.cache/thumbnails/* 2>/dev/null"),
+        ("Emptying trash...", f"rm -rf {home}/.local/share/Trash/files/* {home}/.local/share/Trash/info/* 2>/dev/null"),
+        ("Cleaning APT cache...", "sudo apt-get clean"),
+        ("Vacuuming journal logs (keeping last 3 days)...", "sudo journalctl --vacuum-time=3d"),
+        ("Clearing font cache...", "fc-cache -f 2>/dev/null"),
+    ]
+
+    for msg, cmd in steps:
+        console.print(f"[cyan]{msg}[/cyan]")
+        run_cmd(cmd)
+
+    console.print("[green]Cleanup completed.[/green]")
+    press_enter()
+
+# ------------------------------------------------
+# 11. CHANGE DNS
+# ------------------------------------------------
+
+def change_dns():
+    show_header()
+    console.print(Panel("[bold]DNS Settings[/bold]", border_style="red"))
+
+    console.print("[cyan]Current DNS servers:[/cyan]")
+    current = run_cmd("grep '^nameserver' /etc/resolv.conf 2>/dev/null", capture=True)
+    console.print(current if current else "  (none found)")
+    console.print()
+
+    dns_table = Table(show_header=True, box=box.SIMPLE, border_style="red")
+    dns_table.add_column("IP", style="bold white")
+    dns_table.add_column("Provider", style="cyan")
+    dns_table.add_row("1.1.1.1", "Cloudflare")
+    dns_table.add_row("8.8.8.8", "Google")
+    dns_table.add_row("9.9.9.9", "Quad9")
+    dns_table.add_row("208.67.222.222", "OpenDNS")
+    console.print(dns_table)
+
+    new_dns = Prompt.ask("[cyan]Enter new DNS IP (leave empty to cancel)[/cyan]", default="")
+    if new_dns:
+        import re
+        if not re.match(r"^(\d{1,3}\.){3}\d{1,3}$", new_dns):
+            console.print("[red]Invalid IP address format.[/red]")
+            press_enter()
+            return
+        run_cmd("sudo chattr -i /etc/resolv.conf 2>/dev/null")
+        run_cmd(f"echo 'nameserver {new_dns}' | sudo tee /etc/resolv.conf > /dev/null")
+        run_cmd("sudo chattr +i /etc/resolv.conf")
+        console.print(f"[green]DNS set to {new_dns} (file locked against NetworkManager overrides).[/green]")
+    press_enter()
+
+# ------------------------------------------------
+# 12. CHANGE HOSTNAME
+# ------------------------------------------------
+
+def change_hostname():
+    show_header()
+    console.print(Panel("[bold]Hostname Settings[/bold]", border_style="red"))
+
+    current = run_cmd("hostname", capture=True)
+    console.print(f"[cyan]Current hostname:[/cyan] {current}")
+    console.print()
+
+    new_host = Prompt.ask("[cyan]Enter new hostname (leave empty to cancel)[/cyan]", default="")
+    if new_host:
+        import re
+        if not re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?$", new_host):
+            console.print("[red]Invalid hostname. Use only letters, numbers and hyphens.[/red]")
+            press_enter()
+            return
+        run_cmd(f"sudo hostnamectl set-hostname {new_host}")
+        run_cmd(f"sudo sed -i 's/\\b{current}\\b/{new_host}/g' /etc/hosts")
+        console.print(f"[green]Hostname changed to '{new_host}'. Re-login to see the effect.[/green]")
+    press_enter()
+
+# ------------------------------------------------
+# 13. ZRAM MANAGER
+# ------------------------------------------------
+
+def zram_manager():
+    show_header()
+    console.print(Panel("[bold]ZRAM Manager[/bold]", border_style="red"))
+
+    zram_table = Table(show_header=False, box=box.SIMPLE)
+    zram_table.add_column("No", style="bold red", width=4)
+    zram_table.add_column("Option", style="white")
+    zram_table.add_row("1", "Install ZRAM tools")
+    zram_table.add_row("2", "Enable ZRAM")
+    zram_table.add_row("3", "Disable ZRAM")
+    zram_table.add_row("4", "Status")
+    zram_table.add_row("5", "About ZRAM")
+    zram_table.add_row("0", "Back")
+    console.print(zram_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+    if choice == "1":
+        run_cmd_live("sudo apt-get update && sudo apt-get install -y zram-tools")
+        console.print("[green]ZRAM tools installed.[/green]")
+    elif choice == "2":
+        run_cmd_live("sudo systemctl enable zramswap && sudo systemctl start zramswap")
+        console.print("[green]ZRAM enabled.[/green]")
+    elif choice == "3":
+        run_cmd_live("sudo systemctl stop zramswap && sudo systemctl disable zramswap")
+        console.print("[green]ZRAM disabled.[/green]")
+    elif choice == "4":
+        status = run_cmd("systemctl is-active zramswap 2>/dev/null", capture=True)
+        if status == "active":
+            console.print("[green]Status: ACTIVE[/green]")
+            os.system("zramctl 2>/dev/null || swapon --show")
+        else:
+            console.print("[red]Status: INACTIVE[/red]")
+    elif choice == "5":
+        console.print(Panel(
+            "[white]ZRAM creates a compressed block device in RAM used as swap space.\n\n"
+            "[cyan]Benefits:[/cyan]\n"
+            "  - Much faster than disk swap\n"
+            "  - Reduces SSD write cycles\n"
+            "  - Effective on systems with 2-8 GB RAM\n\n"
+            "Typical compression ratio: 2:1 to 3:1 (LZ4 algorithm)[/white]",
+            border_style="red",
+            title="About ZRAM"
+        ))
+    elif choice == "0":
+        return
+    press_enter()
+
+
+
+# ------------------------------------------------
+# 17. KERNEL PARAMETERS
+# ------------------------------------------------
+
+def kernel_params():
+    show_header()
+    console.print(Panel("[bold]Kernel Parameters[/bold]", border_style="red"))
+
+    kern_table = Table(show_header=False, box=box.SIMPLE)
+    kern_table.add_column("No", style="bold red", width=4)
+    kern_table.add_column("Option", style="white")
+    kern_table.add_row("1", "View all sysctl parameters")
+    kern_table.add_row("2", "View network parameters")
+    kern_table.add_row("3", "View security parameters")
+    kern_table.add_row("4", "Set a sysctl parameter")
+    kern_table.add_row("5", "Reload sysctl.conf")
+    kern_table.add_row("0", "Back")
+    console.print(kern_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+    if choice == "1":
+        os.system("sysctl -a 2>/dev/null | less")
+    elif choice == "2":
+        os.system("sysctl -a 2>/dev/null | grep -E '^net\\.' | less")
+    elif choice == "3":
+        os.system("sysctl -a 2>/dev/null | grep -E '^kernel\\.' | less")
+    elif choice == "4":
+        param = Prompt.ask("[cyan]Parameter (e.g. net.ipv4.ip_forward)[/cyan]", default="")
+        value = Prompt.ask("[cyan]Value[/cyan]", default="")
+        if param and value:
+            run_cmd_live(f"sudo sysctl -w {param}={value}")
+            console.print(f"[green]Set {param} = {value}[/green]")
+    elif choice == "5":
+        run_cmd_live("sudo sysctl -p")
+        console.print("[green]sysctl.conf reloaded.[/green]")
+    elif choice == "0":
+        return
+    press_enter()
+
+# ------------------------------------------------
+# 18. FIREWALL MANAGER
+# ------------------------------------------------
+
+def firewall_manager():
+    show_header()
+    console.print(Panel("[bold]Firewall Manager[/bold]", border_style="red"))
+
+    if not shutil.which("ufw"):
+        console.print("[red]UFW is not installed. Install with: sudo apt install ufw[/red]")
+        press_enter()
+        return
+
+    fw_table = Table(show_header=False, box=box.SIMPLE)
+    fw_table.add_column("No", style="bold red", width=4)
+    fw_table.add_column("Option", style="white")
+    fw_table.add_row("1", "Show firewall status")
+    fw_table.add_row("2", "Enable firewall")
+    fw_table.add_row("3", "Disable firewall")
+    fw_table.add_row("4", "Allow a port")
+    fw_table.add_row("5", "Deny a port")
+    fw_table.add_row("6", "List rules")
+    fw_table.add_row("7", "Reset firewall rules")
+    fw_table.add_row("0", "Back")
+    console.print(fw_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+    if choice == "1":
+        os.system("sudo ufw status verbose")
+    elif choice == "2":
+        run_cmd_live("sudo ufw --force enable")
+        console.print("[green]Firewall enabled.[/green]")
+    elif choice == "3":
+        run_cmd_live("sudo ufw disable")
+        console.print("[green]Firewall disabled.[/green]")
+    elif choice == "4":
+        port = Prompt.ask("[cyan]Port to allow (e.g. 22, 80/tcp)[/cyan]", default="")
+        if port:
+            run_cmd_live(f"sudo ufw allow {port}")
+    elif choice == "5":
+        port = Prompt.ask("[cyan]Port to deny[/cyan]", default="")
+        if port:
+            run_cmd_live(f"sudo ufw deny {port}")
+    elif choice == "6":
+        os.system("sudo ufw status numbered")
+    elif choice == "7":
+        if Confirm.ask("Reset all firewall rules?", default=False):
+            run_cmd_live("sudo ufw --force reset")
+            console.print("[green]Firewall rules reset.[/green]")
+
+    if choice != "0":
+        press_enter()
+
+# ------------------------------------------------
+# 19. SWAP MANAGER
+# ------------------------------------------------
+
+def swap_manager():
+    show_header()
+    console.print(Panel("[bold]Swap Manager[/bold]", border_style="red"))
+
+    console.print("[cyan]Current swap status:[/cyan]")
+    os.system("swapon --show")
+    console.print()
+
+    swap_table = Table(show_header=False, box=box.SIMPLE)
+    swap_table.add_column("No", style="bold red", width=4)
+    swap_table.add_column("Option", style="white")
+    swap_table.add_row("1", "Create swap file (2GB)")
+    swap_table.add_row("2", "Create swap file (4GB)")
+    swap_table.add_row("3", "Create swap file (8GB)")
+    swap_table.add_row("4", "Remove swap file")
+    swap_table.add_row("5", "Set swappiness value")
+    swap_table.add_row("6", "Show current swappiness")
+    swap_table.add_row("0", "Back")
+    console.print(swap_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+
+    def create_swap(size_gb):
+        if not require_root():
+            return
+        swapfile = "/swapfile"
+        if os.path.exists(swapfile):
+            console.print("[yellow]Swap file already exists. Remove it first.[/yellow]")
+            return
+        console.print(f"[cyan]Creating {size_gb}GB swap file...[/cyan]")
+        run_cmd_live(f"fallocate -l {size_gb}G {swapfile}")
+        run_cmd(f"chmod 600 {swapfile}")
+        run_cmd_live(f"mkswap {swapfile}")
+        run_cmd_live(f"swapon {swapfile}")
+        run_cmd(f"echo '{swapfile} none swap sw 0 0' | sudo tee -a /etc/fstab > /dev/null")
+        console.print(f"[green]{size_gb}GB swap file created and activated.[/green]")
+
+    if choice == "1":
+        create_swap(2)
+    elif choice == "2":
+        create_swap(4)
+    elif choice == "3":
+        create_swap(8)
+    elif choice == "4":
+        if os.path.exists("/swapfile"):
+            run_cmd_live("sudo swapoff /swapfile")
+            run_cmd("sudo rm -f /swapfile")
+            run_cmd("sudo sed -i '/\\/swapfile/d' /etc/fstab")
+            console.print("[green]Swap file removed.[/green]")
+        else:
+            console.print("[yellow]No swap file found at /swapfile.[/yellow]")
+    elif choice == "5":
+        current = run_cmd("cat /proc/sys/vm/swappiness", capture=True)
+        console.print(f"[dim]Current swappiness: {current}[/dim]")
+        val = Prompt.ask("[cyan]New swappiness value (0-100)[/cyan]", default="60")
+        run_cmd(f"sudo sysctl vm.swappiness={val}")
+        run_cmd(f"sudo sed -i '/vm.swappiness/d' /etc/sysctl.conf")
+        run_cmd(f"echo 'vm.swappiness={val}' | sudo tee -a /etc/sysctl.conf > /dev/null")
+        console.print(f"[green]Swappiness set to {val}.[/green]")
+    elif choice == "6":
+        val = run_cmd("cat /proc/sys/vm/swappiness", capture=True)
+        console.print(f"[cyan]Current swappiness:[/cyan] {val}")
+    elif choice == "0":
+        return
+    press_enter()
+
+# ------------------------------------------------
+# 20. UPDATE PYTHON LIBRARIES
+# ------------------------------------------------
+
+def update_python_libraries():
+    show_header()
+    console.print(Panel("[bold]Update Python Libraries[/bold]", border_style="red"))
+
+    if not require_root():
+        press_enter()
+        return
+
+    update_dir = "/usr/share/almighty"
+    update_file = os.path.join(update_dir, "updates.txt")
+    
+    if not os.path.exists(update_dir):
+        try:
+            os.makedirs(update_dir, exist_ok=True)
+        except Exception as e:
+            console.print(f"[red]Error creating directory {update_dir}: {e}[/red]")
+            press_enter()
+            return
+
+    console.print("[cyan]Checking for outdated Python packages...[/cyan]")
+    run_cmd(f"pip list --outdated | awk 'NR>2 {{print $1}}' > {update_file}")
+
+    if not os.path.exists(update_file) or os.path.getsize(update_file) == 0:
+        console.print("[green]All Python libraries are up to date.[/green]")
+        if os.path.exists(update_file):
+            os.remove(update_file)
+        press_enter()
+        return
+
+    with open(update_file, "r") as f:
+        packages = f.read().splitlines()
+
+    console.print(f"[yellow]Found {len(packages)} outdated packages.[/yellow]")
+    if Confirm.ask("Do you want to upgrade them now?", default=True):
+        console.print("[cyan]Upgrading packages...[/cyan]")
+        run_cmd_live(f"pip install --upgrade -r {update_file} --break-system-packages")
+        console.print("[green]Upgrade completed.[/green]")
+    else:
+        console.print("[dim]Upgrade cancelled.[/dim]")
+
+    if os.path.exists(update_file):
+        os.remove(update_file)
+        console.print("[dim]Temporary update list removed.[/dim]")
+    
+    press_enter()
+
+# ------------------------------------------------
+# 20. HARDWARE DIAGNOSTICS
+# ------------------------------------------------
+
+def hardware_diagnostics():
+    show_header()
+    console.print(Panel("[bold]Hardware Diagnostics[/bold]", border_style="red"))
+
+    hw_table = Table(show_header=False, box=box.SIMPLE)
+    hw_table.add_column("No", style="bold red", width=4)
+    hw_table.add_column("Option", style="white")
+    hw_table.add_row("1", "CPU Information")
+    hw_table.add_row("2", "Memory Details")
+    hw_table.add_row("3", "PCI Devices")
+    hw_table.add_row("4", "USB Devices")
+    hw_table.add_row("5", "Sensors / Temperatures")
+    hw_table.add_row("6", "Battery Status")
+    hw_table.add_row("7", "Full Hardware Report (lshw)")
+    hw_table.add_row("0", "Back")
+    console.print(hw_table)
+
+    choice = Prompt.ask("[bold red]Select option[/bold red]", default="0")
+    if choice == "1":
+        os.system("lscpu")
+    elif choice == "2":
+        os.system("free -h")
+        console.print()
+        os.system("sudo dmidecode -t memory 2>/dev/null | grep -E 'Size|Type|Speed|Manufacturer' | head -20")
+    elif choice == "3":
+        os.system("lspci")
+    elif choice == "4":
+        os.system("lsusb")
+    elif choice == "5":
+        if shutil.which("sensors"):
+            os.system("sensors")
+        else:
+            console.print("[yellow]lm-sensors not found. Install with: sudo apt install lm-sensors[/yellow]")
+    elif choice == "6":
+        if os.path.exists("/sys/class/power_supply/BAT0"):
+            status = run_cmd("cat /sys/class/power_supply/BAT0/status", capture=True)
+            capacity = run_cmd("cat /sys/class/power_supply/BAT0/capacity", capture=True)
+            console.print(f"[cyan]Status:[/cyan] {status}")
+            console.print(f"[cyan]Capacity:[/cyan] {capacity}%")
+        else:
+            console.print("[dim]No battery detected (desktop system).[/dim]")
+    elif choice == "7":
+        os.system("sudo lshw -short 2>/dev/null | less")
+    elif choice == "0":
+        return
+    press_enter()
+
+# ------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------
+
+def main():
+    signal.signal(signal.SIGINT, lambda s, f: (console.print("\n[red]Interrupted.[/red]"), sys.exit(0)))
+
+    while True:
+        choice = show_menu()
+        actions = {
+            "1": system_update,
+            "2": sys_info,
+            "3": view_logs,
+            "4": manage_services,
+            "5": list_packages,
+            "6": manage_network,
+            "7": manage_users,
+            "8": disk_info,
+            "9": clean_temp,
+            "10": change_dns,
+            "11": change_hostname,
+            "12": zram_manager,
+            "13": kernel_params,
+            "14": firewall_manager,
+            "15": swap_manager,
+            "16": hardware_diagnostics,
+            "17": update_python_libraries,
+            "0": lambda: (console.print("[green]Goodbye![/green]"), sys.exit(0)),
+        }
+        action = actions.get(choice)
+        if action:
+            action()
+        else:
+            console.print("[red]Invalid option.[/red]")
+            time.sleep(1)
+
+if __name__ == "__main__":
+    main()

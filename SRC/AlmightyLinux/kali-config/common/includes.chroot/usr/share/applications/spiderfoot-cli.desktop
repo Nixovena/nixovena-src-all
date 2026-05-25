@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Spiderfoot-cli
+Comment=SpiderFoot OSINT automation tool (CLI)
+Comment[tr]=SpiderFoot OSINT otomasyon aracı (Komut Satırı)
+Comment[es]=Herramienta de automatización OSINT SpiderFoot (CLI)
+Comment[fr]=Outil d'automatisation OSINT SpiderFoot (CLI)
+Comment[de]=SpiderFoot OSINT-Automatisierungstool (CLI)
+Comment[ar]=أداة أتمتة SpiderFoot OSINT (CLI)
+Comment[ru]=Инструмент автоматизации OSINT SpiderFoot (CLI)
+Comment[zh]=SpiderFoot OSINT自动化工具 (CLI)
+Comment[ja]=SpiderFoot OSINT自動化ツール (CLI)
+Comment[ko]=SpiderFoot OSINT 자동화 도구 (CLI)
+Comment[pt]=Ferramenta de automação OSINT SpiderFoot (CLI)
+Comment[it]=Strumento di automazione OSINT SpiderFoot (CLI)
+Comment[nl]=SpiderFoot OSINT-automatiseringstool (CLI)
+Comment[sv]=SpiderFoot OSINT-automatiseringsverktyg (CLI)
+Comment[pl]=Narzędzie automatyzacji OSINT SpiderFoot (CLI)
+Exec=mate-terminal -- bash -c "spiderfoot-cli -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/sf.png
+Categories=Frameworks;
+StartupNotify=false

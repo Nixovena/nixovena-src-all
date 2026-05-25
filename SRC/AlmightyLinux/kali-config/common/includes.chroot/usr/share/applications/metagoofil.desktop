@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=metagoofil
+Comment=Information gathering tool for extracting metadata
+Comment[tr]=Meta verileri ayıklamak için bilgi toplama aracı
+Comment[es]=Herramienta de recopilación de información para extraer metadatos
+Comment[fr]=Outil de collecte d'informations pour l'extraction de métadonnées
+Comment[de]=Informationserfassungstool zum Extrahieren von Metadaten
+Comment[ar]=أداة جمع المعلومات لاستخراج البيانات الوصفية
+Comment[ru]=Инструмент сбора информации для извлечения метаданных
+Comment[zh]=用于提取元数据的信息收集工具
+Comment[ja]=メタデータを抽出するための情報収集ツール
+Comment[ko]=메타데이터 추출을 위한 정보 수집 도구
+Comment[pt]=Ferramenta de coleta de informações para extração de metadados
+Comment[it]=Strumento di raccolta dati per l'estrazione dei metadati
+Comment[nl]=Informatieverzamelingshulpmiddel voor het extraheren van metagegevens
+Comment[sv]=Informationsinsamlingsverktyg för att extrahera metadata
+Comment[pl]=Narzędzie do zbierania informacji w celu ekstrakcji metadanych
+Exec=mate-terminal -- bash -c "metagoofil -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Analysis;
+StartupNotify=false

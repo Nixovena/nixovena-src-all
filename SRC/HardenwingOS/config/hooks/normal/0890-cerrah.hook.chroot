@@ -1,0 +1,95 @@
+#!/bin/bash
+set -e
+
+echo "[*] Starting Cerrah..."
+echo "[*] Attack Surface Reduction..."
+
+# unnecessary bloated attack surface. cerrah will reduce attack surface 
+# hardenwind not a server os you don't need these services.
+# all unnecessary background services that expose the system to the network are masked.
+
+SYSTEM_SERVICES_TO_MASK=(
+    # Network Discovery (mDNS) - Major local network fingerprinting vector
+    "avahi-daemon.service" "avahi-daemon.socket"
+    
+    # Printing services - Unnecessary for a secure live OS, closes CUPS attack surface
+    "cups.service" "cups.socket" "cups-browsed.service" cups.path 
+    
+    # Bluetooth - Mitigates over-the-air attacks like BlueBorne (can be unmasked manually)
+    "bluetooth.service"
+    
+    # Legacy RPC and NFS - Prime targets for remote exploitation
+    "rpcbind.service" "rpcbind.socket"
+    "nfs-client.target" "nfs-common.service" "nfs-server.service"
+    
+    # Mail Servers - Debian sometimes installs by default, must be disabled
+    "exim4.service" "postfix.service" "sendmail.service"
+    
+    # Legacy dial-up/cellular network managers - Runs as root, historically vulnerable
+    "ModemManager.service"
+    "iscsid.service" "iscsid.socket"
+    "pppd-dns.service"
+    
+    # Insecure legacy protocols
+    "telnet.socket" "ftp.service"
+    
+    # Core Dumps - Prevents memory/passwords from being written to disk upon crash
+    "systemd-coredump.socket" "systemd-coredump@.service"
+    "apport.service" "whoopsie.service" "kdump.service"
+
+    # --- GNOME & Desktop Specific System Services ---
+    # Geolocation - Major privacy risk
+    "geoclue.service"
+    
+    # PackageKit - Bypasses APT strictness, auto-updates are bad 
+    #"packagekit.service" 
+    "packagekit-offline-update.service"
+    
+    # Firmware updates daemon - unnecessary and potentially dangerous
+    "fwupd.service" "fwupd-refresh.service" fwupd-refresh.timer
+    
+    # Color management - unnecessary attack surface
+    "colord.service"
+    
+    # Remote desktop/VNC servers
+    "vino-server.service"
+)
+
+# gnme runs many services per-user. must mask these globally for all users.
+USER_SERVICES_TO_MASK=(
+    # tracker realllly terrible for privacy, leaves traces, causes disk IO
+    "tracker-miner-fs-3.service" "tracker-extract-3.service" "tracker-writeback-3.service"
+    "tracker-miner-fs.service" "tracker-extract.service" "tracker-writeback.service"
+    "tracker-store.service"
+
+    # gnome Online Accounts - prevents accidental cloud sync / telemetry
+    "goa-daemon.service" "goa-identity-service.service"
+
+    # Evolution Data Server (PIM, Calendar, Contacts) - attack surface, unneeded
+    "evolution-addressbook-factory.service"
+    "evolution-calendar-factory.service"
+    "evolution-source-registry.service"
+
+    # rygel (DLNA/UPnP Media Server) - opens local network ports
+    "rygel.service"
+
+    # GNOME Remote Desktop - huge security risk if enabled
+    "gnome-remote-desktop.service"
+
+    # gvfs extra network/device monitors (Optional attack surfaces via parsing)
+    "gvfs-mtp-volume-monitor.service"     
+    "gvfs-gphoto2-volume-monitor.service" 
+    "gvfs-afc-volume-monitor.service"     
+)
+
+echo "[*] Masking System Services..."
+for svc in "${SYSTEM_SERVICES_TO_MASK[@]}"; do
+    systemctl mask "$svc" 2>/dev/null || true
+done
+
+echo "[*] Masking GNOME User Services globally..."
+for svc in "${USER_SERVICES_TO_MASK[@]}"; do
+    systemctl --global mask "$svc" 2>/dev/null || true
+done
+
+echo "[*] Cerrah is finished."

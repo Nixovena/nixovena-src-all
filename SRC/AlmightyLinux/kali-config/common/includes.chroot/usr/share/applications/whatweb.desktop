@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=whatweb
+Comment=whatweb OSINT tool
+Exec=mate-terminal -- bash -c "whatweb -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - sleuthkit Helper"
+echo "--------------------------------------------------------"
+echo "A collection of command line tools for disk analysis."
+echo ""
+echo "  sudo mmls /dev/sdX            : Display partition table"
+echo "  sudo fls -r /dev/sdXY         : List files in filesystem"
+echo "  sudo icat -r /dev/sdXY <inode>: Extract a file by inode"
+echo "--------------------------------------------------------"

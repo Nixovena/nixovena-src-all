@@ -1,0 +1,383 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import re
+import json
+import shutil
+import subprocess
+import argparse
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, List
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] Requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+sys.dont_write_bytecode = True
+
+VERSION = "1.0.0"
+DOWNLOAD_DIR = os.path.expanduser("~/Downloads/vidgrab")
+LOG_DIR = os.path.expanduser("~/.vidgrab/logs")
+
+
+class C:
+    RST = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"
+    RED = "\033[38;2;255;85;85m"; GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"; BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"; PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"; CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"; GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color, text):
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = f"""
+   {C.GRAY}v{VERSION} videograb7 - Multi-Platform Video Downloader{C.RST}
+   {C.GRAY}Developed by emka'thas{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+SUPPORTED_SITES = [
+    "YouTube", "TikTok", "Twitter/X", "Instagram", "Facebook",
+    "Reddit", "Vimeo", "Dailymotion", "Twitch", "SoundCloud",
+    "Rumble", "Odysee", "BitChute", "PeerTube", "Bilibili",
+    "And 1800+ more sites supported by yt-dlp",
+]
+
+
+class Log:
+    @staticmethod
+    def info(msg): print(f"  {C.BLUE}[*]{C.RST} {msg}")
+    @staticmethod
+    def success(msg): print(f"  {C.GREEN}[+]{C.RST} {msg}")
+    @staticmethod
+    def warn(msg): print(f"  {C.YELLOW}[!]{C.RST} {msg}")
+    @staticmethod
+    def error(msg): print(f"  {C.RED}[-]{C.RST} {msg}")
+    @staticmethod
+    def header(title):
+        print(f"\n  {C.PINK}{'=' * 55}{C.RST}")
+        print(f"  {C.PINK}|{C.RST}  {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f"  {C.PINK}{'=' * 55}{C.RST}")
+    @staticmethod
+    def subheader(title): print(f"\n  {C.PURPLE}-- {title} --{C.RST}")
+    @staticmethod
+    def kv(key, value): print(f"  {C.GREEN}[+]{C.RST} {C.BOLD}{key:<28}{C.RST} {C.WHITE}{value}{C.RST}")
+    @staticmethod
+    def detail(key, value):
+        print(f"    {C.GRAY}|-- {C.CYAN}{key}{C.RST}: {value}")
+
+
+def check_ytdlp():
+    path = shutil.which("yt-dlp")
+    if path:
+        return path
+    path = shutil.which("yt-dlp", path=os.path.expanduser("~/.local/bin"))
+    if path:
+        return path
+    return None
+
+
+def run_ytdlp(args, capture=True):
+    ytdlp = check_ytdlp()
+    if not ytdlp:
+        Log.error("yt-dlp not found. Install: pip install yt-dlp")
+        return None
+    cmd = [ytdlp] + args
+    try:
+        if capture:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            return result
+        else:
+            result = subprocess.run(cmd, timeout=600)
+            return result
+    except subprocess.TimeoutExpired:
+        Log.error("Download timed out")
+        return None
+    except Exception as e:
+        Log.error(f"Error: {e}")
+        return None
+
+
+class VideoInfo:
+
+    @staticmethod
+    def get_info(url):
+        Log.header("VIDEO INFORMATION")
+        Log.info(f"URL: {_c(C.WHITE, url)}")
+
+        result = run_ytdlp(["--dump-json", "--no-download", url])
+        if not result or result.returncode != 0:
+            Log.error("Could not fetch video info")
+            if result and result.stderr:
+                Log.error(result.stderr.strip()[:200])
+            return None
+
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            Log.error("Failed to parse video metadata")
+            return None
+
+        Log.subheader("Metadata")
+        Log.kv("Title", data.get("title", "N/A"))
+        Log.kv("Uploader", data.get("uploader", "N/A"))
+        Log.kv("Channel", data.get("channel", data.get("uploader_id", "N/A")))
+        Log.kv("Platform", data.get("extractor_key", data.get("extractor", "N/A")))
+        Log.kv("Upload Date", data.get("upload_date", "N/A"))
+
+        duration = data.get("duration")
+        if duration:
+            mins, secs = divmod(int(duration), 60)
+            hrs, mins = divmod(mins, 60)
+            Log.kv("Duration", f"{hrs:02d}:{mins:02d}:{secs:02d}")
+
+        Log.kv("View Count", f"{data.get('view_count', 'N/A'):,}" if isinstance(data.get('view_count'), int) else "N/A")
+        Log.kv("Like Count", f"{data.get('like_count', 'N/A'):,}" if isinstance(data.get('like_count'), int) else "N/A")
+        Log.kv("Comment Count", f"{data.get('comment_count', 'N/A'):,}" if isinstance(data.get('comment_count'), int) else "N/A")
+
+        desc = data.get("description", "")
+        if desc:
+            Log.kv("Description", desc[:150] + ("..." if len(desc) > 150 else ""))
+
+        Log.subheader("Technical Details")
+        Log.kv("Resolution", f"{data.get('width', '?')}x{data.get('height', '?')}")
+        Log.kv("FPS", str(data.get("fps", "N/A")))
+        Log.kv("Video Codec", data.get("vcodec", "N/A"))
+        Log.kv("Audio Codec", data.get("acodec", "N/A"))
+        Log.kv("Format", data.get("format", "N/A"))
+
+        filesize = data.get("filesize") or data.get("filesize_approx")
+        if filesize:
+            Log.kv("File Size", f"{filesize / 1048576:.1f} MB")
+
+        tags = data.get("tags", [])
+        if tags:
+            Log.kv("Tags", ", ".join(tags[:10]))
+
+        thumb = data.get("thumbnail")
+        if thumb:
+            Log.kv("Thumbnail", thumb)
+
+        return data
+
+    @staticmethod
+    def list_formats(url):
+        Log.header("AVAILABLE FORMATS")
+        result = run_ytdlp(["-F", url])
+        if result and result.returncode == 0:
+            print(result.stdout)
+        else:
+            Log.error("Could not list formats")
+
+
+class VideoDownloader:
+
+    @staticmethod
+    def ensure_dir(path=None):
+        d = path or DOWNLOAD_DIR
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    @staticmethod
+    def download_best(url, output_dir=None):
+        Log.header("DOWNLOADING - BEST QUALITY")
+        d = VideoDownloader.ensure_dir(output_dir)
+        Log.info(f"URL: {url}")
+        Log.info(f"Output: {d}")
+        args = [
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--merge-output-format", "mp4",
+            "-o", os.path.join(d, "%(title)s [%(id)s].%(ext)s"),
+            "--no-playlist",
+            "--write-thumbnail",
+            "--write-info-json",
+            url,
+        ]
+        result = run_ytdlp(args, capture=False)
+        if result and result.returncode == 0:
+            Log.success("Download complete!")
+        else:
+            Log.error("Download failed")
+
+    @staticmethod
+    def download_audio(url, output_dir=None):
+        Log.header("DOWNLOADING - AUDIO ONLY")
+        d = VideoDownloader.ensure_dir(output_dir)
+        Log.info(f"URL: {url}")
+        args = [
+            "-x", "--audio-format", "mp3", "--audio-quality", "0",
+            "-o", os.path.join(d, "%(title)s [%(id)s].%(ext)s"),
+            "--no-playlist",
+            url,
+        ]
+        result = run_ytdlp(args, capture=False)
+        if result and result.returncode == 0:
+            Log.success("Audio download complete!")
+        else:
+            Log.error("Download failed")
+
+    @staticmethod
+    def download_format(url, format_id, output_dir=None):
+        Log.header(f"DOWNLOADING - FORMAT {format_id}")
+        d = VideoDownloader.ensure_dir(output_dir)
+        args = [
+            "-f", format_id,
+            "-o", os.path.join(d, "%(title)s [%(id)s].%(ext)s"),
+            "--no-playlist",
+            url,
+        ]
+        result = run_ytdlp(args, capture=False)
+        if result and result.returncode == 0:
+            Log.success("Download complete!")
+        else:
+            Log.error("Download failed")
+
+    @staticmethod
+    def download_thumbnail(url, output_dir=None):
+        Log.header("DOWNLOADING - THUMBNAIL")
+        d = VideoDownloader.ensure_dir(output_dir)
+        args = [
+            "--write-thumbnail", "--skip-download",
+            "-o", os.path.join(d, "%(title)s [%(id)s].%(ext)s"),
+            url,
+        ]
+        result = run_ytdlp(args, capture=False)
+        if result and result.returncode == 0:
+            Log.success("Thumbnail saved!")
+        else:
+            Log.error("Failed")
+
+    @staticmethod
+    def download_subtitles(url, output_dir=None):
+        Log.header("DOWNLOADING - SUBTITLES")
+        d = VideoDownloader.ensure_dir(output_dir)
+        args = [
+            "--write-subs", "--write-auto-subs", "--sub-lang", "en,tr,de,fr,es,ar,ru,zh,ja,ko",
+            "--skip-download", "--sub-format", "srt",
+            "-o", os.path.join(d, "%(title)s [%(id)s].%(ext)s"),
+            url,
+        ]
+        result = run_ytdlp(args, capture=False)
+        if result and result.returncode == 0:
+            Log.success("Subtitles saved!")
+        else:
+            Log.error("No subtitles found or download failed")
+
+    @staticmethod
+    def batch_download(file_path, output_dir=None):
+        Log.header("BATCH DOWNLOAD")
+        if not os.path.isfile(file_path):
+            Log.error(f"File not found: {file_path}")
+            return
+        d = VideoDownloader.ensure_dir(output_dir)
+        with open(file_path, "r") as f:
+            urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+        Log.info(f"Found {len(urls)} URLs")
+        args = [
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--merge-output-format", "mp4",
+            "-o", os.path.join(d, "%(title)s [%(id)s].%(ext)s"),
+            "--no-playlist",
+            "-a", file_path,
+        ]
+        result = run_ytdlp(args, capture=False)
+        if result and result.returncode == 0:
+            Log.success("Batch download complete!")
+        else:
+            Log.error("Some downloads may have failed")
+
+    @staticmethod
+    def download_playlist(url, output_dir=None):
+        Log.header("PLAYLIST DOWNLOAD")
+        d = VideoDownloader.ensure_dir(output_dir)
+        args = [
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--merge-output-format", "mp4",
+            "-o", os.path.join(d, "%(playlist_title)s/%(playlist_index)s - %(title)s [%(id)s].%(ext)s"),
+            "--yes-playlist",
+            url,
+        ]
+        result = run_ytdlp(args, capture=False)
+        if result and result.returncode == 0:
+            Log.success("Playlist download complete!")
+        else:
+            Log.error("Download failed")
+
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="vidgrab",
+        description=f'VidGrab v{VERSION} - Multi-Platform Video Downloader',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Examples:
+  vidgrab                                Interactive menu
+  vidgrab <url>                          Download best quality
+  vidgrab <url> --audio                  Extract audio as MP3
+  vidgrab <url> --info                   Show video metadata
+  vidgrab <url> --formats                List available formats
+  vidgrab <url> -f 22                    Download specific format
+  vidgrab <url> --subs                   Download subtitles
+  vidgrab --batch urls.txt               Batch download from file
+  vidgrab <url> --playlist               Download full playlist
+  vidgrab <url> -o /path/to/dir          Custom output directory
+
+Powered by yt-dlp | Supports 1800+ sites
+Developed by emka'thas
+        """,
+    )
+    p.add_argument("url", nargs="?", help="Video URL to download")
+    p.add_argument("--audio", action="store_true", help="Download audio only (MP3)")
+    p.add_argument("--info", action="store_true", help="Show video info only")
+    p.add_argument("--formats", action="store_true", help="List available formats")
+    p.add_argument("-f", "--format", help="Download specific format ID")
+    p.add_argument("--subs", action="store_true", help="Download subtitles only")
+    p.add_argument("--thumb", action="store_true", help="Download thumbnail only")
+    p.add_argument("--batch", type=str, help="Batch download from URL list file")
+    p.add_argument("--playlist", action="store_true", help="Download full playlist")
+    p.add_argument("-o", "--output", help="Output directory")
+    p.add_argument("--version", action="version", version=f'VidGrab v{VERSION}')
+    return p
+
+
+def main():
+    try:
+        args = build_parser().parse_args()
+        if len(sys.argv) == 1:
+            build_parser().print_help(); return
+        print(BANNER)
+        if not check_ytdlp():
+            Log.error("yt-dlp not found. Install: pip install yt-dlp")
+            sys.exit(1)
+        if args.batch:
+            VideoDownloader.batch_download(args.batch, args.output); return
+        if not args.url:
+            Log.error("URL required"); sys.exit(1)
+        if args.info:
+            VideoInfo.get_info(args.url)
+        elif args.formats:
+            VideoInfo.list_formats(args.url)
+        elif args.audio:
+            VideoDownloader.download_audio(args.url, args.output)
+        elif args.format:
+            VideoDownloader.download_format(args.url, args.format, args.output)
+        elif args.subs:
+            VideoDownloader.download_subtitles(args.url, args.output)
+        elif args.thumb:
+            VideoDownloader.download_thumbnail(args.url, args.output)
+        elif args.playlist:
+            VideoDownloader.download_playlist(args.url, args.output)
+        else:
+            VideoDownloader.download_best(args.url, args.output)
+    except KeyboardInterrupt:
+        print(f"\n  {C.GRAY}Exiting...{C.RST}")
+
+if __name__ == "__main__":
+    main()

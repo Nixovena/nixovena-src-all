@@ -1,0 +1,21 @@
+[Desktop Entry]
+Name=Overkill System Manager
+Comment=Configure editions, tune system performance, and manage packages
+Comment[tr]=Sürümleri yapılandırın, sistem performansını optimize edin ve paketleri yönetin
+Comment[de]=Editionen konfigurieren, Systemleistung optimieren und Pakete verwalten
+Comment[fr]=Configurer les éditions, optimiser les performances du système et gérer les paquets
+Comment[es]=Configurar ediciones, optimizar el rendimiento del sistema y gestionar paquetes
+Comment[it]=Configura edizioni, ottimizza le prestazioni del sistema e gestisci i pacchetti
+Comment[pt]=Configurar edições, otimizar o desempenho do sistema e gerenciar pacotes
+Comment[ru]=Настройка редакций, оптимизация производительности системы и управление пакетами
+Comment[zh_CN]=配置版本、优化系统性能并管理软件包
+Comment[ja]=エディションの構成、システム パフォーマンスの調整、およびパッケージの管理
+Comment[pl]=Konfiguracja edycji, optymalizacja wydajności systemu i zarządzanie pakietami
+Comment[uk]=Налаштування редакцій, оптимізація продуктивності системи та керування пакетами
+Exec=pkexec env DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY QT_QPA_PLATFORM=$QT_QPA_PLATFORM WAYLAND_DISPLAY=$WAYLAND_DISPLAY XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR QT_QPA_PLATFORMTHEME= QT_STYLE_OVERRIDE=Fusion /usr/bin/overkill-setup
+TryExec=/usr/bin/overkill-setup
+Icon=/usr/share/icons/sys.png
+Terminal=false
+Type=Application
+Categories=System;Settings;
+StartupNotify=true

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Toutais
+Comment=Advanced Instagram OSINT and Information Gathering Tool
+Comment[tr]=Gelişmiş Instagram OSINT ve Bilgi Toplama Aracı
+Comment[es]=Herramienta avanzada de OSINT y recopilación de información de Instagram
+Comment[fr]=Outil avancé de collecte d'informations et OSINT Instagram
+Comment[de]=Erweitertes Instagram OSINT- und Informationserfassungs-Tool
+Comment[ar]=أداة متقدمة لجمع المعلومات و OSINT على إنستغرام
+Comment[ru]=Продвинутый инструмент OSINT и сбора информации Instagram
+Comment[zh]=高级Instagram OSINT和信息收集工具
+Comment[ja]=高度なInstagram OSINTおよび情報収集ツール
+Comment[ko]=고급 Instagram OSINT 및 정보 수집 도구
+Comment[pt]=Ferramenta avançada de OSINT e coleta de informações do Instagram
+Comment[it]=Strumento avanzato di raccolta informazioni e OSINT di Instagram
+Comment[nl]=Geavanceerde Instagram OSINT- en informatieverzamelingstool
+Comment[sv]=Avancerat verktyg för Instagram OSINT och informationsinsamling
+Comment[pl]=Zaawansowane narzędzie do zbierania informacji i OSINT na Instagramie
+Exec=mate-terminal -- bash -c "toutais -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false

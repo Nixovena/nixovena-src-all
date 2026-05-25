@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Gdisk
+Comment=LengToolkit - gdisk
+Exec=mate-terminal -- bash -c "sudo gdisk; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Partimage
+Comment=LengToolkit - partimage
+Exec=mate-terminal -- bash -c "sudo partimage; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

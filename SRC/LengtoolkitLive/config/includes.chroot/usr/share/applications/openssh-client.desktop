@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Openssh-client
+Comment=LengToolkit - openssh-client
+Exec=mate-terminal -- bash -c "openssh-client; exec bash"
+Icon=/usr/share/icons/lengtoolkit/openssh.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

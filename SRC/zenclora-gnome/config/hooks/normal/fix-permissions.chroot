@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -e
+
+echo "Fixing permissions..."
+
+chmod +x /usr/bin/zen
+chmod +x /usr/bin/zenclora-fetch
+chmod +x /usr/bin/liveboot
+chmod +x /usr/bin/zpm
+chmod +x /usr/share/applications/zen.desktop
+
+echo "Permissions fixed!"
+
+
+echo "Configuring ZencloraOS..."
+
+pip install huggingface_hub --break-system-packages
+
+
+echo "finished!"

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Chntpw
+Comment=LengToolkit - chntpw
+Exec=mate-terminal -- bash -c "chntpwguide; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

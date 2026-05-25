@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=ttosint
+Comment=TikTok OSINT and information gathering tool
+Comment[tr]=TikTok OSINT ve bilgi toplama aracı
+Comment[es]=TikTok OSINT y herramienta de recopilación de información
+Comment[fr]=Outil OSINT et de collecte d'informations TikTok
+Comment[de]=TikTok OSINT und Informationsbeschaffungstool
+Comment[ar]=أداة OSINT وجمع المعلومات من TikTok
+Comment[ru]=TikTok OSINT и инструмент сбора информации
+Comment[zh]=TikTok OSINT和信息收集工具
+Comment[ja]=TikTok OSINTおよび情報収集ツール
+Comment[ko]=TikTok OSINT 및 정보 수집 도구
+Comment[pt]=TikTok OSINT e ferramenta de coleta de informações
+Comment[it]=Strumento OSINT TikTok e raccolta di informazioni
+Comment[nl]=TikTok OSINT en informatieverzamelingshulpmiddel
+Comment[sv]=TikTok OSINT och informationsinsamlingsverktyg
+Comment[pl]=Narzędzie OSINT i zbierania informacji z TikTok
+Exec=mate-terminal -- bash -c "ttosint; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false

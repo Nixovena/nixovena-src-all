@@ -1,0 +1,1203 @@
+#!/usr/bin/env python3
+"""
+wh0xip - IP Intelligence & Geolocation Analyzer
+Comprehensive passive IP address analysis and threat intelligence
+"""
+
+try:
+    import requests
+except ImportError:
+    import sys; sys.exit("[!] Missing: pip install requests")
+
+import json
+import socket
+import struct
+import ipaddress
+import argparse
+import subprocess
+import re
+import time
+import sys
+import os
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+# ─── Terminal Colors ──────────────────────────────────────────────────────────
+
+class C:
+    RESET   = '\033[0m'
+    BOLD    = '\033[1m'
+    RED     = '\033[91m'
+    GREEN   = '\033[92m'
+    YELLOW  = '\033[93m'
+    BLUE    = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN    = '\033[96m'
+    WHITE   = '\033[97m'
+    DIM     = '\033[2m'
+
+    @staticmethod
+    def disable():
+        for attr in ['RESET','BOLD','RED','GREEN','YELLOW','BLUE','MAGENTA','CYAN','WHITE','DIM']:
+            setattr(C, attr, '')
+
+def info(msg):  print(f"{C.CYAN}[*]{C.RESET} {msg}")
+def ok(msg):    print(f"{C.GREEN}[+]{C.RESET} {msg}")
+def warn(msg):  print(f"{C.YELLOW}[!]{C.RESET} {msg}")
+def err(msg):   print(f"{C.RED}[-]{C.RESET} {msg}")
+def bold(msg):  print(f"{C.BOLD}{msg}{C.RESET}")
+
+
+# ─── DNSBL List ───────────────────────────────────────────────────────────────
+
+DNSBL_LISTS = [
+    # Spam / General Abuse
+    'zen.spamhaus.org',
+    'bl.spamcop.net',
+    'dnsbl.sorbs.net',
+    'spam.dnsbl.sorbs.net',
+    'http.dnsbl.sorbs.net',
+    'socks.dnsbl.sorbs.net',
+    'misc.dnsbl.sorbs.net',
+    'smtp.dnsbl.sorbs.net',
+    'web.dnsbl.sorbs.net',
+    'new.spam.dnsbl.sorbs.net',
+    'recent.spam.dnsbl.sorbs.net',
+    'old.spam.dnsbl.sorbs.net',
+    'b.barracudacentral.org',
+    'bl.blocklist.de',
+    'dnsbl.dronebl.org',
+    'dnsbl.inps.de',
+    'drone.abuse.ch',
+    'dul.dnsbl.sorbs.net',
+    'ix.dnsbl.manitu.net',
+    'korea.services.net',
+    'no-more-funn.moensted.dk',
+    'psbl.surriel.com',
+    'singular.ttk.pte.hu',
+    'spam.abuse.ch',
+    'spamrbl.imp.ch',
+    'ubl.unsubscore.com',
+    'virbl.bit.nl',
+    'xbl.spamhaus.org',
+    'pbl.spamhaus.org',
+    'sbl.spamhaus.org',
+    # Exploits / Botnets
+    'bogons.cymru.com',
+    'dnsbl.cyberlogic.net',
+    'httpbl.abuse.ch',
+    'spambot.bls.digibase.ca',
+    # Proxies / Anonymizers
+    'proxy.bl.gweep.ca',
+    'proxy.block.transip.nl',
+    'rbl.interserver.net',
+    'tor.efnet.org',
+    # Snowshoe / Reputation
+    'uribl.spameatingmonkey.net',
+]
+
+# ─── CDN / Hosting ASN Registry ───────────────────────────────────────────────
+# Keyed by ASN number (int) → provider name
+
+CDN_ASN_MAP = {
+    # Cloudflare
+    13335: 'Cloudflare',
+    # AWS / Amazon
+    16509: 'Amazon AWS',
+    14618: 'Amazon AWS',
+    # Google
+    15169: 'Google',
+    19527: 'Google',
+    36385: 'Google',
+    # Microsoft / Azure
+    8075:  'Microsoft Azure',
+    8069:  'Microsoft',
+    # Akamai
+    20940: 'Akamai',
+    16625: 'Akamai',
+    # Fastly
+    54113: 'Fastly',
+    # Limelight / Edgio
+    22822: 'Edgio (Limelight)',
+    # DigitalOcean
+    14061: 'DigitalOcean',
+    # Linode / Akamai Cloud
+    63949: 'Linode',
+    # Vultr
+    20473: 'Vultr',
+    # Hetzner
+    24940: 'Hetzner',
+    # OVH
+    16276: 'OVH',
+    # Imperva / Incapsula
+    19551: 'Imperva',
+    # Sucuri
+    30148: 'Sucuri',
+    # Rackspace
+    27357: 'Rackspace',
+    # Choopa / Vultr
+    20473: 'Vultr',
+    # LeaseWeb
+    28753: 'LeaseWeb',
+    # Zscaler
+    22616: 'Zscaler',
+    # Tencent
+    45090: 'Tencent Cloud',
+    # Alibaba
+    37963: 'Alibaba Cloud',
+    # Huawei Cloud
+    55990: 'Huawei Cloud',
+}
+
+# ─── VPN / Proxy / Tor Provider ASNs ─────────────────────────────────────────
+
+ANONYMIZER_ASNS = {
+    # NordVPN
+    212238: 'NordVPN',
+    # ExpressVPN
+    136787: 'ExpressVPN',
+    # Mullvad
+    39351: 'Mullvad',
+    # ProtonVPN
+    209854: 'ProtonVPN',
+    # Tor Project
+    60729: 'Tor Project',
+    # PureVPN / GZ Systems
+    135134: 'PureVPN',
+}
+
+
+# ─── Main Class ───────────────────────────────────────────────────────────────
+
+class IPIntelligence:
+
+    def __init__(self, ip_address, api_keys=None):
+        self.ip_address  = ip_address.strip()
+        self.api_keys    = api_keys or {}
+        self.session     = requests.Session()
+        self.session.headers.update({'User-Agent': 'wh0xip/2.0 (OSINT/passive)'})
+        self.ip_obj      = None  # ipaddress object, set in validate_ip()
+        self.results     = {
+            'ip_address':         self.ip_address,
+            'timestamp':          datetime.utcnow().isoformat() + 'Z',
+            'ip_version':         None,
+            'ip_type':            None,
+            'geolocation':        {},
+            'network_info':       {},
+            'asn_info':           {},
+            'whois':              {},
+            'dns_info':           {},
+            'threat_intelligence': {
+                'malicious':        False,
+                'confidence':       0,
+                'dnsbl_hits':       [],
+                'dnsbl_clean':      [],
+                'sources':          {},
+                'categories':       [],
+                'tor_exit':         False,
+                'vpn_detected':     False,
+                'open_proxy':       False,
+                'abuse_reports':    0,
+                'abuse_confidence': 0,
+            },
+            'cdn_info':            {},
+            'risk_assessment':     {},
+        }
+
+    # ── Validation ────────────────────────────────────────────────────────────
+
+    def validate_ip(self):
+        try:
+            self.ip_obj = ipaddress.ip_address(self.ip_address)
+            self.results['ip_version'] = self.ip_obj.version
+
+            if self.ip_obj.is_private:
+                self.results['ip_type'] = 'private'
+            elif self.ip_obj.is_loopback:
+                self.results['ip_type'] = 'loopback'
+            elif self.ip_obj.is_link_local:
+                self.results['ip_type'] = 'link-local'
+            elif self.ip_obj.is_multicast:
+                self.results['ip_type'] = 'multicast'
+            elif self.ip_obj.is_reserved:
+                self.results['ip_type'] = 'reserved'
+            elif self.ip_obj.is_global:
+                self.results['ip_type'] = 'public'
+            else:
+                self.results['ip_type'] = 'unknown'
+
+            return True
+        except ValueError:
+            return False
+
+    def _is_analyzable(self):
+        return self.results['ip_type'] in ('public', 'unknown')
+
+    # ── Geolocation ───────────────────────────────────────────────────────────
+
+    def get_geolocation(self):
+        info(f"Geolocating {self.ip_address} ...")
+
+        # Primary: ip-api.com (no key needed, 45 req/min free)
+        try:
+            fields = ('status,message,continent,continentCode,country,countryCode,'
+                      'region,regionName,city,district,zip,lat,lon,timezone,'
+                      'currency,isp,org,as,asname,reverse,mobile,proxy,hosting,query')
+            r = self.session.get(
+                f'http://ip-api.com/json/{self.ip_address}',
+                params={'fields': fields},
+                timeout=10
+            )
+            if r.status_code == 200:
+                d = r.json()
+                if d.get('status') == 'success':
+                    geo = {
+                        'continent':      d.get('continent'),
+                        'continent_code': d.get('continentCode'),
+                        'country':        d.get('country'),
+                        'country_code':   d.get('countryCode'),
+                        'region_code':    d.get('region'),
+                        'region':         d.get('regionName'),
+                        'city':           d.get('city'),
+                        'district':       d.get('district'),
+                        'zip':            d.get('zip'),
+                        'latitude':       d.get('lat'),
+                        'longitude':      d.get('lon'),
+                        'timezone':       d.get('timezone'),
+                        'currency':       d.get('currency'),
+                        'isp':            d.get('isp'),
+                        'org':            d.get('org'),
+                        'as':             d.get('as'),
+                        'as_name':        d.get('asname'),
+                        'reverse_dns':    d.get('reverse'),
+                        'mobile':         d.get('mobile', False),
+                        'proxy':          d.get('proxy', False),
+                        'hosting':        d.get('hosting', False),
+                        'source':         'ip-api.com',
+                    }
+                    self.results['geolocation'] = geo
+
+                    loc_parts = [p for p in [d.get('city'), d.get('regionName'), d.get('country')] if p]
+                    ok(f"Location   : {', '.join(loc_parts)}")
+                    ok(f"Coordinates: {d.get('lat')}, {d.get('lon')}")
+                    ok(f"ISP        : {d.get('isp')}")
+                    ok(f"Org        : {d.get('org')}")
+                    ok(f"AS         : {d.get('as')} ({d.get('asname')})")
+                    ok(f"Timezone   : {d.get('timezone')}")
+
+                    if d.get('proxy'):   warn("Proxy/VPN flag set by ip-api")
+                    if d.get('hosting'): warn("Hosting / Datacenter IP flag set")
+                    if d.get('mobile'):  ok("Mobile network")
+
+                    return
+        except Exception as e:
+            err(f"ip-api.com error: {e}")
+
+        # Fallback: ipinfo.io
+        try:
+            r = self.session.get(f'https://ipinfo.io/{self.ip_address}/json', timeout=10)
+            if r.status_code == 200:
+                d = r.json()
+                loc = d.get('loc', ',').split(',')
+                geo = {
+                    'country':      d.get('country'),
+                    'region':       d.get('region'),
+                    'city':         d.get('city'),
+                    'zip':          d.get('postal'),
+                    'latitude':     float(loc[0]) if loc[0] else None,
+                    'longitude':    float(loc[1]) if len(loc) > 1 and loc[1] else None,
+                    'timezone':     d.get('timezone'),
+                    'org':          d.get('org'),
+                    'hostname':     d.get('hostname'),
+                    'source':       'ipinfo.io',
+                }
+                self.results['geolocation'] = geo
+                ok(f"Location (fallback): {d.get('city')}, {d.get('country')}")
+        except Exception as e:
+            err(f"ipinfo.io fallback error: {e}")
+
+    # ── ASN Information ───────────────────────────────────────────────────────
+
+    def get_asn_info(self):
+        info("Fetching ASN details ...")
+
+        # Method 1: Team Cymru IP→ASN DNS mapping (very reliable, no API key)
+        try:
+            if self.ip_obj.version == 4:
+                rev = '.'.join(reversed(self.ip_address.split('.')))
+                query = f'{rev}.origin.asn.cymru.com'
+            else:
+                nibbles = self.ip_address.replace(':', '').zfill(32)
+                rev = '.'.join(reversed(list(nibbles)))
+                query = f'{rev}.origin6.asn.cymru.com'
+
+            result = subprocess.run(
+                ['dig', '+short', 'TXT', query],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                raw = result.stdout.strip().strip('"').split('|')
+                if len(raw) >= 3:
+                    asn_num  = raw[0].strip().split()[0]
+                    prefix   = raw[1].strip()
+                    country  = raw[2].strip()
+                    registry = raw[3].strip() if len(raw) > 3 else ''
+                    allocated = raw[4].strip() if len(raw) > 4 else ''
+
+                    # Cymru ASN → name lookup
+                    asn_query = f'AS{asn_num}.asn.cymru.com'
+                    name_result = subprocess.run(
+                        ['dig', '+short', 'TXT', asn_query],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    asn_name = ''
+                    if name_result.returncode == 0 and name_result.stdout.strip():
+                        name_parts = name_result.stdout.strip().strip('"').split('|')
+                        if len(name_parts) >= 5:
+                            asn_name = name_parts[4].strip()
+
+                    asn_int = int(asn_num) if asn_num.isdigit() else None
+
+                    self.results['asn_info'] = {
+                        'asn':       f'AS{asn_num}',
+                        'asn_int':   asn_int,
+                        'prefix':    prefix,
+                        'country':   country,
+                        'registry':  registry,
+                        'allocated': allocated,
+                        'name':      asn_name,
+                        'source':    'Team Cymru',
+                    }
+                    ok(f"ASN     : AS{asn_num} — {asn_name}")
+                    ok(f"Prefix  : {prefix}")
+                    ok(f"Registry: {registry} / Allocated: {allocated}")
+
+                    # Flag known CDN/anonymizer ASNs
+                    if asn_int:
+                        if asn_int in CDN_ASN_MAP:
+                            provider = CDN_ASN_MAP[asn_int]
+                            self.results['cdn_info']['provider'] = provider
+                            self.results['cdn_info']['asn']      = f'AS{asn_num}'
+                            ok(f"CDN/Cloud: {provider}")
+                        if asn_int in ANONYMIZER_ASNS:
+                            provider = ANONYMIZER_ASNS[asn_int]
+                            self.results['threat_intelligence']['vpn_detected'] = True
+                            self.results['threat_intelligence']['vpn_provider'] = provider
+                            warn(f"Known VPN/Anonymizer ASN: {provider}")
+                    return
+
+        except Exception as e:
+            err(f"Cymru ASN lookup error: {e}")
+
+        # Method 2: ipinfo.io fallback
+        try:
+            r = self.session.get(f'https://ipinfo.io/{self.ip_address}/json', timeout=10)
+            if r.status_code == 200:
+                d = r.json()
+                org = d.get('org', '')
+                m = re.match(r'AS(\d+)\s*(.*)', org)
+                if m:
+                    asn_int = int(m.group(1))
+                    self.results['asn_info'] = {
+                        'asn':     f'AS{m.group(1)}',
+                        'asn_int': asn_int,
+                        'name':    m.group(2).strip(),
+                        'source':  'ipinfo.io',
+                    }
+                    ok(f"ASN (fallback): AS{m.group(1)} — {m.group(2).strip()}")
+
+                    if asn_int in CDN_ASN_MAP:
+                        self.results['cdn_info']['provider'] = CDN_ASN_MAP[asn_int]
+                    if asn_int in ANONYMIZER_ASNS:
+                        self.results['threat_intelligence']['vpn_detected'] = True
+                        self.results['threat_intelligence']['vpn_provider'] = ANONYMIZER_ASNS[asn_int]
+        except Exception as e:
+            err(f"ipinfo.io ASN fallback error: {e}")
+
+    # ── WHOIS ─────────────────────────────────────────────────────────────────
+
+    def get_whois_info(self):
+        info("Running WHOIS lookup ...")
+        try:
+            result = subprocess.run(
+                ['whois', self.ip_address],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                err("WHOIS returned no data")
+                return
+
+            raw = result.stdout
+
+            # Multi-format pattern extraction (ARIN, RIPE, APNIC, LACNIC, AFRINIC)
+            patterns = {
+                'net_range':      [r'NetRange:\s+(.+)', r'inetnum:\s+(.+)'],
+                'cidr':           [r'CIDR:\s+(.+)',     r'route:\s+(.+)'],
+                'netname':        [r'NetName:\s+(.+)',  r'netname:\s+(.+)'],
+                'organization':   [r'OrgName:\s+(.+)',  r'org-name:\s+(.+)',
+                                   r'Organization:\s+(.+)', r'descr:\s+(.+)'],
+                'org_id':         [r'OrgId:\s+(.+)',    r'org:\s+(.+)'],
+                'country':        [r'Country:\s+(.+)',  r'country:\s+(.+)'],
+                'reg_date':       [r'RegDate:\s+(.+)',  r'created:\s+(.+)'],
+                'updated':        [r'Updated:\s+(.+)',  r'last-modified:\s+(.+)'],
+                'ref':            [r'Ref:\s+(.+)'],
+                'org_abuse_email':[r'OrgAbuseEmail:\s+(.+)', r'abuse-mailbox:\s+(.+)'],
+                'org_abuse_phone':[r'OrgAbusePhone:\s+(.+)'],
+                'org_tech_email': [r'OrgTechEmail:\s+(.+)'],
+                'admin_c':        [r'admin-c:\s+(.+)'],
+                'tech_c':         [r'tech-c:\s+(.+)'],
+                'mnt_by':         [r'mnt-by:\s+(.+)'],
+                'status':         [r'status:\s+(.+)',   r'NetType:\s+(.+)'],
+                'remarks':        [r'remarks:\s+(.+)'],
+                'rir':            [r'source:\s+(.+)'],
+                'abuse_handle':   [r'OrgAbuseHandle:\s+(.+)'],
+            }
+
+            whois_data = {}
+            for field, plist in patterns.items():
+                for pat in plist:
+                    m = re.search(pat, raw, re.IGNORECASE)
+                    if m:
+                        whois_data[field] = m.group(1).strip()
+                        break
+
+            # Extract ALL abuse contacts
+            abuse_emails = re.findall(
+                r'(?:abuse|OrgAbuseEmail|abuse-mailbox)[:\s]+([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})',
+                raw, re.IGNORECASE
+            )
+            if abuse_emails:
+                whois_data['abuse_contacts'] = list(set(abuse_emails))
+
+            self.results['whois'] = whois_data
+
+            if whois_data.get('organization'): ok(f"Org     : {whois_data['organization']}")
+            if whois_data.get('net_range'):     ok(f"Range   : {whois_data['net_range']}")
+            if whois_data.get('cidr'):          ok(f"CIDR    : {whois_data['cidr']}")
+            if whois_data.get('country'):       ok(f"Country : {whois_data['country']}")
+            if whois_data.get('reg_date'):      ok(f"Reg Date: {whois_data['reg_date']}")
+            if whois_data.get('abuse_contacts'):
+                ok(f"Abuse   : {', '.join(whois_data['abuse_contacts'])}")
+
+        except FileNotFoundError:
+            err("whois binary not found — install whois package")
+        except Exception as e:
+            err(f"WHOIS error: {e}")
+
+    # ── DNS Information ───────────────────────────────────────────────────────
+
+    def get_dns_info(self):
+        info("Gathering DNS records ...")
+        dns = {
+            'reverse_dns':  None,
+            'ptr_chain':    [],
+            'forward_confirmed': False,
+            'records':      {},
+        }
+
+        # PTR / Reverse DNS
+        try:
+            hostname, aliases, _ = socket.gethostbyaddr(self.ip_address)
+            dns['reverse_dns'] = hostname
+            dns['ptr_chain']   = [hostname] + aliases
+            ok(f"PTR : {hostname}")
+            if aliases:
+                ok(f"Aliases: {', '.join(aliases)}")
+
+            # Forward-confirmed reverse DNS (FCrDNS)
+            try:
+                forward_ips = socket.gethostbyname_ex(hostname)[2]
+                if self.ip_address in forward_ips:
+                    dns['forward_confirmed'] = True
+                    ok("FCrDNS: PASS (forward-confirmed reverse DNS)")
+                else:
+                    warn("FCrDNS: FAIL (PTR does not resolve back to this IP)")
+            except Exception:
+                warn("FCrDNS: Could not verify")
+
+        except socket.herror:
+            err("No PTR record found")
+        except Exception as e:
+            err(f"Reverse DNS error: {e}")
+
+        # Additional records for the hostname (if we have one)
+        hostname = dns.get('reverse_dns')
+        if hostname:
+            record_types = ['A', 'AAAA', 'MX', 'TXT', 'NS', 'SOA', 'CAA', 'CNAME', 'SRV']
+            records = {}
+            for rtype in record_types:
+                try:
+                    result = subprocess.run(
+                        ['dig', '+short', rtype, hostname],
+                        capture_output=True, text=True, timeout=8
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        lines = [l.strip().strip('"') for l in result.stdout.strip().splitlines() if l.strip()]
+                        if lines:
+                            records[rtype] = lines
+                except Exception:
+                    pass
+            dns['records'] = records
+
+            # DNSSEC check
+            try:
+                result = subprocess.run(
+                    ['dig', '+dnssec', 'A', hostname],
+                    capture_output=True, text=True, timeout=8
+                )
+                dns['dnssec'] = 'RRSIG' in result.stdout if result.returncode == 0 else False
+            except Exception:
+                dns['dnssec'] = None
+
+        self.results['dns_info'] = dns
+
+    # ── Threat Intelligence ───────────────────────────────────────────────────
+
+    def get_threat_intelligence(self):
+        info("Running threat intelligence checks ...")
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {
+                pool.submit(self._check_dnsbls):          'dnsbl',
+                pool.submit(self._check_tor_exit):        'tor',
+                pool.submit(self._check_threatcrowd):     'threatcrowd',
+                pool.submit(self._check_stopforumspam):   'stopforumspam',
+                pool.submit(self._check_blocklist_de):    'blocklist_de',
+            }
+
+            # AbuseIPDB — needs API key
+            if self.api_keys.get('abuseipdb'):
+                futures[pool.submit(self._check_abuseipdb)] = 'abuseipdb'
+
+            # VirusTotal — needs API key
+            if self.api_keys.get('virustotal'):
+                futures[pool.submit(self._check_virustotal)] = 'virustotal'
+
+            # Shodan — needs API key
+            if self.api_keys.get('shodan'):
+                futures[pool.submit(self._check_shodan)] = 'shodan'
+
+            for future in as_completed(futures):
+                label = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    err(f"{label} check failed: {e}")
+
+    def _check_dnsbls(self):
+        info(f"Checking {len(DNSBL_LISTS)} DNSBL lists ...")
+
+        if self.ip_obj.version == 4:
+            rev = '.'.join(reversed(self.ip_address.split('.')))
+        else:
+            nibbles = self.ip_address.replace(':', '').zfill(32)
+            rev = '.'.join(reversed(list(nibbles)))
+
+        hits   = []
+        cleans = []
+
+        def check_one(bl):
+            query = f'{rev}.{bl}'
+            try:
+                result_ip = socket.gethostbyname(query)
+                # Fetch the TXT record for reason
+                try:
+                    txt = subprocess.run(
+                        ['dig', '+short', 'TXT', query],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    reason = txt.stdout.strip().strip('"') if txt.returncode == 0 else result_ip
+                except Exception:
+                    reason = result_ip
+                return bl, True, reason
+            except socket.gaierror:
+                return bl, False, None
+            except Exception:
+                return bl, None, None
+
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            results = list(pool.map(check_one, DNSBL_LISTS))
+
+        for bl, listed, reason in results:
+            if listed is True:
+                hits.append({'list': bl, 'result': reason})
+                warn(f"LISTED in {bl} → {reason}")
+            elif listed is False:
+                cleans.append(bl)
+
+        ti = self.results['threat_intelligence']
+        ti['dnsbl_hits']  = hits
+        ti['dnsbl_clean'] = cleans
+
+        if hits:
+            ti['malicious']  = True
+            confidence_bump  = min(60, len(hits) * 8)
+            ti['confidence'] = min(100, ti['confidence'] + confidence_bump)
+            if 'DNSBL' not in ti['categories']:
+                ti['categories'].append('DNSBL Listed')
+            warn(f"Total DNSBL hits: {len(hits)} / {len(DNSBL_LISTS)}")
+        else:
+            ok(f"No DNSBL hits ({len(cleans)} lists checked)")
+
+    def _check_tor_exit(self):
+        info("Checking Tor exit node status ...")
+        try:
+            # Dan's Guardian Tor exit list
+            if self.ip_obj.version == 4:
+                rev = '.'.join(reversed(self.ip_address.split('.')))
+                query = f'{rev}.dnsel.torproject.org'
+                try:
+                    socket.gethostbyname(query)
+                    self.results['threat_intelligence']['tor_exit'] = True
+                    warn("Tor exit node confirmed (dnsel.torproject.org)")
+                    self.results['threat_intelligence']['categories'].append('Tor Exit Node')
+                    self.results['threat_intelligence']['confidence'] = min(
+                        100, self.results['threat_intelligence']['confidence'] + 30
+                    )
+                    return
+                except socket.gaierror:
+                    pass
+
+            # Fallback: fetch dan.me.uk/torlist
+            r = self.session.get('https://www.dan.me.uk/torlist/', timeout=10)
+            if r.status_code == 200:
+                if self.ip_address in r.text:
+                    self.results['threat_intelligence']['tor_exit'] = True
+                    warn("Tor exit node confirmed (dan.me.uk/torlist)")
+                    self.results['threat_intelligence']['categories'].append('Tor Exit Node')
+                else:
+                    ok("Not in Tor exit node list")
+        except Exception as e:
+            err(f"Tor check error: {e}")
+
+    def _check_threatcrowd(self):
+        info("Querying ThreatCrowd ...")
+        try:
+            r = self.session.get(
+                f'https://www.threatcrowd.org/searchApi/v2/ip/report/?ip={self.ip_address}',
+                timeout=15
+            )
+            if r.status_code == 200:
+                d = r.json()
+                if d.get('response_code') == '1':
+                    hashes     = d.get('hashes', [])
+                    references = d.get('references', [])
+                    resolutions = d.get('resolutions', [])
+
+                    tc_data = {
+                        'malware_hashes': hashes[:20],
+                        'references':     references[:10],
+                        'resolutions':    [res.get('domain', '') for res in resolutions[:20]],
+                    }
+                    self.results['threat_intelligence']['sources']['threatcrowd'] = tc_data
+
+                    if hashes:
+                        self.results['threat_intelligence']['malicious'] = True
+                        self.results['threat_intelligence']['confidence'] = min(
+                            100, self.results['threat_intelligence']['confidence'] + 25
+                        )
+                        if 'Malware' not in self.results['threat_intelligence']['categories']:
+                            self.results['threat_intelligence']['categories'].append('Malware')
+                        warn(f"ThreatCrowd: {len(hashes)} malware sample(s), {len(references)} reference(s)")
+                    else:
+                        ok("ThreatCrowd: No malware associations")
+
+                    if resolutions:
+                        ok(f"ThreatCrowd: {len(resolutions)} domain resolution(s) found")
+        except Exception as e:
+            err(f"ThreatCrowd error: {e}")
+
+    def _check_stopforumspam(self):
+        info("Checking StopForumSpam ...")
+        try:
+            r = self.session.get(
+                'https://api.stopforumspam.org/api',
+                params={'ip': self.ip_address, 'json': 1},
+                timeout=10
+            )
+            if r.status_code == 200:
+                d = r.json()
+                ip_data = d.get('ip', {})
+                if ip_data.get('appears', 0):
+                    freq        = ip_data.get('frequency', 0)
+                    confidence  = ip_data.get('confidence', 0)
+                    last_seen   = ip_data.get('lastseen', 'unknown')
+
+                    self.results['threat_intelligence']['sources']['stopforumspam'] = {
+                        'listed':     True,
+                        'frequency':  freq,
+                        'confidence': confidence,
+                        'last_seen':  last_seen,
+                    }
+                    self.results['threat_intelligence']['malicious'] = True
+                    self.results['threat_intelligence']['confidence'] = min(
+                        100, self.results['threat_intelligence']['confidence'] + min(40, int(confidence or 0))
+                    )
+                    if 'Spam' not in self.results['threat_intelligence']['categories']:
+                        self.results['threat_intelligence']['categories'].append('Spam')
+                    warn(f"StopForumSpam: LISTED — freq={freq}, confidence={confidence}, last={last_seen}")
+                else:
+                    ok("StopForumSpam: Clean")
+                    self.results['threat_intelligence']['sources']['stopforumspam'] = {'listed': False}
+        except Exception as e:
+            err(f"StopForumSpam error: {e}")
+
+    def _check_blocklist_de(self):
+        info("Checking blocklist.de ...")
+        try:
+            r = self.session.get(
+                f'https://api.blocklist.de/api.php?ip={self.ip_address}&start=0&end=9&count=1',
+                timeout=10
+            )
+            if r.status_code == 200 and 'attacks' in r.text.lower():
+                m = re.search(r'(\d+)', r.text)
+                count = int(m.group(1)) if m else 0
+                self.results['threat_intelligence']['sources']['blocklist_de'] = {
+                    'listed':  count > 0,
+                    'reports': count,
+                }
+                if count > 0:
+                    self.results['threat_intelligence']['malicious'] = True
+                    self.results['threat_intelligence']['confidence'] = min(
+                        100, self.results['threat_intelligence']['confidence'] + min(20, count)
+                    )
+                    if 'Attacks' not in self.results['threat_intelligence']['categories']:
+                        self.results['threat_intelligence']['categories'].append('Attacks')
+                    warn(f"blocklist.de: {count} attack report(s)")
+                else:
+                    ok("blocklist.de: Clean")
+        except Exception as e:
+            err(f"blocklist.de error: {e}")
+
+    def _check_abuseipdb(self):
+        info("Querying AbuseIPDB ...")
+        try:
+            r = self.session.get(
+                'https://api.abuseipdb.com/api/v2/check',
+                headers={
+                    'Key':    self.api_keys['abuseipdb'],
+                    'Accept': 'application/json'
+                },
+                params={
+                    'ipAddress':    self.ip_address,
+                    'maxAgeInDays': 90,
+                    'verbose':      True,
+                },
+                timeout=15
+            )
+            if r.status_code == 200:
+                data  = r.json().get('data', {})
+                score = data.get('abuseConfidenceScore', 0)
+                total = data.get('totalReports', 0)
+                usage = data.get('usageType', '')
+                domain = data.get('domain', '')
+                hostnames = data.get('hostnames', [])
+                country = data.get('countryCode', '')
+                isp     = data.get('isp', '')
+                last_report = data.get('lastReportedAt', '')
+
+                self.results['threat_intelligence']['abuse_confidence'] = score
+                self.results['threat_intelligence']['abuse_reports']    = total
+                self.results['threat_intelligence']['sources']['abuseipdb'] = {
+                    'confidence':   score,
+                    'total_reports': total,
+                    'usage_type':   usage,
+                    'domain':       domain,
+                    'isp':          isp,
+                    'country':      country,
+                    'hostnames':    hostnames,
+                    'last_reported': last_report,
+                }
+
+                if score >= 25:
+                    self.results['threat_intelligence']['malicious'] = True
+                    self.results['threat_intelligence']['confidence'] = min(
+                        100, self.results['threat_intelligence']['confidence'] + score // 2
+                    )
+                    if 'AbuseIPDB' not in self.results['threat_intelligence']['categories']:
+                        self.results['threat_intelligence']['categories'].append('AbuseIPDB')
+                    warn(f"AbuseIPDB: score={score}/100, reports={total}, usage={usage}, last={last_report}")
+                else:
+                    ok(f"AbuseIPDB: score={score}/100, reports={total}, usage={usage}")
+            elif r.status_code == 401:
+                err("AbuseIPDB: Invalid API key")
+            elif r.status_code == 429:
+                warn("AbuseIPDB: Rate limit hit")
+        except Exception as e:
+            err(f"AbuseIPDB error: {e}")
+
+    def _check_virustotal(self):
+        info("Querying VirusTotal ...")
+        try:
+            r = self.session.get(
+                f'https://www.virustotal.com/api/v3/ip_addresses/{self.ip_address}',
+                headers={'x-apikey': self.api_keys['virustotal']},
+                timeout=15
+            )
+            if r.status_code == 200:
+                attrs     = r.json().get('data', {}).get('attributes', {})
+                stats     = attrs.get('last_analysis_stats', {})
+                malicious = stats.get('malicious', 0)
+                suspicious = stats.get('suspicious', 0)
+                harmless  = stats.get('harmless', 0)
+                undetected = stats.get('undetected', 0)
+                total     = malicious + suspicious + harmless + undetected
+                asn       = attrs.get('asn', '')
+                owner     = attrs.get('as_owner', '')
+                country   = attrs.get('country', '')
+                reputation = attrs.get('reputation', 0)
+                categories = attrs.get('categories', {})
+
+                self.results['threat_intelligence']['sources']['virustotal'] = {
+                    'malicious':   malicious,
+                    'suspicious':  suspicious,
+                    'harmless':    harmless,
+                    'undetected':  undetected,
+                    'total':       total,
+                    'asn':         asn,
+                    'owner':       owner,
+                    'country':     country,
+                    'reputation':  reputation,
+                    'categories':  categories,
+                }
+
+                if malicious > 0 or suspicious > 0:
+                    self.results['threat_intelligence']['malicious'] = True
+                    bump = min(40, (malicious * 5) + (suspicious * 2))
+                    self.results['threat_intelligence']['confidence'] = min(
+                        100, self.results['threat_intelligence']['confidence'] + bump
+                    )
+                    if 'VirusTotal' not in self.results['threat_intelligence']['categories']:
+                        self.results['threat_intelligence']['categories'].append('VirusTotal')
+                    warn(f"VirusTotal: {malicious} malicious / {suspicious} suspicious / {total} total engines")
+                else:
+                    ok(f"VirusTotal: Clean ({total} engines, reputation={reputation})")
+            elif r.status_code == 401:
+                err("VirusTotal: Invalid API key")
+            elif r.status_code == 429:
+                warn("VirusTotal: Rate limit hit")
+        except Exception as e:
+            err(f"VirusTotal error: {e}")
+
+    def _check_shodan(self):
+        info("Querying Shodan ...")
+        try:
+            r = self.session.get(
+                f'https://api.shodan.io/shodan/host/{self.ip_address}',
+                params={'key': self.api_keys['shodan']},
+                timeout=15
+            )
+            if r.status_code == 200:
+                d = r.json()
+                ports    = d.get('ports', [])
+                hostnames = d.get('hostnames', [])
+                domains  = d.get('domains', [])
+                tags     = d.get('tags', [])
+                vulns    = list(d.get('vulns', {}).keys())
+                org      = d.get('org', '')
+                isp      = d.get('isp', '')
+                country  = d.get('country_name', '')
+                last_update = d.get('last_update', '')
+                services = []
+                for item in d.get('data', []):
+                    svc = {
+                        'port':     item.get('port'),
+                        'transport': item.get('transport'),
+                        'product':  item.get('product', ''),
+                        'version':  item.get('version', ''),
+                        'cpe':      item.get('cpe', []),
+                        'banner':   (item.get('data', '') or '')[:300],
+                    }
+                    services.append(svc)
+
+                self.results['threat_intelligence']['sources']['shodan'] = {
+                    'open_ports':  ports,
+                    'hostnames':   hostnames,
+                    'domains':     domains,
+                    'tags':        tags,
+                    'vulns':       vulns,
+                    'org':         org,
+                    'isp':         isp,
+                    'country':     country,
+                    'last_update': last_update,
+                    'services':    services,
+                }
+
+                ok(f"Shodan: {len(ports)} open port(s): {ports}")
+                if hostnames: ok(f"Shodan hostnames: {', '.join(hostnames)}")
+                if tags:      ok(f"Shodan tags: {', '.join(tags)}")
+                if vulns:
+                    warn(f"Shodan CVEs: {', '.join(vulns[:10])}")
+                    self.results['threat_intelligence']['malicious'] = True
+                    self.results['threat_intelligence']['confidence'] = min(
+                        100, self.results['threat_intelligence']['confidence'] + min(50, len(vulns) * 8)
+                    )
+                    if 'CVE' not in self.results['threat_intelligence']['categories']:
+                        self.results['threat_intelligence']['categories'].append('CVE')
+
+                if 'tor' in tags or 'vpn' in tags:
+                    self.results['threat_intelligence']['vpn_detected'] = True
+                if 'proxy' in tags:
+                    self.results['threat_intelligence']['open_proxy'] = True
+
+            elif r.status_code == 404:
+                ok("Shodan: No data for this IP")
+            elif r.status_code == 401:
+                err("Shodan: Invalid API key")
+            elif r.status_code == 429:
+                warn("Shodan: Rate limit hit — upgrade plan or wait")
+        except Exception as e:
+            err(f"Shodan error: {e}")
+
+    # ── Risk Scoring ──────────────────────────────────────────────────────────
+
+    def generate_risk_score(self):
+        info("Calculating risk score ...")
+        score   = 0
+        factors = []
+        ti      = self.results['threat_intelligence']
+        geo     = self.results['geolocation']
+        net     = self.results.get('network_info', {})
+        cdn     = self.results.get('cdn_info', {})
+
+        # ── Hard threat signals ────────────────────────────────────────────
+        dnsbl_count = len(ti.get('dnsbl_hits', []))
+        if dnsbl_count > 0:
+            delta = min(40, dnsbl_count * 6)
+            score += delta
+            factors.append(f'DNSBL listed ({dnsbl_count} list{"s" if dnsbl_count > 1 else ""}): +{delta}')
+
+        if ti.get('tor_exit'):
+            score += 35
+            factors.append('Tor exit node: +35')
+
+        if ti.get('vpn_detected'):
+            score += 20
+            factors.append(f'Known VPN provider ({ti.get("vpn_provider", "unknown")}): +20')
+
+        if ti.get('open_proxy'):
+            score += 25
+            factors.append('Open proxy: +25')
+
+        # AbuseIPDB
+        abuse_conf = ti.get('abuse_confidence', 0)
+        if abuse_conf >= 75:
+            score += 35; factors.append(f'AbuseIPDB confidence {abuse_conf}%: +35')
+        elif abuse_conf >= 50:
+            score += 25; factors.append(f'AbuseIPDB confidence {abuse_conf}%: +25')
+        elif abuse_conf >= 25:
+            score += 15; factors.append(f'AbuseIPDB confidence {abuse_conf}%: +15')
+
+        # Abuse reports volume
+        abuse_rpts = ti.get('abuse_reports', 0)
+        if abuse_rpts >= 100:
+            score += 10; factors.append(f'AbuseIPDB reports {abuse_rpts}: +10')
+        elif abuse_rpts >= 20:
+            score += 5; factors.append(f'AbuseIPDB reports {abuse_rpts}: +5')
+
+        # VirusTotal
+        vt = ti.get('sources', {}).get('virustotal', {})
+        vt_mal = vt.get('malicious', 0)
+        if vt_mal >= 10:
+            score += 30; factors.append(f'VirusTotal {vt_mal} malicious engines: +30')
+        elif vt_mal >= 3:
+            score += 20; factors.append(f'VirusTotal {vt_mal} malicious engines: +20')
+        elif vt_mal >= 1:
+            score += 10; factors.append(f'VirusTotal {vt_mal} malicious engine(s): +10')
+
+        # Shodan CVEs
+        shodan = ti.get('sources', {}).get('shodan', {})
+        vuln_count = len(shodan.get('vulns', []))
+        if vuln_count > 0:
+            delta = min(25, vuln_count * 5)
+            score += delta
+            factors.append(f'Shodan CVEs ({vuln_count}): +{delta}')
+
+        # ThreatCrowd malware hashes
+        tc = ti.get('sources', {}).get('threatcrowd', {})
+        hash_count = len(tc.get('malware_hashes', []))
+        if hash_count > 0:
+            delta = min(20, hash_count * 2)
+            score += delta
+            factors.append(f'ThreatCrowd malware ({hash_count} hashes): +{delta}')
+
+        # StopForumSpam
+        sfs = ti.get('sources', {}).get('stopforumspam', {})
+        if sfs.get('listed'):
+            sfs_conf = float(sfs.get('confidence') or 0)
+            delta = min(20, int(sfs_conf // 5))
+            score += delta
+            factors.append(f'StopForumSpam listed (confidence {sfs_conf}): +{delta}')
+
+        # ── Geolocation / network signals ─────────────────────────────────
+        if geo.get('proxy'):
+            score += 15
+            factors.append('ip-api proxy flag: +15')
+
+        if geo.get('hosting'):
+            score += 8
+            factors.append('Hosting/Datacenter IP: +8')
+
+        if geo.get('mobile'):
+            score += 3
+            factors.append('Mobile network: +3')
+
+        # ── CDN / protective infrastructure (mitigates) ──────────────────
+        if cdn.get('provider'):
+            score = max(0, score - 10)
+            factors.append(f'Protected CDN ({cdn["provider"]}): -10')
+
+        # ── IP type modifiers ─────────────────────────────────────────────
+        ip_type = self.results.get('ip_type', '')
+        if ip_type == 'private':
+            score = max(0, score - 30)
+            factors.append('Private IP address: -30')
+        elif ip_type == 'loopback':
+            score = 0
+            factors.append('Loopback address: score zeroed')
+
+        # ── Categorise ────────────────────────────────────────────────────
+        score = min(100, score)
+        if score >= 80:
+            level = 'Critical'
+            color = C.RED
+        elif score >= 60:
+            level = 'High'
+            color = C.RED
+        elif score >= 40:
+            level = 'Medium'
+            color = C.YELLOW
+        elif score >= 20:
+            level = 'Low'
+            color = C.GREEN
+        else:
+            level = 'Minimal'
+            color = C.GREEN
+
+        self.results['risk_assessment'] = {
+            'score':   score,
+            'level':   level,
+            'factors': factors,
+        }
+
+        print(f"\n{C.BOLD}{'─'*60}{C.RESET}")
+        print(f"{C.BOLD}Risk Assessment: {color}{level}{C.RESET}  ({score}/100)")
+        for f in factors:
+            print(f"  {C.DIM}•{C.RESET} {f}")
+
+    # ── Main Entry ────────────────────────────────────────────────────────────
+
+    def analyze(self):
+        bold(f"\n{'═'*60}")
+        bold(f"  wh0xip — IP Intelligence: {self.ip_address}")
+        bold(f"{'═'*60}\n")
+
+        if not self.validate_ip():
+            err(f"Invalid IP address: {self.ip_address}")
+            return None
+
+        ip_type = self.results['ip_type']
+        ok(f"IPv{self.results['ip_version']} / Type: {ip_type}")
+
+        if not self._is_analyzable():
+            warn(f"IP type is '{ip_type}' — limited analysis applicable")
+
+        self.get_geolocation()
+        print()
+        self.get_asn_info()
+        print()
+        self.get_whois_info()
+        print()
+        self.get_threat_intelligence()
+        print()
+        self.get_dns_info()
+        print()
+        self.generate_risk_score()
+        print()
+
+        # Save JSON
+        ts          = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        output_file = f"wh0xip_{self.ip_address.replace(':', '_')}_{ts}.json"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(self.results, f, indent=2, ensure_ascii=False, default=str)
+
+        ok(f"Results saved → {output_file}")
+        return self.results
+
+
+# ─── CLI ──────────────────────────────────────────────────────────────────────
+
+def load_api_keys(path):
+    if not path:
+        return {}
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception as e:
+        err(f"Could not load API keys from {path}: {e}")
+        return {}
+
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        prog='wh0xip',
+        description='Passive IP Intelligence & Geolocation Analyzer',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python wh0xip.py 8.8.8.8
+  python wh0xip.py 2606:4700:4700::1111
+  python wh0xip.py 45.33.32.156 --keys keys.json
+  python wh0xip.py 8.8.8.8 -o report.json --no-color
+  cat ips.txt | xargs -I{} python wh0xip.py {}
+
+keys.json format:
+  {
+    "abuseipdb":  "YOUR_KEY",
+    "virustotal": "YOUR_KEY",
+    "shodan":     "YOUR_KEY"
+  }
+        """
+    )
+    p.add_argument('ip',           help='Target IP address (IPv4 or IPv6)')
+    p.add_argument('-o', '--output', help='Output JSON file (default: auto-named)')
+    p.add_argument('-k', '--keys',   help='Path to JSON file containing API keys')
+    p.add_argument('--no-color',     action='store_true', help='Disable colored output')
+    p.add_argument('--json-only',    action='store_true', help='Suppress all output except JSON result to stdout')
+    return p.parse_args()
+
+
+def main():
+    args     = parse_args()
+    api_keys = load_api_keys(args.keys)
+
+    if args.no_color or args.json_only or not sys.stdout.isatty():
+        C.disable()
+
+    if args.json_only:
+        # Redirect all print output to /dev/null during analysis
+        old_stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+
+    analyzer = IPIntelligence(args.ip, api_keys=api_keys)
+    results  = analyzer.analyze()
+
+    if args.json_only:
+        sys.stdout.close()
+        sys.stdout = old_stdout
+        if results:
+            print(json.dumps(results, indent=2, ensure_ascii=False, default=str))
+        return
+
+    if args.output and results:
+        try:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False, default=str)
+            ok(f"Also saved to: {args.output}")
+        except Exception as e:
+            err(f"Could not write to {args.output}: {e}")
+
+
+if __name__ == '__main__':
+    main()

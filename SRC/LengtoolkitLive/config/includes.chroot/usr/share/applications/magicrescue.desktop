@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Magicrescue
+Comment=LengToolkit - File Recovery by Magic Bytes
+Exec=mate-terminal -- bash -c "magicrescue; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=false
+Type=Application
+Categories=LengToolkit;

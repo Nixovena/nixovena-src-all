@@ -1,0 +1,839 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import re
+import csv
+try:
+    import requests
+    from bs4 import BeautifulSoup
+except ImportError:
+    import sys; sys.exit("[!] Missing: requests/bs4")
+from datetime import datetime
+import json
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import time
+
+BANNER = r"""
+═══════════════════════════════════════
+   ___        _ _____      _                  _    _             
+  / _ \ _ __ (_) ____|_  _| |_ _ __ __ _  ___| | _| |_ ___  _ __ 
+ | | | | '_ \| |  _| \ \/ / __| '__/ _` |/ __| |/ / __/ _ \| '__|
+ | |_| | | | | | |___ >  <| |_| | | (_| | (__|   <| || (_) | |   
+  \___/|_| |_|_|_____/_/\_\\__|_|  \__,_|\___|_|\_\\__\___/|_|   
+
+Onion Extractor & Validator                                                  
+═══════════════════════════════════════
+"""
+
+LEGAL_WARNING = """
+⚠ LEGAL WARNING ⚠
+Educational purposes only.
+You are responsible for compliance with all laws.
+
+Accept? (yes/no): """
+
+class OnionLinkExtractor:
+    def __init__(self, proxy="socks5h://127.0.0.1:9050", use_database=True):
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0',
+            'Mozilla/5.0 (Windows NT 10.0; rv:102.0) Gecko/20100101 Firefox/102.0',
+            'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/115.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/110.0',
+            'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/115.0.0.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+        ]
+        
+        self.session = requests.Session()
+        self.session.proxies = {'http': proxy, 'https': proxy}
+        self.session.headers = {
+            'User-Agent': self.user_agents[0]
+        }
+        # v2 onion: 16 chars base32; v3 onion: 56 chars base32
+        self.onion_pattern = re.compile(r'([a-z2-7]{16}\.onion|[a-z2-7]{56}\.onion)', re.IGNORECASE)
+        self.found_links = set()
+        self.categorized = {
+            'marketplace': [],
+            'forum': [],
+            'service': [],
+            'social': [],
+            'blog': [],
+            'directory': [],
+            'other': []
+        }
+        self.link_metadata = {}  # Store title/description per link
+        self.output_dir = "onion_links"
+        self.db_file = os.path.join(self.output_dir, "links.db")
+        self.use_database = use_database
+        self.db_conn = None
+        self.lock = Lock()
+        self.db_lock = Lock()
+        
+        os.makedirs(self.output_dir, exist_ok=True)
+        
+        if self.use_database:
+            self.init_database()
+        
+    def init_database(self):
+        try:
+            self.db_conn = sqlite3.connect(self.db_file, check_same_thread=False)
+            cursor = self.db_conn.cursor()
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS links (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    link TEXT UNIQUE,
+                    category TEXT,
+                    first_seen TEXT,
+                    last_seen TEXT,
+                    source TEXT,
+                    status TEXT,
+                    title TEXT,
+                    description TEXT
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS link_checks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    link_id INTEGER,
+                    timestamp TEXT,
+                    status_code INTEGER,
+                    response_time REAL,
+                    is_alive INTEGER,
+                    FOREIGN KEY (link_id) REFERENCES links(id)
+                )
+            ''')
+            
+            self.db_conn.commit()
+        except sqlite3.Error as e:
+            print(f"[DB ERROR] Failed to initialize database: {str(e)}")
+            self.use_database = False
+            self.db_conn = None
+    
+    def close_database(self):
+        if self.db_conn:
+            try:
+                self.db_conn.close()
+            except sqlite3.Error:
+                pass
+            finally:
+                self.db_conn = None
+    
+    def extract_from_url(self, url):
+        if not url or not url.strip():
+            print("[ERROR] Empty URL provided")
+            return []
+        
+        try:
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            return self.extract_from_text(response.text, url)
+        except requests.exceptions.Timeout:
+            print(f"[ERROR] Timeout while accessing {url}")
+            return []
+        except requests.exceptions.ConnectionError:
+            print(f"[ERROR] Connection error for {url}")
+            return []
+        except requests.exceptions.HTTPError as e:
+            print(f"[ERROR] HTTP {e.response.status_code} for {url}")
+            return []
+        except Exception as e:
+            print(f"[ERROR] {url}: {str(e)}")
+            return []
+    
+    def extract_from_text(self, text, source=""):
+        links = self.onion_pattern.findall(text)
+        
+        # Also extract from HTML href attributes
+        try:
+            soup = BeautifulSoup(text, 'html.parser')
+            
+            for tag in soup.find_all(['a', 'link'], href=True):
+                href = tag['href']
+                if '.onion' in href:
+                    match = self.onion_pattern.search(href)
+                    if match:
+                        links.append(match.group(1))
+            
+            # Extract from <iframe> src attributes
+            for tag in soup.find_all('iframe', src=True):
+                if '.onion' in tag['src']:
+                    match = self.onion_pattern.search(tag['src'])
+                    if match:
+                        links.append(match.group(1))
+            
+            # Extract from plain text that might be URL-encoded
+            for tag in soup.find_all(string=re.compile(r'[a-z2-7]{16,56}\.onion', re.IGNORECASE)):
+                found = self.onion_pattern.findall(str(tag))
+                links.extend(found)
+        except Exception:
+            pass
+        
+        unique_links = list(set(links))
+        
+        new_count = 0
+        for link in unique_links:
+            link_lower = link.lower()
+            with self.lock:
+                if link_lower not in self.found_links:
+                    self.found_links.add(link_lower)
+                    new_count += 1
+            self.categorize_link(link_lower, source)
+            print(f"[FOUND] {link_lower}")
+        
+        if new_count > 0:
+            print(f"[INFO] {new_count} new unique links found from this source")
+        
+        return unique_links
+    
+    def categorize_link(self, link, source):
+        """Categorize a link based on keyword matching.
+        
+        Note: v3 onion addresses are random base32 strings, so keyword matching
+        on the address itself is rarely useful. Categorization is most effective
+        when combined with page title/content analysis via check_link_alive().
+        """
+        keywords = {
+            'marketplace': ['market', 'shop', 'store', 'buy', 'sell', 'vendor', 'escrow'],
+            'forum': ['forum', 'board', 'discuss', 'community', 'thread', 'post'],
+            'service': ['mail', 'host', 'vpn', 'chat', 'message', 'upload', 'paste', 'search'],
+            'social': ['social', 'network', 'friends', 'profile', 'wall'],
+            'blog': ['blog', 'news', 'article', 'journal', 'diary'],
+            'directory': ['directory', 'index', 'list', 'catalog', 'hidden wiki', 'hiddenwiki']
+        }
+        
+        link_lower = link.lower()
+        categorized = False
+        
+        for category, words in keywords.items():
+            if any(word in link_lower for word in words):
+                self.categorized[category].append({
+                    'link': link,
+                    'source': source,
+                    'timestamp': datetime.now().isoformat()
+                })
+                categorized = True
+                
+                if self.use_database and self.db_conn:
+                    self.save_link(link, category, source)
+                break
+        
+        if not categorized:
+            self.categorized['other'].append({
+                'link': link,
+                'source': source,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            if self.use_database and self.db_conn:
+                self.save_link(link, 'other', source)
+    
+    def save_link(self, link, category, source):
+        with self.db_lock:
+            try:
+                cursor = self.db_conn.cursor()
+                now = datetime.now().isoformat()
+                
+                cursor.execute('''
+                    INSERT OR IGNORE INTO links (link, category, first_seen, last_seen, source, status)
+                    VALUES (?, ?, ?, ?, ?, 'unknown')
+                ''', (link, category, now, now, source))
+                
+                cursor.execute('''
+                    UPDATE links SET last_seen = ?, source = ?, category = ?
+                    WHERE link = ?
+                ''', (now, source, category, link))
+                
+                self.db_conn.commit()
+            except sqlite3.Error as e:
+                print(f"[DB ERROR] Saving link: {str(e)}")
+    
+    def check_link_alive(self, link):
+        url = f"http://{link}"
+        start_time = time.time()
+        
+        try:
+            response = self.session.get(url, timeout=20)
+            response_time = time.time() - start_time
+            is_alive = response.status_code < 500
+            
+            # Try to extract page title for better categorization
+            title = ""
+            description = ""
+            if is_alive and 'html' in response.headers.get('Content-Type', '').lower():
+                try:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    title_tag = soup.find('title')
+                    if title_tag and title_tag.string:
+                        title = title_tag.string.strip()[:200]
+                    
+                    meta_desc = soup.find('meta', attrs={'name': 'description'})
+                    if meta_desc and meta_desc.get('content'):
+                        description = meta_desc['content'].strip()[:500]
+                    
+                    # Re-categorize based on page content if currently 'other'
+                    self._recategorize_from_content(link, title, description, response.text)
+                except Exception:
+                    pass
+            
+            print(f"[{'ALIVE' if is_alive else 'ERROR'}] {link} - {response.status_code} ({response_time:.2f}s){' - ' + title if title else ''}")
+            
+            if self.use_database and self.db_conn:
+                with self.db_lock:
+                    try:
+                        cursor = self.db_conn.cursor()
+                        cursor.execute('SELECT id FROM links WHERE link = ?', (link,))
+                        result = cursor.fetchone()
+                        
+                        if result:
+                            link_id = result[0]
+                            cursor.execute('''
+                                INSERT INTO link_checks (link_id, timestamp, status_code, response_time, is_alive)
+                                VALUES (?, ?, ?, ?, ?)
+                            ''', (link_id, datetime.now().isoformat(), response.status_code, response_time, 1 if is_alive else 0))
+                            
+                            cursor.execute('''
+                                UPDATE links SET status = ?, title = ?, description = ?
+                                WHERE id = ?
+                            ''', ('alive' if is_alive else 'dead', title, description, link_id))
+                            
+                            self.db_conn.commit()
+                    except sqlite3.Error as e:
+                        print(f"[DB ERROR] Saving link check: {str(e)}")
+            
+            # Store metadata
+            with self.lock:
+                self.link_metadata[link] = {
+                    'title': title,
+                    'description': description,
+                    'status_code': response.status_code,
+                    'response_time': response_time,
+                    'is_alive': is_alive
+                }
+            
+            return is_alive, response.status_code, response_time
+        
+        except Exception as e:
+            response_time = time.time() - start_time
+            print(f"[DEAD] {link} - {str(e)[:60]}")
+            
+            if self.use_database and self.db_conn:
+                with self.db_lock:
+                    try:
+                        cursor = self.db_conn.cursor()
+                        cursor.execute('SELECT id FROM links WHERE link = ?', (link,))
+                        result = cursor.fetchone()
+                        
+                        if result:
+                            link_id = result[0]
+                            cursor.execute('''
+                                INSERT INTO link_checks (link_id, timestamp, status_code, response_time, is_alive)
+                                VALUES (?, ?, ?, ?, ?)
+                            ''', (link_id, datetime.now().isoformat(), 0, response_time, 0))
+                            
+                            cursor.execute('''
+                                UPDATE links SET status = 'dead'
+                                WHERE id = ?
+                            ''', (link_id,))
+                            
+                            self.db_conn.commit()
+                    except sqlite3.Error as db_err:
+                        print(f"[DB ERROR] Saving dead check: {str(db_err)}")
+            
+            return False, 0, response_time
+    
+    def _recategorize_from_content(self, link, title, description, html_text):
+        """Re-categorize a link based on page content if it was categorized as 'other'."""
+        content_text = f"{title} {description} {html_text[:2000]}".lower()
+        
+        category_keywords = {
+            'marketplace': ['market', 'shop', 'store', 'buy', 'sell', 'vendor', 'product', 'cart', 'checkout', 'escrow'],
+            'forum': ['forum', 'board', 'discuss', 'thread', 'post', 'reply', 'topic', 'member'],
+            'service': ['mail', 'email', 'host', 'vpn', 'chat', 'message', 'upload', 'paste', 'search', 'encrypt'],
+            'social': ['social', 'network', 'friends', 'profile', 'follow', 'feed'],
+            'blog': ['blog', 'news', 'article', 'journal', 'archive', 'written by', 'author'],
+            'directory': ['directory', 'index', 'catalog', 'hidden wiki', 'link list', 'collection']
+        }
+        
+        for category, words in category_keywords.items():
+            matches = sum(1 for word in words if word in content_text)
+            if matches >= 2:  # Require at least 2 keyword matches for content-based categorization
+                # Update categorization
+                with self.lock:
+                    # Remove from 'other' if present
+                    self.categorized['other'] = [
+                        item for item in self.categorized['other'] 
+                        if item['link'] != link
+                    ]
+                    # Add to new category if not already there
+                    if not any(item['link'] == link for item in self.categorized[category]):
+                        self.categorized[category].append({
+                            'link': link,
+                            'source': 'content_analysis',
+                            'timestamp': datetime.now().isoformat()
+                        })
+                
+                if self.use_database and self.db_conn:
+                    with self.db_lock:
+                        try:
+                            cursor = self.db_conn.cursor()
+                            cursor.execute('UPDATE links SET category = ? WHERE link = ?', (category, link))
+                            self.db_conn.commit()
+                        except sqlite3.Error:
+                            pass
+                
+                print(f"[RECAT] {link[:40]} → {category}")
+                break
+    
+    def batch_check_links(self, max_workers=5, links=None):
+        """Check if links are alive. If no links provided, use found_links or load from DB."""
+        if links:
+            all_links = list(links)
+        elif self.found_links:
+            all_links = list(self.found_links)
+        elif self.use_database and self.db_conn:
+            # Load links from database if no in-memory links
+            with self.db_lock:
+                try:
+                    cursor = self.db_conn.cursor()
+                    cursor.execute('SELECT link FROM links')
+                    all_links = [row[0] for row in cursor.fetchall()]
+                except sqlite3.Error as e:
+                    print(f"[DB ERROR] Loading links: {str(e)}")
+                    all_links = []
+        else:
+            all_links = []
+        
+        if not all_links:
+            print("[WARN] No links to check. Extract links first or load from database.")
+            return
+        
+        print(f"\n[BATCH CHECK] Testing {len(all_links)} links with {max_workers} workers...")
+        
+        alive_count = 0
+        dead_count = 0
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(self.check_link_alive, link): link for link in all_links}
+            
+            for future in as_completed(futures):
+                link = futures[future]
+                try:
+                    is_alive, status, resp_time = future.result()
+                    if is_alive:
+                        alive_count += 1
+                    else:
+                        dead_count += 1
+                except Exception as e:
+                    print(f"[ERROR] {link}: {str(e)}")
+                    dead_count += 1
+                
+                time.sleep(0.5)
+        
+        total = alive_count + dead_count
+        alive_pct = (alive_count / total * 100) if total > 0 else 0
+        print(f"\n[RESULTS] Alive: {alive_count} ({alive_pct:.1f}%), Dead: {dead_count}, Total: {total}")
+    
+    def extract_from_file(self, filepath):
+        if not os.path.exists(filepath):
+            print(f"[ERROR] File not found: {filepath}")
+            return []
+        
+        if not os.path.isfile(filepath):
+            print(f"[ERROR] Not a file: {filepath}")
+            return []
+        
+        try:
+            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                text = f.read()
+            return self.extract_from_text(text, f"file://{filepath}")
+        except IOError as e:
+            print(f"[ERROR] Cannot read file {filepath}: {str(e)}")
+            return []
+        except Exception as e:
+            print(f"[ERROR] Unexpected error reading {filepath}: {str(e)}")
+            return []
+    
+    def batch_extract_from_directory(self, directory, workers=5):
+        """Extract onion links from all files in a directory recursively."""
+        if not os.path.isdir(directory):
+            print(f"[ERROR] Not a directory: {directory}")
+            return
+        
+        files = []
+        for root, _dirs, filenames in os.walk(directory):
+            for fname in filenames:
+                fpath = os.path.join(root, fname)
+                if os.path.isfile(fpath):
+                    files.append(fpath)
+        
+        if not files:
+            print("[WARN] No files found in directory")
+            return
+        
+        print(f"[BATCH] Processing {len(files)} files with {workers} workers...")
+        
+        completed = 0
+        total_found = 0
+        
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(self.extract_from_file, f): f for f in files}
+            
+            for future in as_completed(futures):
+                filepath = futures[future]
+                completed += 1
+                try:
+                    result = future.result()
+                    total_found += len(result) if result else 0
+                except Exception as e:
+                    print(f"[ERROR] {filepath}: {str(e)}")
+                
+                if completed % 50 == 0:
+                    print(f"[BATCH] Progress: {completed}/{len(files)}")
+        
+        print(f"[BATCH] Completed: {completed}/{len(files)} files, {total_found} links found")
+    
+    def get_alive_links(self):
+        if not self.use_database or not self.db_conn:
+            # Fallback to in-memory metadata
+            alive = [(link, meta) for link, meta in self.link_metadata.items() if meta.get('is_alive')]
+            if alive:
+                print(f"\n[ALIVE] Found {len(alive)} alive links")
+                for i, (link, meta) in enumerate(alive[:20], 1):
+                    title = meta.get('title', '')
+                    print(f"  {i}. {link}{' - ' + title if title else ''}")
+            else:
+                print("[INFO] No alive links found. Run a check first.")
+            return alive
+        
+        with self.db_lock:
+            try:
+                cursor = self.db_conn.cursor()
+                cursor.execute('''
+                    SELECT link, category, last_seen, title FROM links
+                    WHERE status = 'alive'
+                    ORDER BY last_seen DESC
+                ''')
+                
+                results = cursor.fetchall()
+            except sqlite3.Error as e:
+                print(f"[DB ERROR] Getting alive links: {str(e)}")
+                return []
+        
+        print(f"\n[ALIVE] Found {len(results)} alive links")
+        for i, row in enumerate(results[:30], 1):
+            link, category, last_seen, title = row
+            title_str = f" - {title}" if title else ""
+            print(f"  {i}. [{category:12s}] {link}{title_str}")
+        
+        if len(results) > 30:
+            print(f"  ... and {len(results) - 30} more")
+        
+        return results
+    
+    def search_links(self, query, category=None):
+        if not self.use_database or not self.db_conn:
+            matching = [l for l in self.found_links if query.lower() in l.lower()]
+            print(f"\n[SEARCH] Found {len(matching)} links matching '{query}'")
+            for link in matching[:20]:
+                print(f"  http://{link}")
+            return matching
+        
+        with self.db_lock:
+            try:
+                cursor = self.db_conn.cursor()
+                
+                if category:
+                    cursor.execute('''
+                        SELECT link, category, status, last_seen, title FROM links
+                        WHERE (link LIKE ? OR title LIKE ? OR description LIKE ?) AND category = ?
+                    ''', (f'%{query}%', f'%{query}%', f'%{query}%', category))
+                else:
+                    cursor.execute('''
+                        SELECT link, category, status, last_seen, title FROM links
+                        WHERE link LIKE ? OR title LIKE ? OR description LIKE ?
+                    ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
+                
+                results = cursor.fetchall()
+            except sqlite3.Error as e:
+                print(f"[DB ERROR] Searching: {str(e)}")
+                return []
+        
+        print(f"\n[SEARCH] Found {len(results)} links matching '{query}'")
+        for i, row in enumerate(results[:20], 1):
+            link, cat, status, last_seen, title = row
+            title_str = f" - {title}" if title else ""
+            print(f"  {i}. [{cat:12s}] [{status or 'unknown':7s}] {link}{title_str}")
+        
+        if len(results) > 20:
+            print(f"  ... and {len(results) - 20} more")
+        
+        return results
+    
+    def save_results(self, output_file="onion_links.json"):
+        results = {
+            'total_found': len(self.found_links),
+            'timestamp': datetime.now().isoformat(),
+            'links': sorted(self.found_links),
+            'categorized': {},
+            'link_metadata': self.link_metadata
+        }
+        
+        # Make categorized data JSON-safe
+        for cat, items in self.categorized.items():
+            results['categorized'][cat] = items
+        
+        filepath = os.path.join(self.output_dir, output_file)
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(results, f, indent=2, ensure_ascii=False)
+        except OSError as e:
+            print(f"[ERROR] Cannot save results: {str(e)}")
+            return
+        
+        txt_file = os.path.join(self.output_dir, output_file.replace('.json', '.txt'))
+        with open(txt_file, 'w', encoding='utf-8') as f:
+            for link in sorted(self.found_links):
+                f.write(f"http://{link}\n")
+        
+        print(f"\n[SAVED] {len(self.found_links)} links to {output_file}")
+        print(f"[SAVED] Plain list to {txt_file}")
+    
+    def export_to_csv(self, output_file="onion_links.csv"):
+        """Export all links to CSV format."""
+        filepath = os.path.join(self.output_dir, output_file)
+        
+        try:
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Link', 'Category', 'Status', 'Title', 'Source', 'First Seen'])
+                
+                if self.use_database and self.db_conn:
+                    with self.db_lock:
+                        cursor = self.db_conn.cursor()
+                        cursor.execute('SELECT link, category, status, title, source, first_seen FROM links ORDER BY category, link')
+                        writer.writerows(cursor.fetchall())
+                else:
+                    for cat, items in self.categorized.items():
+                        for item in items:
+                            meta = self.link_metadata.get(item['link'], {})
+                            writer.writerow([
+                                item['link'],
+                                cat,
+                                'alive' if meta.get('is_alive') else 'unknown',
+                                meta.get('title', ''),
+                                item.get('source', ''),
+                                item.get('timestamp', '')
+                            ])
+            
+            print(f"[EXPORT] CSV saved to {filepath}")
+        except OSError as e:
+            print(f"[ERROR] Cannot export CSV: {str(e)}")
+    
+    def get_database_stats(self):
+        """Get comprehensive statistics from the database."""
+        if not self.use_database or not self.db_conn:
+            return
+        
+        with self.db_lock:
+            try:
+                cursor = self.db_conn.cursor()
+                
+                cursor.execute('SELECT COUNT(*) FROM links')
+                total = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) FROM links WHERE status = "alive"')
+                alive = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT COUNT(*) FROM links WHERE status = "dead"')
+                dead = cursor.fetchone()[0]
+                
+                cursor.execute('SELECT category, COUNT(*) FROM links GROUP BY category ORDER BY COUNT(*) DESC')
+                categories = cursor.fetchall()
+                
+                cursor.execute('SELECT COUNT(*) FROM link_checks')
+                total_checks = cursor.fetchone()[0]
+                
+                print("\n" + "="*50)
+                print("DATABASE STATISTICS")
+                print("="*50)
+                print(f"Total links:   {total}")
+                print(f"Alive:         {alive}")
+                print(f"Dead:          {dead}")
+                print(f"Unknown:       {total - alive - dead}")
+                print(f"Total checks:  {total_checks}")
+                print("\nBy category:")
+                for cat, count in categories:
+                    print(f"  {cat:15s} {count:>5d}")
+                print("="*50)
+            except sqlite3.Error as e:
+                print(f"[DB ERROR] Getting stats: {str(e)}")
+    
+    def print_stats(self):
+        print("\n" + "="*50)
+        print("EXTRACTION STATISTICS")
+        print("="*50)
+        print(f"Total Links Found: {len(self.found_links)}")
+        print(f"Marketplaces:      {len(self.categorized['marketplace'])}")
+        print(f"Forums:            {len(self.categorized['forum'])}")
+        print(f"Services:          {len(self.categorized['service'])}")
+        print(f"Social:            {len(self.categorized['social'])}")
+        print(f"Blogs:             {len(self.categorized['blog'])}")
+        print(f"Directories:       {len(self.categorized['directory'])}")
+        print(f"Other:             {len(self.categorized['other'])}")
+        print("="*50)
+
+
+def safe_int_input(prompt, default):
+    """Safely read an integer from input with a default fallback."""
+    raw = input(prompt).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"[WARN] Invalid number, using default: {default}")
+        return default
+
+
+def main():
+    print(BANNER)
+    
+    response = input(LEGAL_WARNING).strip().lower()
+    if response not in ['yes', 'y']:
+        print("\n[EXIT] You must accept to continue.")
+        sys.exit(0)
+    
+    print("\n" + "="*50)
+    print("OniExtractor")
+    print("="*50)
+    print("\nOptions:")
+    print("1. Extract from URL")
+    print("2. Extract from file")
+    print("3. Extract from text input")
+    print("4. Batch extract from directory")
+    print("5. Check if links are alive")
+    print("6. Show alive links")
+    print("7. Search links")
+    print("8. Database statistics")
+    print("9. Export to CSV")
+    
+    choice = input("\nSelect option (1-9): ").strip()
+    
+    use_db = input("Use database? (yes/no, default yes): ").strip().lower() or "yes"
+    extractor = OnionLinkExtractor(use_database=use_db in ['yes', 'y'])
+    
+    try:
+        if choice == '1':
+            url = input("Enter URL: ").strip()
+            if not url:
+                print("[ERROR] Empty URL")
+                sys.exit(1)
+            extractor.extract_from_url(url)
+        
+        elif choice == '2':
+            filepath = input("Enter file path: ").strip()
+            if not filepath:
+                print("[ERROR] Empty file path")
+                sys.exit(1)
+            if os.path.exists(filepath):
+                extractor.extract_from_file(filepath)
+            else:
+                print("[ERROR] File not found")
+                sys.exit(1)
+        
+        elif choice == '3':
+            print("Enter text (Ctrl+D to finish on Linux/Mac, Ctrl+Z then Enter on Windows):")
+            try:
+                text = sys.stdin.read()
+            except KeyboardInterrupt:
+                print("\n[CANCELLED]")
+                sys.exit(0)
+            extractor.extract_from_text(text, "user_input")
+        
+        elif choice == '4':
+            directory = input("Enter directory path: ").strip()
+            if not directory:
+                print("[ERROR] Empty directory path")
+                sys.exit(1)
+            if os.path.isdir(directory):
+                workers = safe_int_input("Number of workers (default 5): ", 5)
+                workers = max(1, min(workers, 20))
+                extractor.batch_extract_from_directory(directory, workers)
+            else:
+                print("[ERROR] Directory not found")
+                sys.exit(1)
+        
+        elif choice == '5':
+            workers = safe_int_input("Number of workers (default 5): ", 5)
+            workers = max(1, min(workers, 20))
+            extractor.batch_check_links(max_workers=workers)
+        
+        elif choice == '6':
+            extractor.get_alive_links()
+            extractor.close_database()
+            sys.exit(0)
+        
+        elif choice == '7':
+            query = input("Search query: ").strip()
+            if not query:
+                print("[ERROR] Empty search query")
+                sys.exit(1)
+            category = input("Category filter (optional): ").strip() or None
+            extractor.search_links(query, category)
+            extractor.close_database()
+            sys.exit(0)
+        
+        elif choice == '8':
+            extractor.get_database_stats()
+            extractor.close_database()
+            sys.exit(0)
+        
+        elif choice == '9':
+            filename = input("Output filename (default: onion_links.csv): ").strip() or "onion_links.csv"
+            extractor.export_to_csv(filename)
+            extractor.close_database()
+            sys.exit(0)
+        
+        else:
+            print("[ERROR] Invalid choice")
+            sys.exit(1)
+        
+        extractor.print_stats()
+        
+        check = input("\nCheck if links are alive? (yes/no): ").strip().lower()
+        if check in ['yes', 'y']:
+            workers = safe_int_input("Number of workers (default 5): ", 5)
+            workers = max(1, min(workers, 20))
+            extractor.batch_check_links(max_workers=workers)
+        
+        save = input("\nSave results? (yes/no): ").strip().lower()
+        if save in ['yes', 'y']:
+            filename = input("Output filename (default: onion_links.json): ").strip() or "onion_links.json"
+            extractor.save_results(filename)
+        
+        csv_export = input("\nExport to CSV? (yes/no): ").strip().lower()
+        if csv_export in ['yes', 'y']:
+            extractor.export_to_csv()
+    
+    except KeyboardInterrupt:
+        print("\n\n[INTERRUPTED] Operation stopped by user")
+        extractor.print_stats()
+    finally:
+        if extractor.use_database:
+            extractor.close_database()
+
+if __name__ == "__main__":
+    main()

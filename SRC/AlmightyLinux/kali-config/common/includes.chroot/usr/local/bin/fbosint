@@ -1,0 +1,725 @@
+#!/usr/bin/env python3
+# Author: emka'thas
+
+import sys
+import os
+import re
+import json
+import time
+import argparse
+import hashlib
+from datetime import datetime, timezone
+from urllib.parse import quote_plus, quote, urlparse, parse_qs
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] Requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+except ImportError:
+    sys.exit("[!] Missing: requests\n    pip install requests")
+
+sys.dont_write_bytecode = True
+
+VERSION = "1.0"
+REPORT_DIR = os.path.expanduser("~/.fbosint/reports")
+
+
+class C:
+    RST = "\033[0m"; BOLD = "\033[1m"; DIM = "\033[2m"
+    RED = "\033[38;2;255;85;85m"; GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"; BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"; PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"; CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"; GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color, text):
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = f"""
+{C.PINK}
+⠀⠀⠀⠀⠀⠀⠀⢀⣠⣤⣤⣶⣶⣶⣶⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢀⣤⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣤⡀⠀⠀⠀⠀
+⠀⠀⠀⣴⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠿⠿⠿⢿⣿⣿⣿⣦⠀⠀⠀
+⠀⢀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⠋⠁⠀⠀⠀⠀⢸⣿⣿⣿⣿⣷⡀⠀
+⠀⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⣤⣶⣶⣾⣿⣿⣿⣿⣿⣷⠀
+⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡄
+⢸⣿⣿⣿⣿⣿⣿⣿⠛⠛⠛⠀⠀⠀⠘⠛⠛⠛⣻⣿⣿⣿⣿⣿⣿⡇
+⠘⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⠃
+⠀⢿⣿⣿⣿⣿⣿⣿⣶⣶⣶⠀⠀⠀⢰⣶⣶⣶⣿⣿⣿⣿⣿⣿⡿⠀
+⠀⠈⢿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⡿⠁⠀
+⠀⠀⠀⠻⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⠟⠀⠀⠀
+⠀⠀⠀⠀⠈⠛⢿⣿⣿⣿⣿⠀⠀⠀⢸⣿⣿⣿⣿⡿⠛⠁⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠈⠙⠛⠛⠀⠀⠀⠘⠛⠛⠋⠁⠀⠀⠀⠀⠀⠀⠀
+{C.RST}
+   {C.GRAY}v{VERSION} fbosint - Facebook Intelligence Gathering{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+
+class Log:
+    @staticmethod
+    def info(msg): print(f"  {C.BLUE}[*]{C.RST} {msg}")
+    @staticmethod
+    def success(msg): print(f"  {C.GREEN}[+]{C.RST} {msg}")
+    @staticmethod
+    def warn(msg): print(f"  {C.YELLOW}[!]{C.RST} {msg}")
+    @staticmethod
+    def error(msg): print(f"  {C.RED}[-]{C.RST} {msg}")
+    @staticmethod
+    def header(title):
+        print(f"\n  {C.PINK}{'=' * 55}{C.RST}")
+        print(f"  {C.PINK}|{C.RST}  {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f"  {C.PINK}{'=' * 55}{C.RST}")
+    @staticmethod
+    def subheader(title): print(f"\n  {C.PURPLE}-- {title} --{C.RST}")
+    @staticmethod
+    def kv(key, value): print(f"  {C.GREEN}[+]{C.RST} {C.BOLD}{key:<28}{C.RST} {C.WHITE}{value}{C.RST}")
+    @staticmethod
+    def detail(key, value, indent=2):
+        pad = "  " * indent
+        print(f"{pad}{C.GRAY}|-- {C.CYAN}{key}{C.RST}: {value}")
+
+
+class HTTPClient:
+    def __init__(self):
+        self._session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
+        self._session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
+
+    def get(self, url, timeout=12):
+        try:
+            time.sleep(1.2)
+            return self._session.get(url, timeout=timeout, allow_redirects=True)
+        except Exception:
+            return None
+
+    def head(self, url, timeout=8):
+        try:
+            return self._session.head(url, timeout=timeout, allow_redirects=True)
+        except Exception:
+            return None
+
+    def check_exists(self, url, timeout=8):
+        resp = self.head(url, timeout)
+        if resp and resp.status_code in (200, 301, 302):
+            return True
+        resp = self.get(url, timeout)
+        if resp and resp.status_code == 200:
+            if 'page not found' not in resp.text.lower() and '404' not in resp.text[:500]:
+                return True
+        return False
+
+
+CROSS_PLATFORMS = [
+    ("Instagram", "https://www.instagram.com/{}/"),
+    ("Twitter/X", "https://twitter.com/{}"),
+    ("TikTok", "https://www.tiktok.com/@{}"),
+    ("GitHub", "https://github.com/{}"),
+    ("Reddit", "https://www.reddit.com/user/{}"),
+    ("Pinterest", "https://www.pinterest.com/{}/"),
+    ("YouTube", "https://www.youtube.com/@{}"),
+    ("Medium", "https://medium.com/@{}"),
+    ("Keybase", "https://keybase.io/{}"),
+    ("LinkedIn", "https://www.linkedin.com/in/{}"),
+    ("Telegram", "https://t.me/{}"),
+    ("Snapchat", "https://www.snapchat.com/add/{}"),
+    ("Twitch", "https://www.twitch.tv/{}"),
+    ("SoundCloud", "https://soundcloud.com/{}"),
+    ("Flickr", "https://www.flickr.com/people/{}/"),
+    ("DeviantArt", "https://www.deviantart.com/{}"),
+    ("Vimeo", "https://vimeo.com/{}"),
+    ("GitLab", "https://gitlab.com/{}"),
+    ("Mastodon", "https://mastodon.social/@{}"),
+    ("Threads", "https://www.threads.net/@{}"),
+    ("Bluesky", "https://bsky.app/profile/{}.bsky.social"),
+    ("Steam", "https://steamcommunity.com/id/{}"),
+    ("Spotify", "https://open.spotify.com/user/{}"),
+    ("Patreon", "https://www.patreon.com/{}"),
+    ("Ko-fi", "https://ko-fi.com/{}"),
+    ("BuyMeACoffee", "https://www.buymeacoffee.com/{}"),
+    ("Substack", "https://{}.substack.com"),
+    ("Linktree", "https://linktr.ee/{}"),
+    ("About.me", "https://about.me/{}"),
+    ("Gravatar", "https://en.gravatar.com/{}"),
+]
+
+GRAPH_DORKS_TEMPLATE = [
+    ('"{u}" site:facebook.com', "Profile mentions"),
+    ('"{u}" site:facebook.com inurl:posts', "Posts"),
+    ('"{u}" site:facebook.com inurl:photos', "Photos"),
+    ('"{u}" site:facebook.com/groups', "Group activity"),
+    ('"{u}" site:facebook.com/events', "Events"),
+    ('"{u}" site:facebook.com/marketplace', "Marketplace"),
+    ('"{u}" facebook email OR phone OR contact', "Contact info"),
+    ('"{u}" facebook "works at" OR "worked at"', "Employment"),
+    ('"{u}" facebook "studied at" OR "school"', "Education"),
+    ('"{u}" facebook "lives in" OR "from"', "Location"),
+    ('"{u}" facebook "married" OR "relationship"', "Relationship"),
+    ('"{u}" facebook "birthday" OR "born"', "Birthday"),
+    ('site:facebook.com "{u}" filetype:pdf', "PDF documents"),
+    ('"{u}" facebook leak OR breach OR dump', "Data leaks"),
+    ('"{u}" site:facebook.com inurl:videos', "Videos"),
+    ('"{u}" site:facebook.com inurl:reels', "Reels"),
+    ('"{u}" site:facebook.com inurl:live', "Live streams"),
+    ('"{u}" site:facebook.com/stories', "Stories"),
+    ('cache:facebook.com/{u}', "Google cache"),
+    ('"{u}" site:facebook.com "tagged"', "Tagged posts"),
+    ('"{u}" site:facebook.com "check-in" OR "was at"', "Check-ins"),
+    ('"{u}" site:facebook.com "commented on"', "Comments"),
+    ('"{u}" site:facebook.com "shared"', "Shared content"),
+    ('"{u}" site:facebook.com "fundraiser"', "Fundraisers"),
+    ('"{u}" site:facebook.com "review"', "Reviews"),
+    ('"{u}" pastebin OR hastebin OR ghostbin', "Paste sites"),
+    ('"{u}" site:web.archive.org facebook', "Wayback Machine"),
+]
+
+
+class FacebookProfiler:
+    def __init__(self, http):
+        self.http = http
+
+    def investigate_username(self, username):
+        Log.header("FACEBOOK PROFILE INTELLIGENCE")
+        username = username.strip().strip("/")
+        Log.info(f"Target: {_c(C.WHITE, username)}")
+
+        Log.subheader("Profile URLs")
+        urls = {
+            "Profile": f"https://www.facebook.com/{username}",
+            "About": f"https://www.facebook.com/{username}/about",
+            "About (Work)": f"https://www.facebook.com/{username}/about_work_and_education",
+            "About (Places)": f"https://www.facebook.com/{username}/about_places",
+            "About (Contact)": f"https://www.facebook.com/{username}/about_contact_and_basic_info",
+            "About (Family)": f"https://www.facebook.com/{username}/about_family_and_relationships",
+            "About (Bio)": f"https://www.facebook.com/{username}/about_details",
+            "About (Events)": f"https://www.facebook.com/{username}/about_life_events",
+            "Photos": f"https://www.facebook.com/{username}/photos",
+            "Photos (Albums)": f"https://www.facebook.com/{username}/photos_albums",
+            "Photos (Tagged)": f"https://www.facebook.com/{username}/photos_by",
+            "Videos": f"https://www.facebook.com/{username}/videos",
+            "Reels": f"https://www.facebook.com/{username}/reels",
+            "Friends": f"https://www.facebook.com/{username}/friends",
+            "Friends (Mutual)": f"https://www.facebook.com/{username}/friends_mutual",
+            "Likes": f"https://www.facebook.com/{username}/likes",
+            "Events": f"https://www.facebook.com/{username}/events",
+            "Reviews": f"https://www.facebook.com/{username}/reviews",
+            "Check-ins": f"https://www.facebook.com/{username}/places_visited",
+            "Map": f"https://www.facebook.com/{username}/map",
+            "Notes": f"https://www.facebook.com/{username}/notes",
+            "Groups": f"https://www.facebook.com/{username}/groups",
+            "Music": f"https://www.facebook.com/{username}/music",
+            "Movies": f"https://www.facebook.com/{username}/movies",
+            "TV": f"https://www.facebook.com/{username}/tv",
+            "Books": f"https://www.facebook.com/{username}/books",
+            "Sports": f"https://www.facebook.com/{username}/sports",
+            "Following": f"https://www.facebook.com/{username}/following",
+            "Followers": f"https://www.facebook.com/{username}/followers",
+            "Archive.org": f"https://web.archive.org/web/*/facebook.com/{username}",
+            "Archive.org (Profile)": f"https://web.archive.org/web/2024/https://www.facebook.com/{username}",
+            "Profile Pic (Direct)": f"https://graph.facebook.com/{username}/picture?type=large",
+        }
+        for name, url in urls.items():
+            Log.detail(name, url)
+
+        Log.subheader("Reverse Image Search (Profile Picture)")
+        pic_url = f"https://graph.facebook.com/{username}/picture?type=large"
+        reverse_img = {
+            "Google Images": f"https://lens.google.com/uploadbyurl?url={quote(pic_url)}",
+            "Yandex Images": f"https://yandex.com/images/search?rpt=imageview&url={quote(pic_url)}",
+            "TinEye": f"https://tineye.com/search/?url={quote(pic_url)}",
+        }
+        for name, url in reverse_img.items():
+            Log.detail(name, url)
+
+        Log.subheader("Facebook Graph Search Dorks")
+        dork_results = []
+        for template, desc in GRAPH_DORKS_TEMPLATE:
+            query = template.replace("{u}", username)
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+            dork_results.append({"query": query, "desc": desc})
+
+        Log.subheader("Cross-Platform Lookup")
+        cross_results = []
+        for name, url_template in CROSS_PLATFORMS:
+            url = url_template.format(username)
+            exists = self.http.check_exists(url)
+            if exists:
+                Log.success(f"{name}: {_c(C.GREEN, 'FOUND')} - {url}")
+                cross_results.append({"platform": name, "url": url, "status": "found"})
+            else:
+                print(f"    {C.DARK}[x] {name}: not found{C.RST}")
+                cross_results.append({"platform": name, "url": url, "status": "not_found"})
+
+        return {
+            "target": username,
+            "type": "username",
+            "urls": urls,
+            "reverse_image_search": reverse_img,
+            "dorks": dork_results,
+            "cross_platform": cross_results,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def investigate_id(self, fb_id):
+        Log.header("FACEBOOK ID INTELLIGENCE")
+        Log.info(f"Target ID: {_c(C.WHITE, fb_id)}")
+
+        Log.subheader("ID-based URLs")
+        urls = {
+            "Profile": f"https://www.facebook.com/profile.php?id={fb_id}",
+            "About": f"https://www.facebook.com/profile.php?id={fb_id}&sk=about",
+            "About (Work)": f"https://www.facebook.com/profile.php?id={fb_id}&sk=about_work_and_education",
+            "About (Places)": f"https://www.facebook.com/profile.php?id={fb_id}&sk=about_places",
+            "About (Contact)": f"https://www.facebook.com/profile.php?id={fb_id}&sk=about_contact_and_basic_info",
+            "About (Family)": f"https://www.facebook.com/profile.php?id={fb_id}&sk=about_family_and_relationships",
+            "Friends": f"https://www.facebook.com/profile.php?id={fb_id}&sk=friends",
+            "Photos": f"https://www.facebook.com/profile.php?id={fb_id}&sk=photos",
+            "Videos": f"https://www.facebook.com/profile.php?id={fb_id}&sk=videos",
+            "Reels": f"https://www.facebook.com/profile.php?id={fb_id}&sk=reels",
+            "Likes": f"https://www.facebook.com/profile.php?id={fb_id}&sk=likes",
+            "Events": f"https://www.facebook.com/profile.php?id={fb_id}&sk=events",
+            "Groups": f"https://www.facebook.com/profile.php?id={fb_id}&sk=groups",
+            "Map": f"https://www.facebook.com/profile.php?id={fb_id}&sk=map",
+            "Profile Picture": f"https://graph.facebook.com/{fb_id}/picture?type=large",
+            "Archive.org": f"https://web.archive.org/web/*/facebook.com/profile.php?id={fb_id}",
+        }
+        for name, url in urls.items():
+            Log.detail(name, url)
+
+        Log.subheader("Investigation Dorks")
+        dorks = [
+            (f'"profile.php?id={fb_id}" site:facebook.com', "Profile references"),
+            (f'"{fb_id}" site:facebook.com', "ID mentions"),
+            (f'"{fb_id}" facebook', "All web mentions"),
+            (f'"fb.com/{fb_id}"', "Short URL references"),
+            (f'"facebook.com/profile.php?id={fb_id}"', "Full URL references"),
+            (f'"{fb_id}" intext:facebook OR fb.com', "Combined references"),
+            (f'"{fb_id}" site:facebook.com inurl:posts', "Posts by ID"),
+            (f'"{fb_id}" site:facebook.com inurl:photos', "Photos by ID"),
+            (f'"{fb_id}" pastebin OR hastebin', "Paste site mentions"),
+            (f'site:web.archive.org "profile.php?id={fb_id}"', "Archived versions"),
+        ]
+        for query, desc in dorks:
+            Log.detail(desc, f"https://www.google.com/search?q={quote_plus(query)}")
+
+        Log.subheader("Graph API Endpoints")
+        graph_endpoints = {
+            "Public Info": f"https://graph.facebook.com/{fb_id}",
+            "Picture": f"https://graph.facebook.com/{fb_id}/picture?type=large&redirect=false",
+            "Albums": f"https://graph.facebook.com/{fb_id}/albums",
+            "Posts": f"https://graph.facebook.com/{fb_id}/posts",
+            "Feed": f"https://graph.facebook.com/{fb_id}/feed",
+        }
+        for name, url in graph_endpoints.items():
+            Log.detail(name, url)
+
+        Log.subheader("Reverse Image Search")
+        pic_url = f"https://graph.facebook.com/{fb_id}/picture?type=large"
+        reverse_img = {
+            "Google Images": f"https://lens.google.com/uploadbyurl?url={quote(pic_url)}",
+            "Yandex Images": f"https://yandex.com/images/search?rpt=imageview&url={quote(pic_url)}",
+            "TinEye": f"https://tineye.com/search/?url={quote(pic_url)}",
+        }
+        for name, url in reverse_img.items():
+            Log.detail(name, url)
+
+        return {
+            "target": fb_id,
+            "type": "id",
+            "urls": urls,
+            "dorks": [{"query": q, "desc": d} for q, d in dorks],
+            "graph_endpoints": graph_endpoints,
+            "reverse_image_search": reverse_img,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def investigate_url(self, url):
+        Log.header("FACEBOOK URL ANALYSIS")
+        Log.info(f"URL: {_c(C.WHITE, url)}")
+
+        fb_id = None
+        username = None
+        extracted = {}
+
+        id_match = re.search(r'profile\.php\?id=(\d+)', url)
+        if id_match:
+            fb_id = id_match.group(1)
+            Log.kv("Facebook ID", fb_id)
+            extracted["facebook_id"] = fb_id
+
+        user_match = re.search(r'facebook\.com/([a-zA-Z0-9_.]+)', url)
+        if user_match:
+            uname = user_match.group(1)
+            reserved = {"profile.php", "groups", "events", "pages", "watch", "marketplace",
+                        "gaming", "stories", "reels", "ads", "help", "settings", "login",
+                        "recover", "hashtag", "search", "notifications", "messages"}
+            if uname not in reserved:
+                username = uname
+                Log.kv("Username", username)
+                extracted["username"] = username
+
+        group_match = re.search(r'facebook\.com/groups/(\d+|[a-zA-Z0-9_.]+)', url)
+        if group_match:
+            gid = group_match.group(1)
+            Log.kv("Group ID/Name", gid)
+            extracted["group"] = gid
+
+        page_match = re.search(r'facebook\.com/pages/[^/]+/(\d+)', url)
+        if page_match:
+            Log.kv("Page ID", page_match.group(1))
+            extracted["page_id"] = page_match.group(1)
+
+        post_match = re.search(r'/posts/(\d+)', url)
+        if post_match:
+            Log.kv("Post ID", post_match.group(1))
+            extracted["post_id"] = post_match.group(1)
+
+        photo_match = re.search(r'fbid=(\d+)', url)
+        if photo_match:
+            Log.kv("Photo/Object ID", photo_match.group(1))
+            extracted["photo_id"] = photo_match.group(1)
+
+        story_match = re.search(r'story_fbid=(\d+)', url)
+        if story_match:
+            Log.kv("Story FBID", story_match.group(1))
+            extracted["story_fbid"] = story_match.group(1)
+
+        video_match = re.search(r'/videos/(\d+)', url)
+        if video_match:
+            Log.kv("Video ID", video_match.group(1))
+            extracted["video_id"] = video_match.group(1)
+
+        reel_match = re.search(r'/reel/(\d+)', url)
+        if reel_match:
+            Log.kv("Reel ID", reel_match.group(1))
+            extracted["reel_id"] = reel_match.group(1)
+
+        event_match = re.search(r'/events/(\d+)', url)
+        if event_match:
+            Log.kv("Event ID", event_match.group(1))
+            extracted["event_id"] = event_match.group(1)
+
+        set_match = re.search(r'set=([a-zA-Z0-9_.]+)', url)
+        if set_match:
+            Log.kv("Album Set", set_match.group(1))
+            extracted["album_set"] = set_match.group(1)
+
+        comment_match = re.search(r'comment_id=(\d+)', url)
+        if comment_match:
+            Log.kv("Comment ID", comment_match.group(1))
+            extracted["comment_id"] = comment_match.group(1)
+
+        if fb_id:
+            result = self.investigate_id(fb_id)
+            result["url_analysis"] = extracted
+            return result
+        elif username:
+            result = self.investigate_username(username)
+            result["url_analysis"] = extracted
+            return result
+        else:
+            Log.warn("Could not extract username or ID from URL")
+            return {"url": url, "type": "unknown", "extracted": extracted}
+
+    def investigate_phone(self, phone):
+        Log.header("PHONE NUMBER INTELLIGENCE")
+        Log.info(f"Phone: {_c(C.WHITE, phone)}")
+
+        Log.subheader("Search Dorks")
+        dorks = [
+            (f'"{phone}" site:facebook.com', "Facebook profiles with phone"),
+            (f'"{phone}" facebook', "General Facebook mentions"),
+            (f'"{phone}" fb.com', "FB short URL mentions"),
+            (f'"{phone}" site:facebook.com inurl:about', "About pages"),
+            (f'"{phone}"', "All web mentions"),
+            (f'"{phone}" leak OR breach OR dump', "Data leak mentions"),
+            (f'"{phone}" pastebin OR hastebin', "Paste sites"),
+            (f'"{phone}" site:linkedin.com', "LinkedIn mentions"),
+            (f'"{phone}" site:instagram.com', "Instagram mentions"),
+            (f'"{phone}" whatsapp OR telegram OR signal', "Messenger mentions"),
+        ]
+        for query, desc in dorks:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+
+        Log.subheader("Lookup Services")
+        clean_phone = re.sub(r'[^\d+]', '', phone)
+        services = [
+            ("Truecaller", f"https://www.truecaller.com/search/{clean_phone}"),
+            ("SpyDialer", f"https://www.spydialer.com/results.aspx?Number={clean_phone}"),
+            ("NumLookup", f"https://www.numlookup.com/phone/{clean_phone}"),
+            ("Sync.ME", f"https://sync.me/search/?number={quote(clean_phone)}"),
+            ("Whocalld", f"https://whocalld.com/{clean_phone}"),
+        ]
+        for name, url in services:
+            Log.detail(name, url)
+
+        return {
+            "target": phone,
+            "type": "phone",
+            "dorks": [{"query": q, "desc": d} for q, d in dorks],
+            "lookup_services": {n: u for n, u in services},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def investigate_email(self, email):
+        Log.header("EMAIL INTELLIGENCE")
+        Log.info(f"Email: {_c(C.WHITE, email)}")
+
+        Log.subheader("Search Dorks")
+        dorks = [
+            (f'"{email}" site:facebook.com', "Facebook profiles with email"),
+            (f'"{email}" facebook', "General Facebook mentions"),
+            (f'"{email}"', "All web mentions"),
+            (f'"{email}" site:linkedin.com', "LinkedIn mentions"),
+            (f'"{email}" site:twitter.com OR site:x.com', "Twitter mentions"),
+            (f'"{email}" site:instagram.com', "Instagram mentions"),
+            (f'"{email}" site:github.com', "GitHub mentions"),
+            (f'"{email}" leak OR breach OR dump', "Data leak mentions"),
+            (f'"{email}" pastebin OR hastebin OR ghostbin', "Paste sites"),
+            (f'"{email}" site:scribd.com OR site:slideshare.net', "Document sites"),
+            (f'"{email}" registration OR signup OR account', "Account references"),
+            (f'"{email}" intext:password', "Password mentions"),
+        ]
+        for query, desc in dorks:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+
+        Log.subheader("Breach & Lookup Services")
+        services = [
+            ("Have I Been Pwned", f"https://haveibeenpwned.com/account/{quote(email)}"),
+            ("DeHashed", f"https://dehashed.com/search?query={quote(email)}"),
+            ("IntelX", f"https://intelx.io/?s={quote(email)}"),
+            ("Hunter.io", f"https://hunter.io/email-verifier/{quote(email)}"),
+            ("EmailRep", f"https://emailrep.io/{quote(email)}"),
+            ("Gravatar", f"https://en.gravatar.com/{hashlib.md5(email.strip().lower().encode()).hexdigest()}"),
+        ]
+        for name, url in services:
+            Log.detail(name, url)
+
+        Log.subheader("Email Domain Analysis")
+        domain = email.split("@")[1] if "@" in email else ""
+        if domain:
+            Log.detail("MX Lookup", f"https://mxtoolbox.com/SuperTool.aspx?action=mx%3a{domain}")
+            Log.detail("WHOIS", f"https://who.is/whois/{domain}")
+            Log.detail("DNS", f"https://dnsdumpster.com/?domain={domain}")
+
+        return {
+            "target": email,
+            "type": "email",
+            "dorks": [{"query": q, "desc": d} for q, d in dorks],
+            "services": {n: u for n, u in services},
+            "domain": domain,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+class PersonSearch:
+    @staticmethod
+    def search(name, location=None, workplace=None, school=None):
+        Log.header("PERSON SEARCH - FACEBOOK DORKS")
+        Log.info(f"Name: {_c(C.WHITE, name)}")
+        if location:
+            Log.info(f"Location: {location}")
+        if workplace:
+            Log.info(f"Workplace: {workplace}")
+        if school:
+            Log.info(f"School: {school}")
+
+        Log.subheader("Search Queries")
+        queries = [
+            (f'"{name}" site:facebook.com', "Facebook profiles"),
+            (f'"{name}" site:facebook.com/people', "People directory"),
+            (f'"{name}" site:facebook.com inurl:about', "About pages"),
+            (f'"{name}" site:facebook.com/public', "Public profiles"),
+            (f'"{name}" site:facebook.com inurl:friends', "Friends lists"),
+        ]
+        if location:
+            queries.extend([
+                (f'"{name}" "{location}" site:facebook.com', f"In {location}"),
+                (f'"{name}" "lives in {location}" site:facebook.com', f"Lives in {location}"),
+                (f'"{name}" "from {location}" site:facebook.com', f"From {location}"),
+            ])
+        if workplace:
+            queries.extend([
+                (f'"{name}" "{workplace}" site:facebook.com', f"At {workplace}"),
+                (f'"{name}" "works at {workplace}" site:facebook.com', f"Works at {workplace}"),
+            ])
+        if school:
+            queries.extend([
+                (f'"{name}" "{school}" site:facebook.com', f"Studied at {school}"),
+                (f'"{name}" "went to {school}" site:facebook.com', f"Went to {school}"),
+            ])
+        queries.extend([
+            (f'"{name}" facebook.com', "General web"),
+            (f'"{name}" "facebook.com/profile"', "Profile links"),
+            (f'"{name}" facebook linkedin', "FB + LinkedIn cross-ref"),
+            (f'"{name}" facebook instagram', "FB + Instagram cross-ref"),
+            (f'"{name}" fb.com OR facebook.com email', "Email mentions"),
+            (f'"{name}" fb.com OR facebook.com phone', "Phone mentions"),
+            (f'"{name}" facebook twitter OR x.com', "FB + Twitter cross-ref"),
+            (f'"{name}" facebook tiktok', "FB + TikTok cross-ref"),
+            (f'"{name}" facebook "date of birth" OR dob OR birthday', "DOB mentions"),
+            (f'"{name}" facebook address OR location OR city', "Address mentions"),
+            (f'"{name}" site:pipl.com', "Pipl results"),
+            (f'"{name}" site:spokeo.com', "Spokeo results"),
+        ])
+
+        for query, desc in queries:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+
+        Log.subheader("People Search Engines")
+        encoded = quote_plus(name)
+        engines = [
+            ("Facebook Search", f"https://www.facebook.com/search/people/?q={encoded}"),
+            ("Pipl", f"https://pipl.com/search/?q={encoded}"),
+            ("That's Them", f"https://thatsthem.com/name/{name.replace(' ', '-')}"),
+            ("Webmii", f"https://webmii.com/people?n={encoded}"),
+            ("Namechk", "https://namechk.com/"),
+            ("WhatsMyName", "https://whatsmyname.app/"),
+            ("PeekYou", f"https://www.peekyou.com/{name.replace(' ', '_')}"),
+            ("SocialSearcher", f"https://www.social-searcher.com/search-users/?q6={encoded}"),
+            ("UserSearch", f"https://usersearch.org/results_normal.php?q={encoded}"),
+            ("Google People", f"https://www.google.com/search?q={encoded}+facebook+profile"),
+            ("Bing People", f"https://www.bing.com/search?q={encoded}+facebook+profile"),
+            ("DuckDuckGo", f"https://duckduckgo.com/?q={encoded}+facebook+profile"),
+        ]
+        for eng_name, url in engines:
+            Log.detail(eng_name, url)
+
+        name_parts = name.strip().split()
+        if len(name_parts) >= 2:
+            Log.subheader("Name Variants")
+            first = name_parts[0]
+            last = name_parts[-1]
+            variants = [
+                f"{first}.{last}",
+                f"{first}{last}",
+                f"{first}_{last}",
+                f"{first[0]}{last}",
+                f"{first}{last[0]}",
+                f"{last}{first}",
+                f"{last}.{first}",
+            ]
+            for v in variants:
+                Log.detail(v.lower(), f"https://www.facebook.com/{v.lower()}")
+
+        return {
+            "name": name,
+            "location": location,
+            "workplace": workplace,
+            "school": school,
+            "queries": [{"q": q, "d": d} for q, d in queries],
+            "engines": {n: u for n, u in engines},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+class ReportExporter:
+    @staticmethod
+    def ensure_dir():
+        os.makedirs(REPORT_DIR, exist_ok=True)
+
+    @staticmethod
+    def export_json(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"fbosint_{safe}_{ts}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        return path
+
+    @staticmethod
+    def export_txt(data, target):
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = re.sub(r'[^\w\-.]', '_', target)[:40]
+        path = os.path.join(REPORT_DIR, f"fbosint_{safe}_{ts}.txt")
+        lines = [
+            "=" * 60,
+            f"  FBOSINT v{VERSION} Report",
+            "=" * 60,
+            f"  Target: {target}",
+            f"  Type: {data.get('type', 'N/A')}",
+            f"  Timestamp: {data.get('timestamp', 'N/A')}",
+            "",
+        ]
+        urls = data.get("urls", {})
+        if urls:
+            lines.append("  URLs:")
+            for name, url in urls.items():
+                lines.append(f"    {name}: {url}")
+        dorks = data.get("dorks", [])
+        if dorks:
+            lines.append("\n  Dorks:")
+            for d in dorks:
+                lines.append(f"    {d.get('desc', '')}: {d.get('query', d.get('q', ''))}")
+        cross = data.get("cross_platform", [])
+        if cross:
+            lines.append("\n  Cross-Platform:")
+            for c_item in cross:
+                status = c_item.get("status", "")
+                lines.append(f"    [{status}] {c_item.get('platform', '')}: {c_item.get('url', '')}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return path
+
+
+def main():
+    try:
+        p = argparse.ArgumentParser(prog="fbosint", description=f"FBOSINT v{VERSION} - Facebook Intelligence Gathering")
+        p.add_argument("-u", "--username", help="Facebook username")
+        p.add_argument("-i", "--id", help="Facebook numeric ID")
+        p.add_argument("--url", help="Analyze Facebook URL")
+        p.add_argument("-n", "--name", help="Person name search")
+        p.add_argument("--location", help="Location filter for person search")
+        p.add_argument("--workplace", help="Workplace filter for person search")
+        p.add_argument("--school", help="School filter for person search")
+        p.add_argument("-p", "--phone", help="Phone number investigation")
+        p.add_argument("-e", "--email", help="Email investigation")
+        p.add_argument("--version", action="version", version=f"FBOSINT v{VERSION}")
+        args = p.parse_args()
+        
+        if len(sys.argv) == 1:
+            p.print_help()
+            sys.exit(1)
+            
+        print(BANNER)
+        http = HTTPClient()
+        r = None
+        if args.username: r = FacebookProfiler(http).investigate_username(args.username)
+        elif args.id: r = FacebookProfiler(http).investigate_id(args.id)
+        elif args.url: r = FacebookProfiler(http).investigate_url(args.url)
+        elif args.name: r = PersonSearch.search(args.name, args.location, args.workplace, args.school)
+        elif args.phone: r = FacebookProfiler(http).investigate_phone(args.phone)
+        elif args.email: r = FacebookProfiler(http).investigate_email(args.email)
+        if r:
+            t = r.get("target", r.get("name", "output"))
+            Log.success(f"Saved: {ReportExporter.export_json(r, t)}")
+    except KeyboardInterrupt:
+        print(f"\n  {C.GRAY}Exiting...{C.RST}")
+
+if __name__ == "__main__":
+    main()

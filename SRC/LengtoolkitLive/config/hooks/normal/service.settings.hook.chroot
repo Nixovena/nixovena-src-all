@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# it is an unnecessary service
+# systemctl mask avahi-daemon.service
+
+# systemctl mask cups.service
+
+# systemctl mask bluetooth.service

@@ -1,0 +1,11 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - e2fsprogs Helper"
+echo "--------------------------------------------------------"
+echo "Useful commands in this package:"
+echo ""
+echo "  sudo tune2fs -l /dev/sdX  : List file system information"
+echo "  sudo resize2fs /dev/sdX   : Resize an ext2/3/4 file system"
+echo "  sudo mke2fs /dev/sdX      : Create an ext2/3/4 file system"
+echo "  sudo fsck.ext4 /dev/sdX   : Check and repair file system"
+echo "--------------------------------------------------------"

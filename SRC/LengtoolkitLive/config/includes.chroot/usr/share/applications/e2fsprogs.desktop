@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=E2fsprogs
+Comment=LengToolkit - e2fsprogs
+Exec=mate-terminal -- bash -c "e2fsprogs; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

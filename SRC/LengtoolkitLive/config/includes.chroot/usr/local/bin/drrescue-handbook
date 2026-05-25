@@ -1,0 +1,1428 @@
+#!/bin/bash
+# Dr.Rescue's Handbook - System Recovery & Administration Reference
+# A technical guide for troubleshooting and repair.
+
+TITLE="Dr.Rescue's Handbook"
+
+show_content() {
+    local chapter="$1"
+    local text=""
+
+    case "$chapter" in
+        "Disk & Filesystem Repair")
+            text="DISK & FILESYSTEM REPAIR - TECHNICAL GUIDE
+==========================================
+
+1.1 Ext4 Maintenance (e2fsprogs)
+-----------------------------------------
+SUPERBLOCK ANALYSIS:
+* List all backup superblocks: sudo mke2fs -n /dev/sdXY
+* Common backup locations: 32768, 98304, 163840, 229376, 294912
+* Restore from backup: sudo e2fsck -b 32768 /dev/sdXY
+* Dump superblock info: sudo dumpe2fs -h /dev/sdXY
+* Show block group descriptors: sudo dumpe2fs /dev/sdXY | grep -A5 'Group'
+
+JOURNAL RECOVERY:
+* Extract journal: sudo debugfs -R 'dump <8> /tmp/journal' /dev/sdXY
+* Replay journal manually: sudo e2fsck -E journal_only /dev/sdXY
+* Clear corrupted journal: sudo tune2fs -O ^has_journal /dev/sdXY
+* Recreate journal: sudo tune2fs -j /dev/sdXY
+
+INODE OPERATIONS:
+* Find inode by path: sudo debugfs -R 'stat /path/to/file' /dev/sdXY
+* List directory by inode: sudo debugfs -R 'ls -d <inode>' /dev/sdXY
+* Recover deleted file: sudo debugfs -R 'undelete <inode> recovered.file' /dev/sdXY
+* Dump file by inode: sudo debugfs -R 'dump <inode> /recovery/file' /dev/sdXY
+* List deleted inodes: sudo debugfs -R 'lsdel' /dev/sdXY
+
+BAD BLOCK HANDLING:
+* Read-only test: sudo badblocks -v /dev/sdXY
+* Read-write test (DESTRUCTIVE): sudo badblocks -wvs /dev/sdXY
+* Mark bad blocks: sudo e2fsck -c /dev/sdXY
+* Use existing list: sudo e2fsck -l badblocks.txt /dev/sdXY
+
+REPAIR FLAGS:
+* sudo e2fsck -f -y -C 0 /dev/sdXY     # Force, auto-yes, progress
+* sudo e2fsck -D /dev/sdXY              # Optimize directories
+* sudo e2fsck -E fragcheck /dev/sdXY    # Report fragmentation
+
+1.2 XFS Diagnostics
+----------------------------
+METADATA ANALYSIS:
+* Full filesystem info: sudo xfs_info /dev/sdXY
+* Show AG (Allocation Group) info: sudo xfs_db -r -c 'sb 0' -c 'p' /dev/sdXY
+* Dump superblock: sudo xfs_db -r -c 'sb' -c 'print' /dev/sdXY
+* Check free space fragmentation: sudo xfs_db -r -c 'freesp -s' /dev/sdXY
+
+REPAIR STRATEGIES:
+* Dry run: sudo xfs_repair -n /dev/sdXY
+* Normal repair: sudo xfs_repair /dev/sdXY
+* Force log zero (DATA LOSS): sudo xfs_repair -L /dev/sdXY
+* Prefetch disable (slow disks): sudo xfs_repair -P /dev/sdXY
+* Parallel AG processing: sudo xfs_repair -o ag_stride=8 /dev/sdXY
+
+DEFRAGMENTATION:
+* Defrag single file: sudo xfs_fsr /path/to/file
+* Defrag entire FS: sudo xfs_fsr /dev/sdXY
+* Show fragmentation: sudo xfs_bmap -v /path/to/file
+
+1.3 Btrfs Operations
+-----------------------------
+RESCUE MOUNT OPTIONS:
+* Recovery mode: sudo mount -o recovery,ro /dev/sdXY /mnt
+* Use backup root: sudo mount -o usebackuproot /dev/sdXY /mnt
+* Skip balance: sudo mount -o skip_balance /dev/sdXY /mnt
+* Clear cache: sudo mount -o clear_cache /dev/sdXY /mnt
+* Degraded RAID: sudo mount -o degraded /dev/sdXY /mnt
+
+FILESYSTEM CHECK & REPAIR:
+* Check only: sudo btrfs check --readonly /dev/sdXY
+* Repair mode: sudo btrfs check --repair /dev/sdXY (DANGEROUS)
+* Low memory: sudo btrfs check --mode=lowmem /dev/sdXY
+* Init extent tree: sudo btrfs check --init-extent-tree /dev/sdXY
+* Clear space cache: sudo btrfs check --clear-space-cache v1 /dev/sdXY
+
+SNAPSHOT & SUBVOLUME RECOVERY:
+* List all subvolumes: sudo btrfs subvolume list -a /mnt
+* Show default subvol: sudo btrfs subvolume get-default /mnt
+* Set default (for boot): sudo btrfs subvolume set-default <ID> /mnt
+* Delete broken snapshot: sudo btrfs subvolume delete /mnt/@broken
+* Restore from snapshot: sudo btrfs subvolume snapshot /mnt/@snapshot /mnt/@
+
+SCRUB & BALANCE:
+* Start scrub: sudo btrfs scrub start /mnt
+* Scrub status: sudo btrfs scrub status /mnt
+* Balance (redistribute): sudo btrfs balance start -dusage=50 /mnt
+* Balance status: sudo btrfs balance status /mnt
+* Cancel balance: sudo btrfs balance cancel /mnt
+
+1.4 ZFS Administration
+-------------------------------
+POOL RECOVERY:
+* Import readonly: sudo zpool import -o readonly=on <pool>
+* Import with different root: sudo zpool import -R /mnt <pool>
+* Force import degraded: sudo zpool import -f -F <pool>
+* Recover destroyed pool: sudo zpool import -D <pool>
+* Clear errors: sudo zpool clear <pool>
+
+DATASET OPERATIONS:
+* List all datasets: sudo zfs list -t all
+* Show properties: sudo zfs get all <pool/dataset>
+* Rollback to snapshot: sudo zfs rollback <pool/dataset@snap>
+* Clone snapshot: sudo zfs clone <pool/dataset@snap> <pool/newds>
+* Send/Receive backup: sudo zfs send <pool@snap> | ssh host zfs recv <pool>
+
+TROUBLESHOOTING:
+* Detailed pool status: sudo zpool status -v <pool>
+* Historical data: sudo zpool history <pool>
+* I/O statistics: sudo zpool iostat -v <pool> 1
+* ARC stats: cat /proc/spl/kstat/zfs/arcstats
+* Check checksum errors: sudo zpool status | grep -E '(CKSUM|READ|WRITE)'
+
+1.5 ddrescue Recovery Strategies
+----------------------------------
+PHASE 1 - FAST COPY (skip bad areas):
+  sudo ddrescue -n -v /dev/sdX image.img mapfile.log
+
+PHASE 2 - TRIM (define bad area boundaries):
+  sudo ddrescue -n -A -v /dev/sdX image.img mapfile.log
+
+PHASE 3 - SCRAPE (retry bad sectors):
+  sudo ddrescue -d -r1 -v /dev/sdX image.img mapfile.log
+
+PHASE 4 - AGGRESSIVE RETRY:
+  sudo ddrescue -d -r3 -v /dev/sdX image.img mapfile.log
+
+ADDITIONAL OPTIONS:
+* Direct disk access: -d (bypass kernel cache)
+* Reverse direction: -R (start from end)
+* Cluster size: -c 64 (read 64 sectors at once)
+* Skip size: -K 10M (skip 10MB on error)
+* Max errors: -e 100 (stop after 100 errors)
+* Input position: -i 100M (start at offset)
+* Size limit: -s 50G (copy only 50GB)
+
+WORKING WITH MAPFILE:
+* Show status: ddrescuelog -t mapfile.log
+* Show stats: ddrescuelog -d mapfile.log
+* Merge maps: ddrescuelog -m map1 map2 > merged.log
+
+POST-RECOVERY:
+* Mount image: sudo losetup -fP image.img
+* Mount partition: sudo mount /dev/loop0p1 /mnt
+* Run fsck on image: sudo e2fsck -f /dev/loop0p1"
+            ;;
+
+        "Bootloader & Initialization")
+            text="BOOTLOADER & INITIALIZATION
+===========================
+
+2.1 Complete Chroot Procedure (Encrypted/LVM)
+---------------------------------------------
+STEP 1 - UNLOCK LUKS:
+  sudo cryptsetup luksOpen /dev/sda3 crypt_root
+  # Check status: sudo cryptsetup status crypt_root
+
+STEP 2 - ACTIVATE LVM:
+  sudo vgscan                    # Scan for VGs
+  sudo vgchange -ay              # Activate all VGs
+  sudo lvs                       # List LVs
+
+STEP 3 - MOUNT FILESYSTEMS:
+  sudo mount /dev/mapper/vg0-root /mnt
+  sudo mount /dev/sda2 /mnt/boot
+  sudo mount /dev/sda1 /mnt/boot/efi
+
+STEP 4 - BIND MOUNT API FILESYSTEMS:
+  for i in dev dev/pts proc sys sys/firmware/efi/efivars run; do
+      sudo mount --bind /\$i /mnt/\$i
+  done
+
+STEP 5 - RESOLVE DNS:
+  sudo cp /etc/resolv.conf /mnt/etc/resolv.conf
+
+STEP 6 - ENTER CHROOT:
+  sudo chroot /mnt /bin/bash
+  source /etc/profile
+
+CLEANUP AFTER CHROOT:
+  exit
+  for i in run sys/firmware/efi/efivars sys proc dev/pts dev boot/efi boot; do
+      sudo umount /mnt/\$i 2>/dev/null
+  done
+  sudo umount /mnt
+
+2.2 GRUB Recovery & Reinstallation
+----------------------------------
+GRUB SHELL MANUAL BOOT (LEGACY BIOS):
+  grub> set root=(hd0,msdos1)
+  grub> linux /vmlinuz root=/dev/sda1 ro single
+  grub> initrd /initrd.img
+  grub> boot
+
+GRUB SHELL MANUAL BOOT (UEFI):
+  grub> set root=(hd0,gpt2)
+  grub> linux /boot/vmlinuz-xxx root=/dev/sda2 ro
+  grub> initrd /boot/initrd.img-xxx
+  grub> boot
+
+REINSTALL GRUB (LEGACY BIOS):
+  sudo grub-install --target=i386-pc /dev/sda
+  sudo update-grub
+
+REINSTALL GRUB (UEFI):
+  sudo grub-install --target=x86_64-efi --efi-directory=/boot/efi
+  sudo update-grub
+
+GRUB RESCUE MODE:
+  set prefix=(hd0,gpt2)/boot/grub
+  insmod normal
+  normal
+
+GRUB CONFIGURATION FILES:
+  /etc/default/grub              # Main config
+  /etc/grub.d/                   # Scripts
+  /boot/grub/grub.cfg            # Generated (DO NOT EDIT)
+
+2.3 EFI Boot Management
+-----------------------
+LIST BOOT ENTRIES:
+  sudo efibootmgr -v
+
+CREATE NEW BOOT ENTRY:
+  sudo efibootmgr -c -d /dev/sda -p 1 -L 'Linux' -l '\\EFI\\debian\\shimx64.efi'
+
+DELETE BOOT ENTRY:
+  sudo efibootmgr -b 0003 -B
+
+CHANGE BOOT ORDER:
+  sudo efibootmgr -o 0001,0002,0003
+
+SET NEXT BOOT:
+  sudo efibootmgr -n 0002
+
+EFI SHELL FALLBACK:
+  - Copy shell.efi to ESP as \\EFI\\BOOT\\BOOTX64.EFI
+  - Use 'bcfg boot add' commands in EFI shell
+
+2.4 Kernel Boot Parameters
+--------------------------
+RECOVERY PARAMETERS:
+  single               # Single user mode
+  init=/bin/bash       # Direct shell (bypass init)
+  systemd.unit=rescue.target
+  systemd.unit=emergency.target
+  rd.break             # Break before switch_root
+
+DEBUGGING PARAMETERS:
+  debug                # Verbose kernel messages
+  earlyprintk=vga      # Early boot messages
+  console=ttyS0,115200 # Serial console
+  nomodeset            # Disable KMS
+  acpi=off             # Disable ACPI
+  noapic               # Disable APIC
+  pci=nomsi            # Disable MSI
+
+DISK PARAMETERS:
+  root=/dev/sdXY       # Specify root device
+  rootfstype=ext4      # Force filesystem type
+  rootdelay=10         # Wait for slow devices
+  rootwait             # Wait indefinitely
+
+2.5 Systemd Debugging
+--------------------------
+UNIT MANAGEMENT:
+  systemctl list-units --failed
+  systemctl list-dependencies <unit>
+  systemctl show <unit>
+  systemctl cat <unit>
+  systemctl edit <unit>
+
+JOURNAL ANALYSIS:
+  journalctl -b                    # Current boot
+  journalctl -b -1                 # Previous boot
+  journalctl --list-boots          # List all boots
+  journalctl -p err                # Only errors
+  journalctl -f                    # Follow live
+  journalctl --disk-usage          # Journal size
+  journalctl --vacuum-size=100M    # Cleanup
+
+BOOT ANALYSIS:
+  systemd-analyze                  # Boot time
+  systemd-analyze blame            # Slow units
+  systemd-analyze critical-chain   # Critical path
+  systemd-analyze plot > boot.svg  # Visual graph
+
+TARGET MANAGEMENT:
+  systemctl get-default
+  systemctl set-default multi-user.target
+  systemctl isolate rescue.target
+
+2.6 Initramfs Forensics
+-----------------------
+INSPECT CONTENTS:
+  lsinitramfs /boot/initrd.img-$(uname -r)
+  unmkinitramfs /boot/initrd.img-$(uname -r) /tmp/initrd/
+
+REBUILD INITRAMFS:
+  sudo update-initramfs -u -k $(uname -r)   # Update current
+  sudo update-initramfs -u -k all           # Update all
+  sudo update-initramfs -c -k $(uname -r)   # Create new
+
+DRACUT (RHEL/Fedora):
+  sudo dracut --force
+  sudo dracut --regenerate-all
+  lsinitrd /boot/initramfs-$(uname -r).img
+
+INCLUDE MODULES:
+  echo 'add_drivers+=\" nvme ahci \"' >> /etc/dracut.conf.d/drivers.conf
+  # Or for Debian: echo 'MODULES=dep' >> /etc/initramfs-tools/conf.d/modules"
+            ;;
+
+        "LVM & RAID Management")
+            text="LVM & RAID MANAGEMENT
+=====================
+
+3.1 LVM Architecture
+------------------------------
+PHYSICAL VOLUMES (PV):
+  sudo pvcreate /dev/sda1 /dev/sdb1      # Create PVs
+  sudo pvdisplay -v                       # Detailed PV info
+  sudo pvscan                             # Scan for PVs
+  sudo pvmove /dev/sda1 /dev/sdb1        # Move data between PVs
+  sudo pvremove /dev/sda1                # Remove PV
+
+VOLUME GROUPS (VG):
+  sudo vgcreate vg0 /dev/sda1 /dev/sdb1  # Create VG
+  sudo vgextend vg0 /dev/sdc1            # Add PV to VG
+  sudo vgreduce vg0 /dev/sda1            # Remove PV from VG
+  sudo vgdisplay -v vg0                  # Detailed VG info
+  sudo vgscan                            # Scan for VGs
+  sudo vgchange -an vg0                  # Deactivate VG
+  sudo vgchange -ay vg0                  # Activate VG
+
+LOGICAL VOLUMES (LV):
+  sudo lvcreate -L 50G -n lv_root vg0    # Create 50GB LV
+  sudo lvcreate -l 100%FREE -n lv vg0   # Use all free space
+  sudo lvextend -L +10G /dev/vg0/lv     # Extend by 10GB
+  sudo lvextend -l +100%FREE /dev/vg0/lv # Extend to fill VG
+  sudo lvreduce -L 30G /dev/vg0/lv      # Shrink to 30GB
+  sudo lvremove /dev/vg0/lv_old         # Remove LV
+  sudo lvrename vg0 lv_old lv_new       # Rename LV
+
+RESIZE FILESYSTEM AFTER LV CHANGE:
+  sudo resize2fs /dev/vg0/lv             # Ext4 (grow)
+  sudo xfs_growfs /mnt                   # XFS (grow, mounted)
+  # For shrinking: ALWAYS shrink FS first, then LV!
+
+3.2 LVM Recovery & Troubleshooting
+----------------------------------
+BACKUP/RESTORE VG METADATA:
+  ls /etc/lvm/archive/                   # List backups
+  sudo vgcfgbackup vg0                   # Manual backup
+  sudo vgcfgrestore -f /etc/lvm/archive/vg0_xxxxx.vg vg0
+
+RECOVER MISSING PV:
+  sudo vgchange -ay vg0 --partial        # Activate partial
+  sudo vgreduce --removemissing vg0      # Remove missing PV
+
+LVM CACHE FOR RECOVERY:
+  sudo rm /etc/lvm/cache/.cache          # Clear stale cache
+  sudo vgscan --mknodes                  # Recreate device nodes
+
+THIN PROVISIONING:
+  sudo lvcreate -L 100G --thinpool pool0 vg0
+  sudo lvcreate -V 200G --thin -n vm1 vg0/pool0
+
+LVM SNAPSHOTS:
+  sudo lvcreate -L 5G -s -n snap /dev/vg0/lv
+  sudo lvconvert --merge /dev/vg0/snap   # Restore from snapshot
+
+3.3 mdadm Software RAID
+---------------------------------
+CREATE RAID ARRAYS:
+  # RAID 1 (Mirror):
+  sudo mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sd[ab]1
+  
+  # RAID 5 (Parity):
+  sudo mdadm --create /dev/md0 --level=5 --raid-devices=3 /dev/sd[abc]1
+  
+  # RAID 6 (Dual Parity):
+  sudo mdadm --create /dev/md0 --level=6 --raid-devices=4 /dev/sd[abcd]1
+  
+  # RAID 10 (Striped Mirror):
+  sudo mdadm --create /dev/md0 --level=10 --raid-devices=4 /dev/sd[abcd]1
+
+MONITOR & STATUS:
+  cat /proc/mdstat                       # Quick status
+  sudo mdadm --detail /dev/md0           # Detailed info
+  sudo mdadm --examine /dev/sda1         # Examine member disk
+  watch -n1 cat /proc/mdstat             # Live monitor rebuild
+
+REPLACE FAILED DISK:
+  sudo mdadm /dev/md0 --fail /dev/sda1   # Mark as failed
+  sudo mdadm /dev/md0 --remove /dev/sda1 # Remove from array
+  # Physically replace disk, partition new disk
+  sudo mdadm /dev/md0 --add /dev/sdc1    # Add replacement
+
+STOP/START ARRAYS:
+  sudo mdadm --stop /dev/md0             # Stop array
+  sudo mdadm --assemble --scan           # Reassemble all arrays
+
+SAVE CONFIGURATION:
+  sudo mdadm --detail --scan >> /etc/mdadm/mdadm.conf
+  sudo update-initramfs -u
+
+3.4 SMART Disk Diagnostics
+--------------------------
+BASIC STATUS:
+  sudo smartctl -i /dev/sda              # Disk info
+  sudo smartctl -H /dev/sda              # Health status
+  sudo smartctl -a /dev/sda              # All SMART data
+
+CRITICAL SMART ATTRIBUTES:
+  ID   Attribute                What it means
+  ------------------------------------------------
+  5    Reallocated_Sector_Ct    Bad sectors remapped (CRITICAL)
+  10   Spin_Retry_Count         Spinup failures
+  187  Reported_Uncorrect       Uncorrectable errors
+  188  Command_Timeout          Communication timeouts
+  197  Current_Pending_Sector   Sectors waiting for remap
+  198  Offline_Uncorrectable    Uncorrectable offline errors
+
+SELF-TESTS:
+  sudo smartctl -t short /dev/sda        # Short test (~2min)
+  sudo smartctl -t long /dev/sda         # Long test (hours)
+  sudo smartctl -t conveyance /dev/sda   # After transport
+  sudo smartctl -l selftest /dev/sda     # View test results
+
+NVME SMART:
+  sudo nvme smart-log /dev/nvme0         # NVMe SMART data
+  sudo nvme error-log /dev/nvme0         # Error log
+
+3.5 Low-Level Disk Operations
+-----------------------------
+PARTITION TABLE BACKUP:
+  sudo sfdisk -d /dev/sda > sda.dump     # GPT/MBR backup
+  sudo sfdisk /dev/sda < sda.dump        # Restore
+
+SECURE ERASE:
+  # For HDD:
+  sudo hdparm --user-master u --security-set-pass pass /dev/sda
+  sudo hdparm --user-master u --security-erase pass /dev/sda
+  
+  # For NVMe:
+  sudo nvme format /dev/nvme0n1 -s 1     # User data erase
+
+DISK CLONING:
+  sudo dd if=/dev/sda of=/dev/sdb bs=64K conv=noerror,sync status=progress
+  # Or with pv for progress:
+  sudo pv /dev/sda | dd of=/dev/sdb bs=64K"
+            ;;
+
+        "Forensics & Data Recovery")
+            text="FORENSICS & DATA RECOVERY
+=========================
+
+4.1 The Sleuth Kit (TSK) Reference
+-------------------------------------------
+DISK/PARTITION ANALYSIS:
+  mmls image.dd                          # Show partition table
+  mmls -t gpt image.dd                   # Force GPT interpretation
+  mmstat image.dd                        # Partition type info
+
+FILESYSTEM ANALYSIS:
+  fsstat -o 2048 image.dd                # FS stats at offset
+  fsstat -f ext4 image.dd                # Force filesystem type
+
+FILE LISTING:
+  fls -o 2048 image.dd                   # List root directory
+  fls -r -o 2048 image.dd                # Recursive listing
+  fls -d -o 2048 image.dd                # Deleted files only
+  fls -p -r -o 2048 image.dd             # Full paths
+
+INODE OPERATIONS:
+  istat -o 2048 image.dd 12              # Inode 12 details
+  icat -o 2048 image.dd 12 > file.dat    # Extract file by inode
+  ifind -o 2048 -n /etc/passwd image.dd  # Find inode by path
+  ifind -o 2048 -d 12345 image.dd        # Find inode by data block
+
+TIMELINE ANALYSIS:
+  fls -m '/' -r -o 2048 image.dd > body.txt
+  mactime -b body.txt > timeline.csv
+  mactime -b body.txt -d > timeline_detailed.csv
+  mactime -b body.txt 2024-01-01..2024-12-31 > year_timeline.csv
+
+JOURNAL ANALYSIS:
+  jls -o 2048 image.dd                   # List journal entries
+  jcat -o 2048 image.dd 1                # Extract journal entry
+
+4.2 PhotoRec & TestDisk Usage
+----------------------------------------
+TESTDISK:
+  sudo testdisk /dev/sda                 # Interactive mode
+  sudo testdisk /list                    # List all drives
+  # Options: Analyze > Quick Search > Deep Search > Write
+
+PHOTOREC:
+  sudo photorec /d /recovery /dev/sda1   # Recover to directory
+  # Configure: FileOpt to select file types
+  # Options: Search > Paranoid mode for damaged drives
+
+CUSTOM PHOTOREC SIGNATURE:
+  # Edit ~/.photorec.sig
+  # Format: extension header_hex footer_hex max_size
+  # Example: xyz 0 50584647 EOF 1M
+
+4.3 Scalpel File Carving
+------------------------
+CONFIGURATION (/etc/scalpel/scalpel.conf):
+  # Uncomment file types to recover
+  # Format: extension case_sensitive header footer max_size
+  doc y \\xd0\\xcf\\x11\\xe0\\xa1 EOF 10000000
+  pdf y %PDF EOF 50000000
+  jpg y \\xff\\xd8\\xff \\xff\\xd9 20000000
+
+EXECUTION:
+  sudo scalpel -b -o /recovery /dev/sda1
+  # -b = carve block devices
+  # -o = output directory
+
+4.4 Foremost Carving
+--------------------
+  sudo foremost -t all -i image.dd -o /recovery
+  sudo foremost -t jpg,pdf,doc -i /dev/sda -o /recovery
+  # Config: /etc/foremost.conf
+
+4.5 Bulk Extractor (Forensic Analysis)
+--------------------------------------
+  bulk_extractor -o output_dir image.dd
+  # Extracts: emails, URLs, credit cards, phone numbers
+  # Output: Feature files for analysis
+
+4.6 Memory Forensics with Volatility
+------------------------------------
+PROFILE DETECTION:
+  volatility -f memdump.raw imageinfo
+
+PROCESS ANALYSIS:
+  volatility -f memdump.raw --profile=Win10x64 pslist
+  volatility -f memdump.raw --profile=Win10x64 pstree
+  volatility -f memdump.raw --profile=Win10x64 psscan
+
+NETWORK CONNECTIONS:
+  volatility -f memdump.raw --profile=Win10x64 netscan
+
+COMMAND HISTORY:
+  volatility -f memdump.raw --profile=Win10x64 cmdscan
+  volatility -f memdump.raw --profile=Win10x64 consoles
+
+DUMP PROCESS:
+  volatility -f memdump.raw --profile=Win10x64 procdump -p 1234 -D /output
+
+4.7 Strings & Hex Analysis
+--------------------------
+EXTRACT STRINGS:
+  strings image.dd > all_strings.txt
+  strings -el image.dd > unicode_strings.txt  # Little-endian Unicode
+  strings -n 15 image.dd > long_strings.txt   # Min length 15
+
+HEX ANALYSIS:
+  xxd image.dd | head -100               # First 100 lines
+  xxd -s 0x1000 -l 512 image.dd          # 512 bytes at offset
+  hexdump -C image.dd | less             # Canonical hex+ASCII
+
+BINARY GREP:
+  grep -abo 'password' image.dd          # Find with byte offset
+  grep -Pao '.{0,20}password.{0,20}' image.dd  # Context
+
+4.8 Evidence Integrity
+----------------------
+HASH VERIFICATION:
+  md5sum image.dd > image.md5
+  sha256sum image.dd > image.sha256
+  md5sum -c image.md5                    # Verify
+
+FORENSIC CONTAINER:
+  ewfacquire /dev/sda                    # Create E01 image
+  ewfverify image.E01                    # Verify E01
+  ewfmount image.E01 /mnt/ewf            # Mount E01
+
+WRITE BLOCKER (Software):
+  sudo blockdev --setro /dev/sda         # Set read-only
+  sudo blockdev --setrw /dev/sda         # Set read-write
+  # Or use udev rule for automatic blocking"
+            ;;
+
+        "Hardware Forensics & Identification")
+            text="HARDWARE FORENSICS & IDENTIFICATION
+===================================
+
+5.1 DMI/SMBIOS Analysis
+----------------------------
+SYSTEM INFORMATION:
+  sudo dmidecode -t system               # Full system info
+  sudo dmidecode -t baseboard            # Motherboard info
+  sudo dmidecode -t chassis              # Chassis type
+  sudo dmidecode -t processor            # CPU details
+  sudo dmidecode -t memory               # RAM slots and modules
+
+SPECIFIC QUERIES:
+  sudo dmidecode -s system-manufacturer
+  sudo dmidecode -s system-product-name
+  sudo dmidecode -s system-serial-number
+  sudo dmidecode -s system-uuid
+  sudo dmidecode -s bios-version
+  sudo dmidecode -s bios-release-date
+
+BIOS ANALYSIS:
+  sudo dmidecode -t bios                 # BIOS details
+  sudo dmidecode -t 0                    # Raw BIOS table
+
+5.2 PCI Subsystem Analysis
+---------------------------
+BASIC LISTING:
+  lspci                                  # Simple list
+  lspci -v                               # Verbose
+  lspci -vv                              # Very verbose
+  lspci -vvv                             # All details
+
+DRIVER/KERNEL INFO:
+  lspci -k                               # Show kernel drivers
+  lspci -vmmk                            # Machine-readable with drivers
+
+SPECIFIC QUERIES:
+  lspci -s 00:02.0 -v                    # Specific slot
+  lspci -d 8086:*                        # All Intel devices
+  lspci -nn                              # Show vendor/device IDs
+
+UPDATE PCI DATABASE:
+  sudo update-pciids                     # Update IDs from web
+
+5.3 USB Analysis
+----------------
+DEVICE TREE:
+  lsusb                                  # Simple list
+  lsusb -t                               # Tree view
+  lsusb -v                               # Verbose (all devices)
+  lsusb -v -d 1234:5678                  # Specific device
+
+USB DEVICE PATHS:
+  ls -la /dev/bus/usb/                   # USB device files
+  ls -la /sys/bus/usb/devices/           # Sysfs entries
+
+POWER MANAGEMENT:
+  cat /sys/bus/usb/devices/*/power/control
+
+USB RESET:
+  sudo usbreset 1234:5678                # Reset device
+  # Or: echo 0 > /sys/bus/usb/devices/XXX/authorized; echo 1 > ...
+
+5.4 Block Device Analysis
+------------------------------
+COMPLETE INFO:
+  lsblk -a                               # All devices
+  lsblk -f                               # Filesystem info
+  lsblk -t                               # Topology
+  lsblk -p                               # Full paths
+  lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,UUID,SERIAL,MODEL
+
+PARTITION INFO:
+  sudo fdisk -l /dev/sda                 # MBR/GPT partitions
+  sudo gdisk -l /dev/sda                 # GPT detailed
+  sudo parted /dev/sda print             # All partition info
+
+BLOCK DEVICE ATTRIBUTES:
+  sudo blkid                             # All UUIDs and labels
+  sudo blkid -p /dev/sda1                # Probe device
+
+5.5 Thermal & Sensor Analysis
+-----------------------------
+TEMPERATURE MONITORING:
+  sensors                                # All sensors
+  sensors -j                             # JSON output
+  watch -n 1 sensors                     # Live monitoring
+
+SENSOR DETECTION:
+  sudo sensors-detect                    # Auto-detect sensors
+  sudo modprobe <module>                 # Load detected modules
+
+CPU TEMPERATURE:
+  cat /sys/class/thermal/thermal_zone*/temp
+  cat /sys/class/thermal/thermal_zone*/type
+
+NVIDIA GPU:
+  nvidia-smi                             # GPU status
+  nvidia-smi -q                          # Full query
+  nvidia-smi --query-gpu=temperature.gpu --format=csv
+
+AMD GPU:
+  cat /sys/class/drm/card0/device/hwmon/hwmon*/temp1_input
+
+5.6 Power & Battery Analysis
+----------------------------
+UPOWER (Laptops):
+  upower -e                              # List devices
+  upower -i /org/freedesktop/UPower/devices/battery_BAT0
+  upower -d                              # Dump all info
+
+ACPI:
+  acpi -V                                # All ACPI info
+  cat /sys/class/power_supply/BAT0/*    # Raw battery data
+  cat /proc/acpi/button/lid/LID0/state  # Lid status
+
+POWER CONSUMPTION:
+  sudo powertop                          # Power analysis
+  sudo turbostat                         # CPU power states
+
+5.7 CPU Analysis
+----------------
+CPU INFO:
+  lscpu                                  # Complete CPU info
+  cat /proc/cpuinfo                      # Raw info
+  cpuid                                  # Detailed CPUID
+
+CPU FREQUENCY:
+  cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+  cpupower frequency-info                # Frequency info
+
+MICROCODE:
+  dmesg | grep microcode                 # Microcode status
+  cat /proc/cpuinfo | grep microcode     # Microcode version
+
+5.8 Memory Analysis
+-------------------
+RAM INFO:
+  free -h                                # Memory usage
+  cat /proc/meminfo                      # Detailed memory
+  sudo dmidecode -t memory               # Physical RAM slots
+
+MEMORY TEST:
+  sudo memtester 1G 1                    # Test 1GB, 1 pass
+  # Or boot with memtest86+ from GRUB
+
+NUMA TOPOLOGY:
+  numactl --hardware                     # NUMA topology
+  lscpu | grep NUMA                      # NUMA node count
+
+5.9 Fake Flash Detection (f3)
+-----------------------------
+WRITE TEST:
+  sudo f3write /mnt/usb                  # Write test files
+
+READ TEST:
+  sudo f3read /mnt/usb                   # Verify test files
+
+QUICK TEST:
+  sudo f3probe --destructive /dev/sdc   # Fast, destroys data!
+
+FULL ANALYSIS:
+  # Compare f3write size vs f3read verified size
+  # Fake drives show much less real capacity"
+            ;;
+
+        "Emergency Shell Hacks")
+            text="EMERGENCY SHELL HACKS
+=====================
+
+6.1 Text Processing for Rescue
+------------------------------
+EXTRACT DATA:
+  grep -oE '\\b([0-9]{1,3}\\.){3}[0-9]{1,3}\\b' /var/log/auth.log  # IPs
+  grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}' file  # Emails
+  grep -oP '(?<=password=)[^&]+' file                              # Passwords
+
+FIND LARGE FILES:
+  find / -xdev -type f -size +100M -exec ls -lh {} \\; 2>/dev/null
+  du -ah / 2>/dev/null | sort -hr | head -50
+  ncdu /                                  # Interactive disk usage
+
+COMPARE FILES/DIRS:
+  diff -rq dir1/ dir2/                    # Compare directories
+  comm -23 <(sort file1) <(sort file2)   # Lines only in file1
+  sdiff file1 file2                       # Side-by-side diff
+
+6.2 Process Management
+----------------------
+FIND AND KILL:
+  pgrep -f 'pattern'                      # Find by pattern
+  pkill -9 -f 'pattern'                   # Kill by pattern
+  killall -9 processname                  # Kill by name
+  ps aux | awk '/pattern/{print \$2}' | xargs kill -9
+
+PROCESS TREE:
+  pstree -p                               # Show PIDs
+  pstree -u                               # Show user changes
+  ps auxf                                 # Forest view
+
+RESOURCE USAGE:
+  ps aux --sort=-%mem | head -20          # Top memory users
+  ps aux --sort=-%cpu | head -20          # Top CPU users
+  top -b -n 1 -o %MEM | head -20          # Batch mode
+
+ZOMBIE PROCESSES:
+  ps aux | awk '\$8==\"Z\" {print \$2}'      # Find zombies
+  # Kill parent to clean up zombies
+
+6.3 File Transfer Methods
+-------------------------
+PYTHON HTTP SERVER:
+  python3 -m http.server 8080             # Serve current dir
+  python3 -m http.server 8080 --bind 0.0.0.0  # All interfaces
+
+NETCAT TRANSFER:
+  # Sender:
+  nc -w 3 target_ip 1234 < file.bin
+  tar czf - /path | nc -w 3 target_ip 1234
+  
+  # Receiver:
+  nc -l -p 1234 > file.bin
+  nc -l -p 1234 | tar xzf -
+
+SCP/RSYNC:
+  scp file.bin user@host:/path/
+  rsync -avzP file.bin user@host:/path/
+  rsync -avzP --delete /src/ /dst/        # Mirror with delete
+
+CURL UPLOAD:
+  curl -T file.bin ftp://user:pass@host/path/
+  curl -X POST -F 'file=@local.txt' http://host/upload
+
+6.4 Disk Space Emergency
+------------------------
+QUICK CLEANUP:
+  sudo apt clean                          # Clear apt cache
+  sudo journalctl --vacuum-size=50M       # Trim journal
+  sudo rm -rf /tmp/*                      # Clear temp
+  sudo find /var/log -type f -name '*.gz' -delete  # Old logs
+
+FIND SPACE HOGS:
+  sudo du -sh /* 2>/dev/null | sort -hr
+  sudo lsof +L1                           # Deleted but open files
+  # Restart process to release deleted files
+
+MOUNT TMPFS FOR EMERGENCY:
+  sudo mount -t tmpfs -o size=1G tmpfs /mnt/emergency
+
+6.5 I/O Redirection
+---------------------------
+BASIC:
+  command > file                          # stdout to file
+  command 2> file                         # stderr to file
+  command &> file                         # Both to file
+  command >> file                         # Append stdout
+
+ADVANCED:
+  command 2>&1 | tee log.txt              # Stdout+stderr to screen and file
+  command > >(tee stdout.log) 2> >(tee stderr.log >&2)  # Separate logs
+  exec 3>&1 1>log.txt                     # Save stdout, redirect to file
+
+NAMED PIPES:
+  mkfifo mypipe
+  cmd1 > mypipe &
+  cmd2 < mypipe
+
+6.6 Loop Operations
+--------------
+PROCESS FILES:
+  for f in *.txt; do echo \"Processing \$f\"; done
+  find . -name '*.log' -exec gzip {} \\;
+  find . -name '*.bak' -delete
+
+PARALLEL PROCESSING:
+  ls *.img | xargs -P 4 -I {} gzip {}     # 4 parallel
+  parallel gzip ::: *.img                 # GNU parallel
+
+RETRY LOOP:
+  until command; do echo 'Retrying...'; sleep 5; done
+  for i in {1..5}; do command && break || sleep 10; done
+
+6.7 System Recovery One-Liners
+------------------------------
+RECREATE FSTAB:
+  blkid | awk '{print \$1\" \"\$2}' > /tmp/fstab.hint
+
+FIX BROKEN SYMLINKS:
+  find / -xtype l -delete 2>/dev/null
+
+RECOVER DELETED FILE (if still open):
+  lsof | grep deleted
+  cp /proc/<PID>/fd/<FD> /recovered/file
+
+EMERGENCY READONLY FIX:
+  mount -o remount,rw /
+
+RESET ROOT PASSWORD (from live):
+  chroot /mnt passwd root"
+            ;;
+
+        "Virtualization & Container Rescue")
+            text="VIRTUALIZATION & CONTAINER RESCUE
+=================================
+
+7.1 Loop Devices & Disk Images
+------------------------------
+ATTACH IMAGE:
+  sudo losetup -fP disk.img              # Auto-find loop, scan partitions
+  sudo losetup -a                        # List all loop devices
+  lsblk                                  # Show partitions
+
+MOUNT PARTITIONS:
+  sudo mount /dev/loop0p1 /mnt           # Mount first partition
+  sudo mount -o ro,loop disk.img /mnt    # Direct mount (no partitions)
+
+DETACH:
+  sudo umount /mnt
+  sudo losetup -d /dev/loop0             # Detach specific
+  sudo losetup -D                        # Detach all
+
+CREATE DISK IMAGE:
+  dd if=/dev/zero of=disk.img bs=1M count=1024  # 1GB empty
+  truncate -s 10G disk.img               # Sparse 10GB image
+  sudo mkfs.ext4 disk.img                # Format image
+
+7.2 Docker Recovery
+-------------------
+DOCKER DATA LOCATIONS:
+  /var/lib/docker/                       # Main data directory
+  /var/lib/docker/containers/<ID>/       # Container configs
+  /var/lib/docker/volumes/               # Named volumes
+  /var/lib/docker/overlay2/              # Overlay2 layers
+
+INSPECT WITHOUT DOCKER:
+  cat /var/lib/docker/containers/<ID>/config.v2.json | jq
+  cat /var/lib/docker/containers/<ID>/hostconfig.json | jq
+
+RECOVER CONTAINER DATA:
+  # For overlay2:
+  ls /var/lib/docker/overlay2/<layer_id>/diff/
+  # Copy needed files from the diff directory
+
+EXPORT CONTAINER FILESYSTEM:
+  docker export <container_id> > backup.tar
+  # Without docker: tar from overlay2 merged dir
+
+DOCKER LOG RECOVERY:
+  cat /var/lib/docker/containers/<ID>/*-json.log
+
+FIX DOCKER DAEMON:
+  sudo systemctl stop docker
+  sudo rm -rf /var/lib/docker/network/
+  sudo rm -rf /var/lib/docker/buildkit/
+  sudo systemctl start docker
+
+7.3 QEMU/KVM Image Management
+-----------------------------
+IMAGE INFORMATION:
+  qemu-img info disk.qcow2               # Image details
+  qemu-img check disk.qcow2              # Check integrity
+
+MOUNT QCOW2:
+  sudo modprobe nbd max_part=16
+  sudo qemu-nbd -c /dev/nbd0 disk.qcow2
+  sudo partprobe /dev/nbd0
+  sudo mount /dev/nbd0p1 /mnt
+  
+  # Cleanup:
+  sudo umount /mnt
+  sudo qemu-nbd -d /dev/nbd0
+
+CONVERT FORMATS:
+  qemu-img convert -f qcow2 -O raw disk.qcow2 disk.raw
+  qemu-img convert -f raw -O qcow2 disk.raw disk.qcow2
+  qemu-img convert -c -O qcow2 disk.raw disk_compressed.qcow2
+
+RESIZE IMAGE:
+  qemu-img resize disk.qcow2 +10G        # Increase by 10GB
+  # Then resize partition inside image
+
+SNAPSHOT MANAGEMENT:
+  qemu-img snapshot -c snap1 disk.qcow2  # Create snapshot
+  qemu-img snapshot -l disk.qcow2        # List snapshots
+  qemu-img snapshot -a snap1 disk.qcow2  # Apply snapshot
+  qemu-img snapshot -d snap1 disk.qcow2  # Delete snapshot
+
+REPAIR QCOW2:
+  qemu-img check -r all disk.qcow2       # Repair image
+
+7.4 VirtualBox Images
+---------------------
+CONVERT VDI TO RAW:
+  VBoxManage clonehd disk.vdi disk.raw --format RAW
+  
+MOUNT VDI:
+  sudo modprobe nbd
+  sudo qemu-nbd -c /dev/nbd0 disk.vdi
+  sudo mount /dev/nbd0p1 /mnt
+
+COMPACT VDI:
+  VBoxManage modifyhd disk.vdi --compact
+
+7.5 VMware Images
+-----------------
+CONVERT VMDK TO RAW:
+  qemu-img convert -f vmdk -O raw disk.vmdk disk.raw
+
+MOUNT VMDK:
+  sudo modprobe nbd
+  sudo qemu-nbd -c /dev/nbd0 disk.vmdk
+  sudo mount /dev/nbd0p1 /mnt
+
+7.6 LXC/LXD Container Recovery
+------------------------------
+CONTAINER LOCATIONS:
+  /var/lib/lxc/                          # LXC containers
+  /var/snap/lxd/common/lxd/storage-pools/  # LXD storage
+
+BACKUP CONTAINER:
+  sudo tar -cvzf container_backup.tar.gz /var/lib/lxc/<name>
+
+EXPORT LXD:
+  lxc export <container> backup.tar.gz
+
+ACCESS CONTAINER ROOTFS:
+  ls /var/lib/lxc/<name>/rootfs/
+  sudo chroot /var/lib/lxc/<name>/rootfs/
+
+7.7 Hyper-V VHD/VHDX
+--------------------
+MOUNT ON LINUX:
+  sudo apt install libguestfs-tools
+  sudo guestmount -a disk.vhdx -i /mnt
+  
+  # Or with nbd:
+  sudo qemu-nbd -c /dev/nbd0 disk.vhdx
+  sudo mount /dev/nbd0p2 /mnt
+
+CONVERT VHDX:
+  qemu-img convert -f vhdx -O qcow2 disk.vhdx disk.qcow2"
+            ;;
+
+        "Network Administration")
+            text="NETWORK ADMINISTRATION
+======================
+
+8.1 IP Configuration & Management
+---------------------------------
+SHOW CONFIGURATION:
+  ip addr show                           # All interfaces
+  ip -4 addr show                        # IPv4 only
+  ip -6 addr show                        # IPv6 only
+  ip link show                           # Link layer info
+  ip -s link show eth0                   # Statistics
+
+CONFIGURE IP:
+  sudo ip addr add 192.168.1.100/24 dev eth0
+  sudo ip addr del 192.168.1.100/24 dev eth0
+  sudo ip link set eth0 up
+  sudo ip link set eth0 down
+
+ROUTING:
+  ip route show                          # Show routes
+  ip route get 8.8.8.8                   # Route to destination
+  sudo ip route add default via 192.168.1.1
+  sudo ip route add 10.0.0.0/8 via 192.168.1.254
+  sudo ip route del default
+
+ARP/NEIGHBOUR TABLE:
+  ip neigh show                          # ARP table
+  sudo ip neigh flush all                # Clear ARP cache
+  sudo ip neigh add 192.168.1.1 lladdr aa:bb:cc:dd:ee:ff dev eth0
+
+8.2 NetworkManager CLI (nmcli)
+------------------------------
+CONNECTION STATUS:
+  nmcli general status                   # Overall status
+  nmcli connection show                  # All connections
+  nmcli device status                    # Device status
+
+WIFI MANAGEMENT:
+  nmcli device wifi list                 # Scan networks
+  nmcli device wifi connect SSID password PASSWORD
+  nmcli connection down 'WiFi Name'
+  nmcli connection up 'WiFi Name'
+
+CREATE CONNECTIONS:
+  nmcli con add con-name 'Static' type ethernet ifname eth0 \\
+    ip4 192.168.1.100/24 gw4 192.168.1.1
+  nmcli con mod 'Static' ipv4.dns '8.8.8.8 8.8.4.4'
+  nmcli con up 'Static'
+
+HOTSPOT:
+  nmcli device wifi hotspot ssid MyHotspot password MyPassword
+
+8.3 DNS Troubleshooting
+-----------------------
+RESOLUTION TESTS:
+  dig google.com                         # Full DNS query
+  dig +short google.com                  # Just IP
+  dig @8.8.8.8 google.com                # Specific server
+  nslookup google.com                    # Alternative
+  host google.com                        # Simple lookup
+
+REVERSE DNS:
+  dig -x 8.8.8.8                         # PTR record
+  host 8.8.8.8                           # Simple reverse
+
+DNS CACHE:
+  systemd-resolve --flush-caches         # Systemd
+  sudo systemctl restart systemd-resolved
+  sudo resolvectl statistics             # Cache stats
+
+CONFIGURATION:
+  cat /etc/resolv.conf                   # Current DNS
+  resolvectl status                      # Systemd-resolved status
+
+8.4 Firewall Management
+-----------------------
+IPTABLES BASICS:
+  sudo iptables -L -v -n                 # List all rules
+  sudo iptables -L -t nat                # NAT table
+  sudo iptables -F                       # Flush all rules
+  sudo iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+  sudo iptables -A INPUT -j DROP
+
+SAVE/RESTORE:
+  sudo iptables-save > /tmp/iptables.rules
+  sudo iptables-restore < /tmp/iptables.rules
+
+NFTABLES:
+  sudo nft list ruleset                  # Show all rules
+  sudo nft flush ruleset                 # Clear all
+
+UFW (Uncomplicated Firewall):
+  sudo ufw status verbose
+  sudo ufw enable/disable
+  sudo ufw allow 22/tcp
+  sudo ufw deny from 192.168.1.100
+
+8.5 Port Scanning (nmap)
+------------------------
+BASIC SCANS:
+  nmap 192.168.1.1                       # Default scan
+  nmap -p 1-65535 192.168.1.1            # All ports
+  nmap -p 22,80,443 192.168.1.1          # Specific ports
+  nmap -sU -p 53,67,68 192.168.1.1       # UDP ports
+
+NETWORK DISCOVERY:
+  nmap -sn 192.168.1.0/24                # Ping sweep
+  nmap -sP 192.168.1.0/24                # Host discovery
+
+SERVICE/OS DETECTION:
+  nmap -sV 192.168.1.1                   # Service versions
+  nmap -O 192.168.1.1                    # OS detection
+  nmap -A 192.168.1.1                    # Aggressive scan
+
+STEALTH SCANS:
+  sudo nmap -sS 192.168.1.1              # SYN scan
+  sudo nmap -sN 192.168.1.1              # NULL scan
+
+8.6 Packet Capture & Analysis
+-----------------------------
+TCPDUMP:
+  sudo tcpdump -i eth0                   # All traffic
+  sudo tcpdump -i any                    # All interfaces
+  sudo tcpdump -i eth0 port 80           # HTTP only
+  sudo tcpdump -i eth0 host 192.168.1.1  # Specific host
+  sudo tcpdump -i eth0 -w capture.pcap   # Save to file
+  sudo tcpdump -r capture.pcap           # Read from file
+  sudo tcpdump -i eth0 -n -c 100         # Capture 100 packets
+
+TSHARK (CLI Wireshark):
+  tshark -i eth0                         # Capture
+  tshark -r capture.pcap                 # Read file
+  tshark -i eth0 -f 'port 443'           # Capture filter
+  tshark -r file.pcap -Y 'http.request'  # Display filter
+
+8.7 Connection Testing
+----------------------
+PING VARIANTS:
+  ping -c 4 google.com                   # 4 pings
+  ping -i 0.2 google.com                 # Fast ping
+  ping -s 1472 -M do google.com          # MTU test
+
+TRACEROUTE:
+  traceroute google.com                  # ICMP
+  traceroute -T -p 443 google.com        # TCP
+  mtr google.com                         # Live trace
+
+PORT TESTING:
+  nc -zv 192.168.1.1 22                  # Check port
+  nc -zv 192.168.1.1 1-1000              # Port range
+  telnet 192.168.1.1 80                  # Test connection
+
+BANDWIDTH:
+  iperf3 -s                              # Server mode
+  iperf3 -c server_ip                    # Client test
+
+8.8 Wireless Troubleshooting
+----------------------------
+INTERFACE INFO:
+  iw dev                                 # Wireless devices
+  iw wlan0 info                          # Interface details
+  iw wlan0 link                          # Connection status
+  iwconfig wlan0                         # Legacy info
+
+SCAN NETWORKS:
+  sudo iw wlan0 scan | grep -E 'SSID|signal'
+  nmcli device wifi list
+
+MONITOR MODE:
+  sudo ip link set wlan0 down
+  sudo iw wlan0 set monitor control
+  sudo ip link set wlan0 up
+
+DRIVER INFO:
+  lspci -k | grep -A3 Network
+  modinfo <driver_name>"
+            ;;
+
+        "Step-by-Step Rescue Scenarios")
+            text="STEP-BY-STEP RESCUE SCENARIOS
+=============================
+
+SCENARIO 1: FORGOTTEN ROOT PASSWORD
+------------------------------------
+METHOD A - Via Chroot:
+  1. Boot from live USB
+  2. sudo mount /dev/sdXY /mnt
+  3. for i in dev dev/pts proc sys run; do sudo mount -B /\$i /mnt/\$i; done
+  4. sudo chroot /mnt
+  5. passwd root
+  6. passwd <username>
+  7. exit && sudo umount -R /mnt
+
+METHOD B - Via GRUB (systemd):
+  1. At GRUB, press 'e' to edit
+  2. Find line starting with 'linux'
+  3. Add: init=/bin/bash
+  4. Press Ctrl+X or F10
+  5. mount -o remount,rw /
+  6. passwd root
+  7. exec /sbin/init
+
+SCENARIO 2: BROKEN APT/DPKG
+---------------------------
+STEP 1 - Clear locks:
+  sudo rm /var/lib/dpkg/lock*
+  sudo rm /var/lib/apt/lists/lock
+  sudo rm /var/cache/apt/archives/lock
+
+STEP 2 - Reconfigure:
+  sudo dpkg --configure -a
+
+STEP 3 - Fix dependencies:
+  sudo apt update --fix-missing
+  sudo apt install -f
+  sudo apt --fix-broken install
+
+STEP 4 - If still broken:
+  sudo dpkg --remove --force-remove-reinstreq <package>
+  sudo apt clean
+  sudo apt update
+
+SCENARIO 3: FULL ROOT PARTITION
+-------------------------------
+EMERGENCY ACCESS:
+  1. CTRL+ALT+F2 (TTY, may work when GUI fails)
+  2. Login as root
+
+QUICK CLEANUP:
+  sudo apt clean
+  sudo journalctl --vacuum-size=50M
+  sudo rm -rf /tmp/*
+  sudo find /var/log -name '*.gz' -delete
+  sudo truncate -s 0 /var/log/syslog
+  sudo truncate -s 0 /var/log/kern.log
+
+FIND LARGE FILES:
+  sudo du -ah / 2>/dev/null | sort -hr | head -50
+  sudo find / -xdev -type f -size +100M
+
+IF CANNOT LOGIN (from live USB):
+  sudo mount /dev/sdXY /mnt
+  sudo rm -rf /mnt/var/cache/apt/archives/*.deb
+  sudo rm -rf /mnt/tmp/*
+
+SCENARIO 4: GRUB COMPLETELY MISSING
+------------------------------------
+FROM LIVE USB:
+  1. Mount root: sudo mount /dev/sdXY /mnt
+  2. Mount EFI (if UEFI):
+     sudo mount /dev/sda1 /mnt/boot/efi
+  3. Bind mount:
+     for i in dev dev/pts proc sys run; do sudo mount -B /\$i /mnt/\$i; done
+  4. Chroot: sudo chroot /mnt
+  5. Reinstall GRUB:
+     # For BIOS:
+     grub-install /dev/sda
+     # For UEFI:
+     grub-install --target=x86_64-efi --efi-directory=/boot/efi
+  6. update-grub
+  7. exit && sudo umount -R /mnt
+
+SCENARIO 5: KERNEL PANIC ON BOOT
+--------------------------------
+DIAGNOSE:
+  - Note the panic message (take photo)
+  - Common causes: driver issues, filesystem corruption
+
+FIX - Boot older kernel:
+  1. Hold SHIFT at boot to show GRUB menu
+  2. Select 'Advanced options'
+  3. Choose an older kernel version
+
+FIX - Rebuild initramfs:
+  1. Boot from live USB
+  2. Chroot into system
+  3. update-initramfs -u -k all
+  4. (or) dracut --force --regenerate-all
+  5. Reboot
+
+FIX - Disable problematic module:
+  1. At GRUB, edit kernel line
+  2. Add: modprobe.blacklist=<module_name>
+
+SCENARIO 6: LUKS ENCRYPTED SYSTEM WON'T BOOT
+--------------------------------------------
+FROM LIVE USB:
+  1. Open LUKS: sudo cryptsetup luksOpen /dev/sda3 crypt_root
+     (Enter your passphrase)
+  2. If LVM: sudo vgchange -ay
+  3. Mount: sudo mount /dev/mapper/vg0-root /mnt
+  4. Mount boot: sudo mount /dev/sda2 /mnt/boot
+  5. Bind mount API filesystems
+  6. Chroot and fix issue
+  7. Regenerate initramfs: update-initramfs -u -k all
+  8. Exit and close: sudo cryptsetup luksClose crypt_root
+
+SCENARIO 7: X SERVER / GUI WON'T START
+--------------------------------------
+DIAGNOSE:
+  CTRL+ALT+F2 (switch to TTY)
+  cat /var/log/Xorg.0.log | grep -E '(EE|WW)'
+  journalctl -u gdm (or lightdm, sddm)
+
+QUICK FIXES:
+  sudo dpkg-reconfigure gdm3
+  sudo apt install --reinstall xserver-xorg-core
+  sudo apt install --reinstall nvidia-driver-XXX  # If NVIDIA
+
+RESET DISPLAY MANAGER:
+  sudo systemctl restart gdm3
+
+SAFE MODE (nomodeset):
+  1. At GRUB, edit kernel line
+  2. Add: nomodeset
+  3. Boot and fix driver
+
+SCENARIO 8: SYSTEM WON'T SHUTDOWN/REBOOT
+----------------------------------------
+FORCE SHUTDOWN:
+  echo 1 > /proc/sys/kernel/sysrq
+  echo o > /proc/sysrq-trigger              # Poweroff
+  # Or: echo b > /proc/sysrq-trigger        # Reboot (unsafe)
+
+SAFE SYSRQ SEQUENCE (REISUB):
+  Alt+SysRq+R  (Raw keyboard)
+  Alt+SysRq+E  (Terminate all)
+  Alt+SysRq+I  (Kill all)
+  Alt+SysRq+S  (Sync)
+  Alt+SysRq+U  (Unmount)
+  Alt+SysRq+B  (Reboot)
+
+SCENARIO 9: SSH INTO BROKEN SYSTEM (initramfs)
+----------------------------------------------
+SETUP (before disaster):
+  sudo apt install dropbear-initramfs
+  Edit /etc/dropbear-initramfs/authorized_keys
+  sudo update-initramfs -u
+
+WHEN SYSTEM HANGS AT INITRAMFS:
+  ssh root@<IP>
+  # You're in initramfs, can unlock LUKS manually:
+  cryptsetup luksOpen /dev/sda3 crypt_root
+  exit
+
+SCENARIO 10: RECOVER FROM BAD FSTAB
+-----------------------------------
+BOOT FAILS DUE TO INCORRECT FSTAB:
+  1. At boot failure, you may get emergency shell
+  2. mount -o remount,rw /
+  3. nano /etc/fstab (comment out bad line with #)
+  4. reboot
+
+FROM LIVE USB:
+  sudo mount /dev/sdXY /mnt
+  sudo nano /mnt/etc/fstab
+  # Comment problematic lines
+  # Verify UUIDs: blkid
+  sudo umount /mnt
+  
+REGENERATE FSTAB HINTS:
+  blkid | awk '{print \$1, \$2}'"
+            ;;
+    esac
+
+    echo "$text" | zenity --text-info --title="$TITLE - $chapter" --width=1100 --height=850 --font="Monospace 11"
+}
+
+while true; do
+    choice=$(zenity --list --title="$TITLE" --column="Topic" --width=600 --height=700 \
+        "Disk & Filesystem Repair" \
+        "Bootloader & Initialization" \
+        "LVM & RAID Management" \
+        "Forensics & Data Recovery" \
+        "Hardware Forensics & Identification" \
+        "Emergency Shell Hacks" \
+        "Virtualization & Container Rescue" \
+        "Network Administration" \
+        "Step-by-Step Rescue Scenarios" \
+        "Exit")
+
+    if [ -z "$choice" ] || [ "$choice" == "Exit" ]; then
+        exit 0
+    fi
+
+    show_content "$choice"
+done

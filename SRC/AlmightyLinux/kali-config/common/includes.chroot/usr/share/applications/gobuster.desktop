@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Gobuster
+Comment=Fast directory and DNS brute-forcer (wordlist-based)
+Comment[tr]=Hızlı dizin ve DNS kaba kuvvet aracı (sözlük tabanlı)
+Comment[es]=Forzador rápido de directorios y DNS (basado en wordlist)
+Comment[fr]=Brute-forcer rapide de répertoires et DNS (à base de wordlist)
+Comment[de]=Schneller Verzeichnis- und DNS-Bruteforcer (wortlistenbasiert)
+Comment[ar]=كسر سريع للمجلدات و DNS (قائم على قوائم الكلمات)
+Comment[ru]=Быстрый брутфорсер директорий и DNS (на словарях)
+Comment[zh]=快速目录与 DNS 暴力工具（基于字典）
+Comment[ja]=高速ディレクトリおよび DNS ブルートフォースツール（ワードリストベース）
+Comment[ko]=빠른 디렉터리 및 DNS 무차별 도구 (단어목록 기반)
+Comment[pt]=Força bruta rápida de diretórios e DNS (baseado em wordlist)
+Comment[it]=Brute-forcer veloce di directory e DNS (basato su wordlist)
+Comment[nl]=Snelle directory- en DNS-brute-forcer (woordlijstgebaseerd)
+Comment[sv]=Snabb katalog- och DNS-bruteforcer (ordlista-baserad)
+Comment[pl]=Szybki brute-forcer katalogów i DNS (oparty na słowniku)
+Exec=mate-terminal -- bash -c "gobuster -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/gobuster.png
+Categories=Domain;
+StartupNotify=false

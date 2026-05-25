@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=mrcrypt2
+Comment=Cryptocurrency address analysis and OSINT toolkit
+Comment[tr]=Kripto para adresi analizi ve OSINT araç seti
+Comment[es]=Kit de herramientas de OSINT y análisis de direcciones de criptomonedas
+Comment[fr]=Boîte d'outils d'analyse d'adresses de crypto-monnaie et d'OSINT
+Comment[de]=Toolkit für Kryptowährungs-Adressanalyse und OSINT
+Comment[ar]=مجموعة أدوات OSINT وتحليل عناوين العملات المشفرة
+Comment[ru]=Набор инструментов для анализа адресов криптовалют и OSINT
+Comment[zh]=加密货币地址分析和OSINT工具包
+Comment[ja]=暗号通貨アドレス分析およびOSINTツールキット
+Comment[ko]=암호 화폐 주소 분석 및 OSINT 툴킷
+Comment[pt]=Conjunto de ferramentas de análise de endereços de criptomoeda e OSINT
+Comment[it]=Toolkit per analisi di indirizzi di criptovaluta e OSINT
+Comment[nl]=Cryptocurrency adres analyse en OSINT toolkit
+Comment[sv]=Verktygslåda för analys av kryptovalutaadresser och OSINT
+Comment[pl]=Zestaw narzędzi do analizy adresów kryptowalut i OSINT
+Exec=mate-terminal -- bash -c "mrcrypt2; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/mrcrypt2.png
+Categories=Analysis;
+StartupNotify=false

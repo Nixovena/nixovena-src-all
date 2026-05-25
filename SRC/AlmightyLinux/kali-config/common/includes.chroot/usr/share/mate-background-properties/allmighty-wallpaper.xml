@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE wallpapers SYSTEM "mate-wp-list.dtd">
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>Almighty</name>
+    <filename>/usr/share/backgrounds/almighty.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Almighty 2</name>
+    <filename>/usr/share/backgrounds/almighty2.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Default</name>
+    <filename>/usr/share/backgrounds/default.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Eye</name>
+    <filename>/usr/share/backgrounds/eye.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Eye 2</name>
+    <filename>/usr/share/backgrounds/eye2.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+    <wallpaper deleted="false">
+    <name>Claw</name>
+    <filename>/usr/share/backgrounds/claw.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+    <wallpaper deleted="false">
+    <name>Teaser</name>
+    <filename>/usr/share/backgrounds/teaser.png</filename>
+    <options>zoom</options>
+    <pcolor>#2c001e</pcolor>
+    <scolor>#2c001e</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+</wallpapers>

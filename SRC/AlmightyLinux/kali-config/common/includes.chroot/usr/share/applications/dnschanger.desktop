@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=DNSChanger
+Comment=Change system DNS settings for privacy and security
+Comment[tr]=Gizlilik ve güvenlik için sistem DNS ayarlarını değiştir
+Comment[es]=Cambia la configuración de DNS del sistema para privacidad y seguridad
+Comment[fr]=Modifie les paramètres DNS du système pour la confidentialité et la sécurité
+Comment[de]=Ändert die DNS-Einstellungen des Systems für Datenschutz und Sicherheit
+Comment[ar]=تغيير إعدادات DNS النظام للخصوصية والأمان
+Comment[ru]=Изменение настроек DNS системы для обеспечения конфиденциальности и безопасности
+Comment[zh]=更改系统DNS设置以实现隐私和安全
+Comment[ja]=プライバシーとセキュリティのためのシステムDNS設定の変更
+Comment[ko]=개인정보 보호 및 보안을 위한 시스템 DNS 설정 변경
+Comment[pt]=Altera as configurações de DNS do sistema para privacidade e segurança
+Comment[it]=Modifica le impostazioni DNS del sistema per privacy e sicurezza
+Comment[nl]=Wijzig systeem DNS-instellingen voor privacy en beveiliging
+Comment[sv]=Ändra systemets DNS-inställningar för sekretess och säkerhet
+Comment[pl]=Zmień ustawienia DNS systemu dla prywatności i bezpieczeństwa
+Exec=mate-terminal -- bash -c "dnschanger; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Zenclora Package Manager (zpm) - Wrapper for zen command
+
+/usr/bin/zen "$@"

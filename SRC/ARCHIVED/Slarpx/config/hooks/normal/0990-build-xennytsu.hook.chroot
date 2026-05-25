@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+# Compile Xennytsu Engine with security hardening flags
+echo "Compiling Xennytsu Engine..."
+
+if command -v gcc >/dev/null 2>&1; then
+    gcc -O2 -Wall -Wextra -Werror=format-security -Werror=implicit-function-declaration \
+        -D_FORTIFY_SOURCE=2 \
+        -fstack-protector-strong -fPIE \
+        -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack \
+        -pie \
+        -o /usr/bin/xennytsu-engine /usr/src/xennytsu/xennytsu.c
+    chmod 755 /usr/bin/xennytsu-engine
+    echo "Xennytsu Engine compiled and installed to /usr/bin/xennytsu-engine"
+else
+    echo "ERROR: GCC not found. Cannot compile Xennytsu Engine."
+    exit 1
+fi

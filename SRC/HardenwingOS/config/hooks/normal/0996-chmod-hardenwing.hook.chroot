@@ -1,0 +1,31 @@
+#!/bin/bash
+# =============================================================================
+# Chmod Scripts Hook
+# Ensures custom scripts placed in the chroot have correct execute permissions.
+# =============================================================================
+
+set -e
+
+echo "I: Setting execute permissions for custom scripts..."
+
+# Make block-unsafe-logins executable
+if [ -f /usr/libexec/hardenwing/block-unsafe-logins ]; then
+    chmod 755 /usr/libexec/hardenwing/block-unsafe-logins
+fi
+
+# Make hide-hardware-info executable
+# if [ -f /usr/libexec/hardenwing/hide-hardware-info ]; then
+#     chmod 755 /usr/libexec/hardenwing/hide-hardware-info
+# fi
+
+# Enable PAM config
+pam-auth-update --enable block-unsafe-logins-hw
+
+# Create 'proc' group if it doesn't exist (needed for hidepid=2)
+getent group proc >/dev/null || groupadd -r proc
+
+# Enable systemd services
+# systemctl enable hide-hardware-info-hw.service
+systemctl enable usbguard.service
+systemctl enable proc-hidepid-hw.service
+

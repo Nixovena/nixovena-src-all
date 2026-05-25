@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=theHarvester
+Comment=E-mail, subdomain and people names harvester
+Comment[tr]=E-posta, alt alan adı ve kişi adı toplayıcı
+Comment[es]=Recopilador de correos electrónicos, subdominios y nombres
+Comment[fr]=Collecteur d'e-mails, de sous-domaines et de noms de personnes
+Comment[de]=E-Mail-, Subdomain- und Personennamen-Harvester
+Comment[ar]=أداة جمع البريد الإلكتروني والنطاق الفرعي وأسماء الأشخاص
+Comment[ru]=Сборщик электронных писем, поддоменов и имен людей
+Comment[zh]=电子邮件、子域和人名收集器
+Comment[ja]=電子メール、サブドメイン、個人名ハーベスター
+Comment[ko]=이메일, 하위 도메인 및 사람 이름 수집기
+Comment[pt]=Seletor de e-mail, subdomínio e nomes de pessoas
+Comment[it]=Raccoglitore di e-mail, sottodomini e nomi di persone
+Comment[nl]=E-mail, subdomein en namen verzamelaar
+Comment[sv]=E-post, underdomän och personnamenssamlare
+Comment[pl]=Narzędzie do zbierania wiadomości e-mail, subdomen i nazwisk osób
+Exec=mate-terminal -- bash -c "theHarvester -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/theharvaster.png
+Categories=Domain;
+StartupNotify=false

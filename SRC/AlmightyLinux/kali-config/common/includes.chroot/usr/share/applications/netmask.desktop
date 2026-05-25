@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=netmask
+Comment=Utility for determining network masks
+Comment[tr]=Ağ maskelerini belirleme aracı
+Comment[es]=Utilidad para determinar máscaras de red
+Comment[fr]=Utilitaire pour déterminer les masques de réseau
+Comment[de]=Dienstprogramm zur Bestimmung von Netzwerkmasken
+Comment[ar]=أداة مساعدة لتحديد أقنعة الشبكة
+Comment[ru]=Утилита для определения сетевых масок
+Comment[zh]=确定子网掩码的实用程序
+Comment[ja]=ネットワークマスクを決定するためのユーティリティ
+Comment[ko]=네트워크 마스크를 결정하기 위한 유틸리티
+Comment[pt]=Utilitário para determinar máscaras de rede
+Comment[it]=Utilità per determinare le maschere di rete
+Comment[nl]=Hulpmiddel voor het bepalen van netwerkmaskers
+Comment[sv]=Verktyg för att bestämma nätverksmasker
+Comment[pl]=Narzędzie do określania masek sieciowych
+Exec=mate-terminal -- bash -c "netmask -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=NetworkOSINT;
+StartupNotify=false

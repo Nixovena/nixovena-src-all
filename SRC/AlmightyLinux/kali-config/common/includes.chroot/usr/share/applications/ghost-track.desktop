@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Ghost Track
+Comment=IP Address and Phone Number Tracker
+Comment[tr]=IP Adresi ve Telefon Numarası İzleyici
+Comment[es]=Rastreador de direcciones IP y números de teléfono
+Comment[fr]=Suivi des adresses IP et des numéros de teléfono
+Comment[de]=IP-Adress- und Telefonnummern-Tracker
+Comment[ar]=متتبع عناوين IP وأرقام الهواتف
+Comment[ru]=Трекер IP-адресов и номеров телефонов
+Comment[zh]=IP 地址和电话号码跟踪器
+Comment[ja]=IPアドレスおよび電話番号トラッカー
+Comment[ko]=IP 주소 및 전화번호 추적기
+Comment[pt]=Rastreador de endereços IP e números de telefone
+Comment[it]=Tracker di indirizzi IP e numeri di telefono
+Comment[nl]=IP-adres en telefoonnummer tracker
+Comment[sv]=IP-adress- och telefonnummerspårare
+Comment[pl]=Moduł śledzący adresy IP i numery telefonów
+Exec=mate-terminal -- bash -c "ghost-track; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Phone;
+StartupNotify=false

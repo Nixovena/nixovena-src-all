@@ -1,0 +1,36 @@
+#!/bin/bash
+# Slarpx DNS Guard - Static Implementation
+# This script ensures /etc/resolv.conf is correctly set and locked.
+# NetworkManager is handled via static config files in /etc/NetworkManager/conf.d/
+
+# 1. Unlock file if it was previously locked (must be done before any write)
+chattr -i /etc/resolv.conf 2>/dev/null || true
+
+# 2. Break symlinks if they exist (systemd-resolved etc.)
+if [ -L "/etc/resolv.conf" ]; then
+    rm -f /etc/resolv.conf
+fi
+
+# 3. Enforce Quad9 DNS
+# Use tee instead of cat redirect for better error visibility
+printf '%s\n' \
+    "# Hardened Slarpx DNS Configuration" \
+    "# Forced by slarpx-dns systemd service and NetworkManager dispatcher" \
+    "nameserver 9.9.9.9" \
+    "nameserver 149.112.112.112" \
+    "options edns0 trust-ad" \
+    > /etc/resolv.conf
+
+# Verify write succeeded
+if [ ! -s /etc/resolv.conf ]; then
+    echo "[-] DNS Guard: FAILED to write /etc/resolv.conf"
+    exit 1
+fi
+
+# 4. Set strict permissions
+chmod 644 /etc/resolv.conf
+
+# 5. Lock it down (Immutable Bit) - prevents any modification including by NM
+chattr +i /etc/resolv.conf 2>/dev/null || true
+
+echo "[+] DNS Guard: Quad9 enforced and locked successfully."

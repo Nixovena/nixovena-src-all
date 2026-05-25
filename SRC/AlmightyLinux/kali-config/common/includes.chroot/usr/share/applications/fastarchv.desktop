@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Fastarchv
+Comment=Onion site archiver
+Comment[tr]=Onion site arşivleyici
+Comment[es]=Archivador de sitios Onion
+Comment[fr]=Archiveur de sites Onion
+Comment[de]=Onion-Site-Archivierer
+Comment[ar]=أداة أرشفة مواقع Onion
+Comment[ru]=Архиватор Onion-сайтов
+Comment[zh]=Onion 网站存档器
+Comment[ja]=Onionサイトアーカイバー
+Comment[ko]=Onion 사이트 아카이버
+Comment[pt]=Arquivador de sites Onion
+Comment[it]=Archiviatore di siti Onion
+Comment[nl]=Onion site archiveerder
+Comment[sv]=Onion-platsarkiverare
+Comment[pl]=Archiwizator stron Onion
+Exec=mate-terminal -- bash -c "fastarchv; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/fastarchv.png
+Categories=Darknet;
+StartupNotify=false

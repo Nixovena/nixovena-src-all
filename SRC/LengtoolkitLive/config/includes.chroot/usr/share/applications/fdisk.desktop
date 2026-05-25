@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Fdisk
+Comment=LengToolkit - fdisk
+Exec=mate-terminal -- bash -c "sudo fdisk --help; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

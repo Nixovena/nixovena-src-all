@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Onesixtyone
+Comment=SNMP scanner for network device discovery
+Comment[tr]=Ağ cihazlarını keşfetmek için SNMP tarayıcı
+Comment[es]=Escáner SNMP para descubrimiento de dispositivos de red
+Comment[fr]=Scanner SNMP pour découverte de périphériques réseau
+Comment[de]=SNMP-Scanner zur Entdeckung von Netzwerkgeräten
+Comment[ar]=ماسح SNMP لاكتشاف أجهزة الشبكة
+Comment[ru]=SNMP-сканер для обнаружения сетевых устройств
+Comment[zh]=用于网络设备发现的 SNMP 扫描器
+Comment[ja]=ネットワーク機器検出のための SNMP スキャナ
+Comment[ko]=네트워크 장치 검색을 위한 SNMP 스캐너
+Comment[pt]=Scanner SNMP para descoberta de dispositivos de rede
+Comment[it]=Scanner SNMP per scoperta dispositivi di rete
+Comment[nl]=SNMP-scanner voor netwerkapparaatdetectie
+Comment[sv]=SNMP-skanner för upptäckt av nätverksenheter
+Comment[pl]=Skaner SNMP do wykrywania urządzeń sieciowych
+Exec=mate-terminal -- bash -c "onesixtyone -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/onesixtyone.png
+Categories=NetworkOSINT;
+StartupNotify=false

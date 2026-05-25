@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import requests
+import socket
+import os
+
+def main():
+    print("\033[1;36m" + "="*60)
+    print("           RESCUEXY NET")
+    print("="*60 + "\033[0m")
+
+    print("\033[1;33m[ LOCAL ]\033[0m")
+    print(f"Hostname: {socket.gethostname()}")
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        print(f"IP: {s.getsockname()[0]}")
+        s.close()
+    except:
+        pass
+
+    print("\n\033[1;33m[ EXTERNAL ]\033[0m")
+    try:
+        ip = requests.get('https://api.ipify.org?format=json', timeout=3).json()['ip']
+        print(f"Public IP: {ip}")
+        geo = requests.get(f'http://ip-api.com/json/{ip}', timeout=3).json()
+        print(f"ISP: {geo.get('isp')} | {geo.get('city')}, {geo.get('country')}")
+    except:
+        print("Offline")
+
+    print("\n\033[1;33m[ DNS ]\033[0m")
+    with open('/etc/resolv.conf', 'r') as f:
+        for line in f:
+            if line.startswith('nameserver'): print(f"DNS: {line.split()[1]}")
+
+if __name__ == "__main__":
+    main()

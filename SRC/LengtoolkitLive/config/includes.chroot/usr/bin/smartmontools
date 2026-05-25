@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "--------------------------------------------------------"
+echo "LengToolkit - smartmontools Helper"
+echo "--------------------------------------------------------"
+echo "The command for this package is 'smartctl'."
+echo ""
+echo "  sudo smartctl -a /dev/sdX     : Show all SMART info"
+echo "  sudo smartctl -H /dev/sdX     : Check health status"
+echo "  sudo smartctl -t short /dev/sdX: Run short self-test"
+echo "--------------------------------------------------------"

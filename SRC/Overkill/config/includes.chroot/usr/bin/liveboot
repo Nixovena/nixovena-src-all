@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Check the filesystem type of root
+if grep -q overlay /proc/mounts; then
+    echo "Running on a live system. Applying KDE-only power settings..."
+
+    # Ensure config directory exists
+    mkdir -p $HOME/.config
+
+    # Disable screensaver and lock for KDE
+    kwriteconfig5 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null || true
+    kwriteconfig5 --file kscreenlockerrc --group Daemon --key LockOnResume false 2>/dev/null || true
+    kwriteconfig5 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null || true
+    
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null || true
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume false 2>/dev/null || true
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null || true
+
+    # Disable display sleep and dimming for KDE
+    kwriteconfig5 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null || true
+    kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null || true
+    kwriteconfig5 --file powermanagementprofilesrc --group Battery --group DPMSControl --key idleTime 0 2>/dev/null || true
+    kwriteconfig6 --file powermanagementprofilesrc --group Battery --group DPMSControl --key idleTime 0 2>/dev/null || true
+
+    # Inhibit screensaver with qdbus if running
+    qdbus org.freedesktop.ScreenSaver /ScreenSaver org.freedesktop.ScreenSaver.Inhibit "liveboot" "Prevent lock on live system" 2>/dev/null || true
+    
+    # Optional X11/XDG safeguards
+    if [ "$XDG_SESSION_TYPE" == "x11" ] || [ -n "$DISPLAY" ]; then
+        xset s off 2>/dev/null || true
+        xset -dpms 2>/dev/null || true
+    fi
+
+else
+    echo "Not running on a live system. Exiting..."
+    exit 0
+fi

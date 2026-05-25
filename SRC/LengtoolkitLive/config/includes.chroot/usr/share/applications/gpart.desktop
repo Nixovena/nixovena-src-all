@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Gpart
+Comment=LengToolkit - gpart
+Exec=mate-terminal -- bash -c "sudo gpart; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

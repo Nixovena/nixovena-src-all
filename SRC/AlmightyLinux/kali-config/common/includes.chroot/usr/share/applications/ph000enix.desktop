@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Ph000enix
+Comment=Comprehensive phone number intelligence framework with detailed metadata analysis
+Comment[tr]=Detaylı meta veri analizi ile kapsamlı telefon numarası istihbaratı frameworkü
+Comment[es]=Marco integral de inteligencia de números de teléfono con análisis detallado de metadatos
+Comment[fr]=Cadre d'intelligence complète des numéros de téléphone avec analyse détaillée des métadonnées
+Comment[de]=Umfassendes Telefonnummernintelligenz-Framework mit detaillierter Metadatenanalyse
+Comment[ar]=إطار استخبارات الأرقام الهاتفية الشامل مع تحليل مفصل للبيانات الوصفية
+Comment[ru]=Комплексный фреймворк телефонной разведки с детальным анализом метаданных
+Comment[zh]=具有详细元数据分析的综合电话号码情报框架
+Comment[ja]=詳細なメタデータ分析を備えた包括的な電話番号インテリジェンスフレームワーク
+Comment[ko]=상세한 메타데이터 분석이 포함된 포괄적인 전화번호 인텔리전스 프레임워크
+Comment[pt]=Framework abrangente de inteligência de números de telefone com análise detalhada de metadados
+Comment[it]=Framework completo di intelligence dei numeri di telefono con analisi dettagliata dei metadati
+Comment[nl]=Uitgebreid telefoonnummerintelligentiekader met gedetailleerde metadata-analyse
+Comment[sv]=Omfattande telefonnummerintelligensramverk med detaljerad metadataanalys
+Comment[pl]=Kompleksowe ramy inteligencji numerów telefonów z szczegółową analizą metadanych
+Exec=mate-terminal -- bash -c "ph000enix -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/phoenix.png
+Categories=Phone;
+StartupNotify=false

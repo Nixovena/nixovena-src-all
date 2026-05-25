@@ -1,0 +1,729 @@
+#!/bin/bash
+
+# anonroute Tor Traffic Router
+# Developer : Nixovena Labs 
+
+VERSION="anonroute 1.0"
+
+TOR_EXCLUDE="127.0.0.0/8 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 \
+172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 \
+198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 \
+224.0.0.0/4 240.0.0.0/4"
+
+TOR_UID="debian-tor"
+
+TOR_PORT="9040"
+
+TOR_DNS="9053"
+
+TORRC="/etc/tor/torrc"
+
+SYSCTL_IPV6_FILE="/etc/sysctl.d/99-disableipv6.conf"
+
+GREEN=""
+RED=""
+REDB=""
+YELLOW=""
+BLUE=""
+RESET=""
+
+if [ -t 1 ]; then
+    if tput setaf 0 &>/dev/null; then
+        RESET="$(tput sgr0)"
+        BOLD="$(tput bold)"
+        GREEN="$(tput setaf 2)"
+        RED="$(tput setaf 1)"
+        REDB="${BOLD}${RED}"
+        YELLOW="$(tput setaf 3)"
+        BLUE="$(tput setaf 4)"
+    else
+        RESET="\e[0m"
+        BOLD="\e[1m"
+        GREEN="\e[32m"
+        RED="\e[31m"
+        REDB="${BOLD}${RED}"
+        YELLOW="\e[33m"
+        BLUE="\e[34m"
+    fi
+fi
+
+BACKUPDIR="/var/lib/anonroute"
+
+err() {
+    echo "${RED}[-]${RESET} ERROR: ${@}"
+    exit 1
+}
+
+warn() {
+    echo "${YELLOW}[!]${RESET} WARNING: ${@}"
+}
+
+msg() {
+    echo "${GREEN}[+]${RESET} ${@}"
+}
+
+info() {
+    echo "${BLUE}[*]${RESET} ${@}"
+}
+
+banner() {
+    echo -e "${REDB}[ Anonroute - Tor Traffic Router ]${RESET}\n"
+}
+
+version() {
+    echo "${VERSION}"
+}
+
+about() {
+    echo -e "${REDB}[Anonroute - Tor Traffic Router]${RESET}\n"
+    echo -e "Anonroute is a tool that forces all system traffic through the Tor network by using a Tor transparent proxy."
+    echo -e "Author: emka'thas"
+}
+
+check_root() {
+    if [ $(id -u) -ne 0 ]; then
+        err "!-This script must be run as root"
+    fi
+}
+
+check_backup_dir() {
+    if [ ! -d $BACKUPDIR ]; then
+        mkdir -p $BACKUPDIR
+    fi
+}
+
+check_dependencies() {
+    info "Checking required dependencies..."
+    local missing_deps=()
+    local required_packages=("tor" "iptables" "curl" "net-tools" "obfs4proxy")
+    
+    for pkg in "${required_packages[@]}"; do
+        if ! command -v $pkg &> /dev/null && ! dpkg -l | grep -q "^ii.*$pkg"; then
+            missing_deps+=("$pkg")
+        fi
+    done
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        err "Missing required packages: ${missing_deps[*]}"
+        echo ""
+        echo "Please install them using:"
+        echo "  sudo apt update"
+        echo "  sudo apt install -y ${missing_deps[*]}"
+        echo ""
+        exit 1
+    fi
+    
+    msg "All dependencies are satisfied"
+}
+
+check_suspicious_env_vars() {
+    local suspicious_vars=("LD_PRELOAD" "LD_LIBRARY_PATH" "DYLD_INSERT_LIBRARIES")
+    local found_suspicious=false
+    
+    info "Anonroute Tor Guard - Checking for suspicious environment variables..."
+    
+    for var in "${suspicious_vars[@]}"; do
+        if [ -n "${!var}" ]; then
+            found_suspicious=true
+            echo -e "${REDB}"
+            echo "═══════════════════════════════════════════════════════════════════════════════"
+            echo "!!!  Anonroute TOR GUARD - CRITICAL SECURITY WARNING !!!"
+            echo "SUSPICIOUS ENVIRONMENT VARIABLE DETECTED: $var"
+            echo "This environment variable can be used for:"
+            echo "LIBRARY HIJACKING ATTACKS, CODE INJECTION, PRIVILEGE ESCALATION, MALWARE PERSISTENCE"               
+            echo "EXTREME CAUTION ADVISED! This could indicate:"                              
+            echo "  1. Active malware infection "                                               
+            echo "  2. Compromised system integrity"                                            
+            echo "  3. Ongoing attack against your system "                                     
+            echo "RECOMMENDATION: Investigate immediately and consider system cleanup "        
+            echo "═══════════════════════════════════════════════════════════════════════════════"
+            echo -e "${RESET}"
+        fi
+    done
+    
+    if [ "$found_suspicious" = true ]; then
+        warn "DANGER: SUSPICIOUS ENVIRONMENT VARIABLES DETECTED. PROCEEDING WITH TOR ROUTING BUT SYSTEM MAY BE COMPROMISED."
+        sleep 3
+    else
+        msg "No suspicious environment variables detected"
+    fi
+}
+
+start_service() {
+    SERVICE=${@}
+    if [[ $(systemctl is-active $SERVICE) != "active" ]]; then
+        warn "$SERVICE is not started"
+        info "starting $SERVICE service"
+        systemctl start $SERVICE || err "unable to start $SERVICE service"
+        msg "started $SERVICE service"
+    else
+        warn "$SERVICE is running"
+        info "reloading $SERVICE service"
+        systemctl reload $SERVICE || err "unable to reload $SERVICE service"
+        msg "reloaded $SERVICE service"
+    fi
+
+}
+
+stop_service() {
+    SERVICE=${@}
+    if [[ $(systemctl is-active $SERVICE) == "active" ]]; then
+        warn "$SERVICE is active"
+        info "stopping $SERVICE service"
+        systemctl stop $SERVICE || err "unable to stop $SERVICE service"
+        
+        # Ensure service is completely stopped
+        sleep 2
+        if [[ $(systemctl is-active $SERVICE) == "active" ]]; then
+            warn "Force killing $SERVICE processes"
+            pkill -f $SERVICE 2>/dev/null || true
+            sleep 1
+            pkill -9 -f $SERVICE 2>/dev/null || true
+        fi
+        
+        # For tor specifically, ensure ports are released
+        if [ "$SERVICE" = "tor" ]; then
+            info "Ensuring Tor ports are released..."
+            for port in 9050 9051 9040 9053; do
+                while netstat -tuln 2>/dev/null | grep -q ":$port "; do
+                    warn "Port $port still in use, waiting..."
+                    sleep 1
+                done
+            done
+        fi
+        
+        msg "stopped $SERVICE service"
+    fi
+}
+
+is_started() {
+    if [ -e $BACKUPDIR/started ]; then
+        # Check if tor is actually running and rules are applied
+        if ! systemctl is-active --quiet tor || ! iptables-save | grep -q "REDIRECT.*$TOR_PORT"; then
+            rm -f $BACKUPDIR/started
+            return 1
+        fi
+        return 0
+    fi
+    return 1
+}
+
+flush_iptables() {
+    iptables -F
+    iptables -t nat -F
+}
+
+
+get_ip() {
+    HTML=$(curl -s https://check.torproject.org/?lang=en_US)
+    IP=$(echo "$HTML" | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -n 1)
+    echo "Public IP         : $IP"
+}
+
+
+backup_torrc() {
+    warn "Backing up tor config..."
+    mv "$TORRC" $BACKUPDIR/torrc.bak
+    msg "Backed up tor config"
+}
+
+backup_resolv_conf() {
+    info "Backing up nameservers..."
+    mv /etc/resolv.conf $BACKUPDIR/resolv.conf.bak
+    msg "Backed up nameservers"
+}
+
+backup_iptables() {
+    info "Backing up iptables rules..."
+    iptables-save >$BACKUPDIR/iptables.rules.bak
+    msg "Backed up iptables rules"
+}
+
+backup_sysctl() {
+    info "Backing up sysctl rules..."
+    sysctl -a >$BACKUPDIR/sysctl.conf.bak
+    msg "Backed up sysctl rules"
+}
+
+restore_torrc() {
+    if [ -e $BACKUPDIR/torrc.bak ]; then
+        warn "Restoring tor config..."
+        rm -f /etc/tor/torrc
+        mv $BACKUPDIR/torrc.bak /etc/tor/torrc
+        msg "Restored tor config"
+    fi
+}
+
+restore_resolv_conf() {
+    if [ -e $BACKUPDIR/resolv.conf.bak ]; then
+        warn "Restoring nameservers..."
+        rm -f $BACKUPDIR/resolv.conf
+        mv $BACKUPDIR/resolv.conf.bak /etc/resolv.conf
+        msg "Restored nameservers"
+    fi
+}
+
+restore_iptables() {
+    if [ -e $BACKUPDIR/iptables.rules.bak ]; then
+        warn "Restoring iptables rules"
+        iptables-restore <$BACKUPDIR/iptables.rules.bak
+        rm -f $BACKUPDIR/iptables.rules.bak
+        msg "Restored iptables rules"
+    fi
+}
+
+restore_sysctl() {
+    # Remove temporary IPv6 disable drop-in if present
+    if [ -f "$SYSCTL_IPV6_FILE" ]; then
+        warn "Removing $SYSCTL_IPV6_FILE"
+        rm -f "$SYSCTL_IPV6_FILE"
+    fi
+
+    if [ -e $BACKUPDIR/sysctl.conf.bak ]; then
+        warn "Restoring sysctl rules"
+        sysctl -p $BACKUPDIR/sysctl.conf.bak &>"/dev/null"
+        rm -f $BACKUPDIR/sysctl.conf.bak
+        msg "Restored sysctl rules"
+    fi
+}
+
+gen_resolv_conf() {
+    warn "Configuring nameservers..."
+    cat >"/etc/resolv.conf" <<EOF
+# generated by anonroute
+nameserver 127.0.0.1
+# Fallback nameservers for bridge connectivity
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+    chmod 644 /etc/resolv.conf
+    msg "Configured nameservers"
+}
+
+generate_torrc() {
+    warn "configuring tor"
+    cat >"$TORRC" <<EOF
+# Generated by Anonroute
+User debian-tor
+DataDirectory /var/lib/tor
+VirtualAddrNetwork 10.192.0.0/10
+AutomapHostsOnResolve 1
+AutomapHostsSuffixes .exit,.onion
+TransPort 127.0.0.1:9040 IsolateClientAddr IsolateSOCKSAuth IsolateClientProtocol IsolateDestPort IsolateDestAddr
+SocksPort 127.0.0.1:9050 IsolateClientAddr IsolateSOCKSAuth IsolateClientProtocol IsolateDestPort IsolateDestAddr
+DNSPort 127.0.0.1:9053
+ControlPort 127.0.0.1:9051
+HardwareAccel 1
+ClientUseIPv6 0
+CookieAuthentication 1
+AllowNonRFC953Hostnames 0
+WarnPlaintextPorts 23,109,110,143,80
+ClientRejectInternalAddresses 1
+NewCircuitPeriod 40
+MaxCircuitDirtiness 600
+MaxClientCircuitsPending 48
+UseEntryGuards 1
+EnforceDistinctSubnets 1
+EOF
+
+    # Add bridges configuration if bridges file exists
+    if [ -f "$BACKUPDIR/bridges" ]; then
+        info "adding bridges configuration"
+        echo "" >> "$TORRC"
+        echo "# Bridges" >> "$TORRC"
+        echo "UseBridges 1" >> "$TORRC"
+        
+        # Add all common transport plugins
+        echo "ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy managed" >> "$TORRC"
+        
+        while IFS= read -r bridge; do
+            [ -n "$bridge" ] && echo "Bridge $bridge" >> "$TORRC"
+        done < "$BACKUPDIR/bridges"
+        msg "bridges enabled automatically"
+    fi
+
+    chmod 644 "$TORRC"
+    msg "configured tor"
+}
+
+apply_iptables_rules() {
+    info "Applying iptables rules..."
+
+    # NAT table
+    iptables -t nat -F
+
+    iptables -t nat -A OUTPUT -m owner --uid-owner $TOR_UID -j RETURN
+
+    # DNS traffic must be redirected to prevent DNS leaks - redirect ALL UDP port 53 traffic
+    iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports "$TOR_DNS"
+    iptables -A OUTPUT -m owner --uid-owner $TOR_UID -p udp --dport 53 -j ACCEPT
+    # Drop UDP. Tor not support UDP May leak real ip addr 
+    iptables -A OUTPUT -p udp -j DROP
+
+    iptables -t nat -A OUTPUT -p tcp -d 10.192.0.0/10 -j REDIRECT --to-ports "$TOR_PORT"
+
+    for NET in $TOR_EXCLUDE; do
+        iptables -t nat -A OUTPUT -d "$NET" -j RETURN
+        iptables -A OUTPUT -d "$NET" -j ACCEPT
+    done
+
+    iptables -t nat -A OUTPUT -p tcp --tcp-flags SYN,RST,ACK SYN -j REDIRECT --to-ports "$TOR_PORT"
+
+    # FILTER table
+    iptables -F
+    iptables -X
+
+    # BAD_FLAGS chains - TCP flag attack protection
+    info "Setting up BAD_FLAGS protection chains..."
+    iptables -N BAD_FLAGS_IN 2>/dev/null || true
+    iptables -N BAD_FLAGS_OUT 2>/dev/null || true
+    
+    # INPUT and OUTPUT packets to BAD_FLAGS chain 
+    iptables -A INPUT -p tcp -m state --state NEW -j BAD_FLAGS_IN
+    iptables -A OUTPUT -p tcp -m state --state NEW -j BAD_FLAGS_OUT
+    
+    # BAD_FLAGS_IN rules 
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags FIN,PSH,URG FIN,PSH,URG -j DROP
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags ALL NONE -j DROP  # NULL scan
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags ALL FIN,URG,PSH -j DROP  # XMAS scan
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags ALL RST,ACK,FIN,URG -j DROP
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags ALL ALL -j DROP  # All flags set
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags RST RST -m limit --limit 2/s --limit-burst 2 -j ACCEPT
+    iptables -A BAD_FLAGS_IN -p tcp --tcp-flags RST RST -j DROP  # RST flood protection
+    
+    # BAD_FLAGS_OUT rules 
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags FIN,PSH,URG FIN,PSH,URG -j DROP
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags ALL NONE -j DROP  # NULL scan
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags ALL FIN,URG,PSH -j DROP  # XMAS scan
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags ALL SYN,RST,ACK,FIN,URG -j DROP
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags ALL RST,ACK,FIN,URG -j DROP
+    iptables -A BAD_FLAGS_OUT -p tcp --tcp-flags ALL ALL -j DROP  # All flags set
+    
+    msg "BAD_FLAGS protection chains configured"
+
+    # ANTI-SPOOFING PROTECTION 
+    info "Setting up anti-spoofing protection..."
+    
+    # Additional anti-spoofing for common private ranges
+    iptables -A INPUT ! -i lo -s 127.0.0.0/8 -j DROP    # Loopback from external
+    iptables -A INPUT ! -i lo -s 0.0.0.0/8 -j DROP      # Invalid source
+    iptables -A INPUT ! -i lo -s 224.0.0.0/4 -j DROP    # Multicast from external
+    iptables -A INPUT ! -i lo -s 240.0.0.0/4 -j DROP    # Reserved from external
+    
+    msg "Anti-spoofing protection configured"
+
+    # INPUT
+    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    iptables -A INPUT -i lo -j ACCEPT
+    iptables -A INPUT -j DROP
+
+    # FORWARD
+    iptables -A FORWARD -j DROP
+
+    # OUTPUT
+    iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    iptables -A OUTPUT -m state --state INVALID -j DROP
+
+    iptables -A OUTPUT -m owner --uid-owner $TOR_UID -j ACCEPT
+    iptables -A OUTPUT -m owner --uid-owner $TOR_UID -p tcp --tcp-flags FIN,SYN,RST,ACK SYN -m state --state NEW -j ACCEPT
+    iptables -A OUTPUT -d 127.0.0.1/32 -o lo -j ACCEPT
+    iptables -A OUTPUT -d 127.0.0.1/32 -p tcp --dport "$TOR_PORT" --tcp-flags FIN,SYN,RST,ACK SYN -j ACCEPT
+
+    # ICMP - Stealth Mode: block all ping/ICMP traffic / Tor not support ICMP 
+    iptables -A OUTPUT -p icmp -j DROP
+
+    iptables -A OUTPUT -j REJECT
+
+    msg "Applied iptables rules"
+}
+
+apply_sysctl_rules() {
+    info "Applying sysctl rules..."
+
+    # Ensure sysctl.d directory exists
+    mkdir -p /etc/sysctl.d
+
+    # Write IPv6 disable rules into a dedicated drop-in to avoid runtime-only changes
+    cat >"$SYSCTL_IPV6_FILE" <<EOF
+# Managed by anonroute - disable IPv6 to prevent leaks
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+net.ipv6.conf.all.autoconf = 0
+net.ipv6.conf.default.autoconf = 0
+net.ipv6.conf.all.dad_transmits = 0
+net.ipv6.conf.default.dad_transmits = 0
+EOF
+    chmod 0644 "$SYSCTL_IPV6_FILE"
+
+    # Apply only this file to minimize side-effects
+    /sbin/sysctl -p "$SYSCTL_IPV6_FILE" &>"/dev/null"
+    msg "Applied sysctl rules"
+}
+
+start() {
+    if is_started; then
+        # Double check if tor is actually running and rules are applied
+        if systemctl is-active --quiet tor && iptables-save | grep -q "REDIRECT.*$TOR_PORT"; then
+            err "Anonroute is already started and running correctly"
+        else
+            warn "Anonroute status file exists but service is not running properly"
+            rm -f $BACKUPDIR/started
+        fi
+    fi
+
+    check_suspicious_env_vars
+
+    backup_torrc
+
+    backup_resolv_conf
+
+    backup_iptables
+
+    backup_sysctl
+
+    flush_iptables
+
+    generate_torrc
+
+    gen_resolv_conf
+
+    start_service tor
+
+    apply_iptables_rules
+
+    apply_sysctl_rules
+
+    msg "All traffic is successfully routed through the Tor network"
+
+    touch $BACKUPDIR/started
+}
+
+stop() {
+    if ! is_started; then
+        err "Anonroute is already stopped"
+    fi
+
+    restore_sysctl
+
+    flush_iptables
+
+    restore_iptables
+
+    stop_service tor
+
+    restore_torrc
+
+    restore_resolv_conf
+
+    rm -f $BACKUPDIR/started
+}
+
+changeid() {
+    if ! is_started; then
+        err "You are not using Tor network. Please start Anonroute first."
+    fi
+
+    info "Changing tor identity..."
+    systemctl stop tor &>"/dev/null"
+    sleep 2
+    systemctl start tor &>"/dev/null"
+    msg "Tor identity changed"
+}
+
+add_bridges() {
+    if [ -t 0 ]; then
+        info "Enter bridge lines (one per line). Press Ctrl+D when finished:"
+    fi
+    
+    > "$BACKUPDIR/bridges"
+    
+    while IFS= read -r line; do
+        if [ -n "$line" ]; then
+            echo "$line" >> "$BACKUPDIR/bridges"
+        fi
+    done
+    
+    if [ -s "$BACKUPDIR/bridges" ]; then
+        BRIDGE_COUNT=$(wc -l < "$BACKUPDIR/bridges")
+        msg "$BRIDGE_COUNT bridges saved. Bridges will be used automatically."
+        if is_started; then
+            warn "Restart Anonroute to apply bridge changes"
+        fi
+    else
+        rm -f "$BACKUPDIR/bridges"
+        warn "No bridges entered"
+    fi
+}
+
+remove_bridge() {
+    if [ -z "$1" ]; then
+        err "Bridge address is required. Usage: cyrethonion remove-bridge <bridge_address>"
+    fi
+    
+    BRIDGE="$1"
+    info "Removing bridge: $BRIDGE"
+    
+    if [ ! -f "$BACKUPDIR/bridges.conf" ]; then
+        warn "No bridges configured"
+        return
+    fi
+    
+    sed -i "/Bridge.*$BRIDGE/d" "$BACKUPDIR/bridges.conf"
+    
+    if ! grep -q "^Bridge " "$BACKUPDIR/bridges.conf" 2>/dev/null; then
+        rm -f "$BACKUPDIR/bridges.conf"
+        msg "All bridges removed"
+    else
+        msg "Bridge removed: $BRIDGE"
+    fi
+    
+    if is_started; then
+        warn "Restart Anonroute to apply bridge changes"
+    fi
+}
+
+list_bridges() {
+    if [ ! -f "$BACKUPDIR/bridges" ]; then
+        warn "No bridges configured"
+        return
+    fi
+    
+    info "Configured bridges:"
+    cat "$BACKUPDIR/bridges"
+}
+
+clear_bridges() {
+    if [ ! -f "$BACKUPDIR/bridges" ]; then
+        warn "No bridges configured"
+        return
+    fi
+    
+    rm -f "$BACKUPDIR/bridges"
+    msg "All bridges cleared"
+    
+    if is_started; then
+        warn "Restart Anonroute to apply changes"
+    fi
+}
+
+status() {
+    TORSTATUS=$(systemctl is-active tor)
+
+    if is_started; then
+        msg "Anonroute started"
+    else
+        warn "Anonroute stopped"
+    fi
+
+    if [[ "${TORSTATUS}" == "active" ]]; then
+        msg "Tor service is: ${TORSTATUS}"
+    else
+        warn "Tor service is: ${TORSTATUS}"
+    fi
+}
+
+usage() {
+    echo -e "Welcome to Anonroute! \n"
+    echo -e "A script to redirect all traffic through tor network\n"
+    echo -e "Commands:"
+    echo -e "  start      - Start Anonroute and redirect all traffic through tor"
+    echo -e "  stop       - Stop Anonroute and redirect all traffic through tor"
+    echo -e "  status     - Get info about Tor service status"
+    echo -e "  restart    - Restart tor and traffic rules"
+    echo -e "  ip         - Get remote ip address"
+    echo -e "  changeid   - Change tor identity"
+    echo -e "  bridges - Add multiple Tor bridges interactively"
+    echo -e "  list-bridges - List configured bridges" 
+    echo -e "  clear-bridges - Remove all bridges"
+    echo -e "  version    - Print version of cyrethonion and exit"
+    echo -e "  about      - Show information about Anonroute\n"
+}
+
+main() {
+    banner
+
+    case "$1" in
+    start)
+        check_root
+        check_dependencies
+        check_backup_dir
+        start
+        ;;
+    stop)
+        check_root
+        check_backup_dir
+        stop
+        ;;
+    status)
+        check_root
+        check_backup_dir
+        status
+        ;;
+    restart)
+        check_root
+        check_backup_dir
+        stop
+        sleep 2
+        
+        # Aggressive cleanup to prevent port binding conflicts
+        info "Ensuring all Tor processes are terminated..."
+        pkill -f tor 2>/dev/null || true
+        sleep 1
+        pkill -9 -f tor 2>/dev/null || true
+        
+        # Check if ports are still in use and wait if needed
+        for port in 9050 9051 9040 9053; do
+            while netstat -tuln 2>/dev/null | grep -q ":$port "; do
+                warn "Port $port still in use, waiting..."
+                sleep 1
+            done
+        done
+        
+        info "All Tor ports are now free, starting..."
+        start
+        ;;
+    ip)
+        get_ip
+        ;;
+    changeid)
+        check_root
+        check_backup_dir
+        changeid
+        ;;
+    bridges)
+        check_root
+        check_backup_dir
+        add_bridges
+        ;;
+    list-bridges)
+        check_backup_dir
+        list_bridges
+        ;;
+    clear-bridges)
+        check_root
+        check_backup_dir
+        clear_bridges
+        ;;
+    version)
+        version
+        ;;
+    about)
+        about
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+    esac
+    exit 0
+}
+
+main "${@}"
+
+# EOF

@@ -1,0 +1,23 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=OSINT Handbook
+Comment=Comprehensive guide and resources for OSINT
+Comment[tr]=OSINT için kapsamlı rehber ve kaynaklar
+Comment[es]=Guía completa y recursos para OSINT
+Comment[fr]=Guide complet et ressources pour l'OSINT
+Comment[de]=Umfassender Leitfaden und Ressourcen für OSINT
+Comment[ar]=دليل شامل وموارد لـ OSINT
+Comment[ru]=Полное руководство и ресурсы по OSINT
+Comment[zh]=OSINT的综合指南和资源
+Comment[ja]=OSINTの包括的なガイドおよびリソース
+Comment[ko]=OSINT에 대한 포괄적인 가이드 및 리소스
+Comment[pt]=Guia abrangente e recursos para OSINT
+Comment[it]=Guida completa e risorse per OSINT
+Comment[nl]=Uitgebreide gids en bronnen voor OSINT
+Comment[sv]=Omfattande guide och resurser för OSINT
+Comment[pl]=Kompleksowy przewodnik i zasoby dla OSINT
+Exec=xdg-open https://www.osinthandbook.com/
+Icon=/usr/share/icons/almighty/browser-osint.png
+Terminal=false
+Categories=Network;

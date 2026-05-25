@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=USBFDF-ISO
+Comment=Forensic analysis toolkit for disk images and virtual machine files
+Comment[tr]=Disk kalıpları ve sanal makine dosyaları için adli analiz araç seti
+Comment[es]=Kit de herramientas de análisis forense para imágenes de disco y archivos de máquinas virtuales
+Comment[fr]=Boîte à outils d'analyse forensique pour images disque et fichiers de machines virtuelles
+Comment[de]=Forensisches Analysetoolkit für Festplattenimages und virtuelle Maschinendateien
+Comment[ar]=مجموعة أدوات التحليل الجنائي لصور الأقراص وملفات الآلات الافتراضية
+Comment[ru]=Инструментарий судебного анализа для образов дисков и файлов виртуальных машин
+Comment[zh]=磁盘映像和虚拟机文件的取证分析工具包
+Comment[ja]=ディスクイメージおよび仮想マシンファイルのフォレンジック分析ツールキット
+Comment[ko]=디스크 이미지 및 가상 머신 파일용 포렌식 분석 도구 키트
+Comment[pt]=Kit de ferramentas de análise forense para imagens de disco e arquivos de máquinas virtuais
+Comment[it]=Toolkit di analisi forense per immagini disco e file di macchine virtuali
+Comment[nl]=Forensische analyse-toolkit voor schijfkopieën en virtuele machinebestanden
+Comment[sv]=Forensiskt analysverktyg för diskavbilder och virtuella maskinfiler
+Comment[pl]=Zestaw narzędzi do analizy forenzycznej obrazów dysków i plików maszyn wirtualnych
+Exec=mate-terminal -- bash -c "usbfdf-iso -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/usbfdf.png
+Categories=Analysis;
+StartupNotify=false

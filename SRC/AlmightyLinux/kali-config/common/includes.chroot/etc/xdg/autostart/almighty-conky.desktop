@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Conky Almighty
+Exec=conky -d -c /usr/share/conky/almighty_conky.conf
+OnlyShowIn=MATE;
+X-MATE-Autostart-enabled=true
+X-MATE-Autostart-Delay=3
+NoDisplay=false
+Terminal=false

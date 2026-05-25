@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+# Fishy Linux - Flatpak & Flathub Setup Script
+# This script installs Flatpak and configures the Flathub repository.
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Print banner
+echo -e "${BLUE}=======================================${NC}"
+echo -e "${BLUE}   Fishy Linux Flatpak Setup Tool      ${NC}"
+echo -e "${BLUE}=======================================${NC}"
+
+# Check for root privileges
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${RED}Error: This script must be run as root.${NC}"
+   echo "Please use: sudo flatpak-setup"
+   exit 1
+fi
+
+# Step 1: Update package list
+echo -e "\n${YELLOW}[1/3] Updating package list...${NC}"
+apt-get update
+
+# Step 2: Install Flatpak
+echo -e "\n${YELLOW}[2/3] Installing Flatpak...${NC}"
+if apt-get install -y flatpak; then
+    echo -e "${GREEN}✔ Flatpak installed successfully.${NC}"
+else
+    echo -e "${RED}✘ Failed to install Flatpak.${NC}"
+    exit 1
+fi
+
+# Step 3: Add Flathub repository
+echo -e "\n${YELLOW}[3/3] Adding Flathub repository...${NC}"
+if flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo; then
+    echo -e "${GREEN}✔ Flathub repository added successfully.${NC}"
+else
+    echo -e "${RED}✘ Failed to add Flathub repository.${NC}"
+    exit 1
+fi
+
+echo -e "\n${BLUE}=======================================${NC}"
+echo -e "${GREEN}Setup complete!${NC}"
+echo -e "Note: You may need to restart your session or computer"
+echo -e "for Flatpak applications to appear in your menu."
+echo -e "${BLUE}=======================================${NC}"

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+echo "Fixing permissions..."
+
+chmod +x /usr/local/bin/fishyfetch
+chmod +x /usr/local/bin/flatpak-setup
+chmod +x /usr/local/bin/update
+chmod +x /usr/local/bin/zram-settings
+chmod +x /usr/local/bin/mitigations-settings
+
+echo "Permissions fixed!"

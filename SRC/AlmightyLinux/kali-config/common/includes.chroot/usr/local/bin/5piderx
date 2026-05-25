@@ -1,0 +1,2349 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import re
+import json
+import hashlib
+import time
+import random
+import asyncio
+import socket
+import ssl
+import subprocess
+import argparse
+import struct
+from datetime import datetime, timezone
+from urllib.parse import quote_plus, urlparse
+from typing import Optional, Dict, List, Any, Tuple
+from dataclasses import dataclass, field, asdict
+
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(f"[!] 5PiderX requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
+
+try:
+    import httpx
+except ImportError:
+    sys.exit("[!] Missing dependency: httpx\n Install: pip install httpx")
+
+sys.dont_write_bytecode = True
+
+
+VERSION = "1.0.0"
+REPORT_DIR = os.path.expanduser("~/.5piderx/reports")
+
+
+class C:
+    RST = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    ITALIC = "\033[3m"
+    ULINE = "\033[4m"
+    RED = "\033[38;2;255;85;85m"
+    GREEN = "\033[38;2;80;250;123m"
+    YELLOW = "\033[38;2;241;250;140m"
+    BLUE = "\033[38;2;139;233;253m"
+    PURPLE = "\033[38;2;189;147;249m"
+    PINK = "\033[38;2;255;121;198m"
+    ORANGE = "\033[38;2;255;183;77m"
+    CYAN = "\033[38;2;0;255;255m"
+    WHITE = "\033[38;2;248;248;242m"
+    GRAY = "\033[38;2;108;108;108m"
+    DARK = "\033[38;2;68;68;68m"
+
+
+def _c(color: str, text: str) -> str:
+    return f"{color}{text}{C.RST}"
+
+
+BANNER = f"""
+{C.PINK}
+   ███████╗██████╗ ██╗██████╗ ███████╗██████╗ ██╗  ██╗
+   ██╔════╝██╔══██╗██║██╔══██╗██╔════╝██╔══██╗╚██╗██╔╝
+   ███████╗██████╔╝██║██║  ██║█████╗  ██████╔╝ ╚███╔╝
+   ╚════██║██╔═══╝ ██║██║  ██║██╔══╝  ██╔══██╗ ██╔██╗
+   ███████║██║     ██║██████╔╝███████╗██║  ██║██╔╝ ██╗
+   ╚══════╝╚═╝     ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⢀⡟⢀⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⣧⠈⣧⠀⠀
+⠀⠀⣼⠀⣼⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⡆⢸⡆⠀
+⠀⢰⣿⠀⠻⠧⣤⡴⣦⣤⣤⣤⣠⡶⣤⣤⠾⠗⠈⣿⠀
+⠀⠺⣷⡶⠖⠛⣩⣭⣿⣿⣿⣿⣿⣯⣭⡙⠛⠶⣶⡿⠃
+⠀⠀⠀⢀⣤⠾⢋⣴⠟⣿⣿⣿⡟⢷⣬⠙⢷⣄⠀⠀⠀
+⢀⣠⡴⠟⠁⠀⣾⡇⠀⣿⣿⣿⡇⠀⣿⡇⠀⠙⠳⣦⣀
+⢸⡏⠀⠀⠀⠀⢿⡇⠀⢸⣿⣿⠁⠀⣿⡇⠀⠀⠀⠈⣿
+⠀⣷⠀⠀⠀⠀⢸⡇⠀⠀⢻⠇⠀⠀⣿⠇⠀⠀⠀⠀⣿
+⠀⢿⠀⠀⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⣿⠀⠀⠀⠀⢸⡏
+⠀⠘⡇⠀⠀⠀⠈⣷⠀⠀⠀⠀⠀⢀⡟⠀⠀⠀⠀⡾⠀
+⠀⠀⠹⠀⠀⠀⠀⢻⠀⠀⠀⠀⠀⢸⠇⠀⠀⠀⢰⠁⠀
+⠀⠀⠀⠁⠀⠀⠀⠈⢇⠀⠀⠀⠀⡞⠀⠀⠀⠀⠁⠀⠀⠀⠀
+
+{C.RST}
+   {C.GRAY}v{VERSION} OSINT Framework{C.RST}
+   {C.GRAY}Developed by Nixovena Labs{C.RST}
+   {C.DARK}-----------------------------------------------------{C.RST}
+"""
+
+LEGAL_NOTICE = f"""
+   {C.YELLOW}[!] LEGAL NOTICE{C.RST}
+   {C.GRAY}This tool is intended for authorized security research,
+   penetration testing, and lawful OSINT investigations only.
+   Unauthorized use against targets you do not own or have
+   explicit permission to test is illegal and unethical.{C.RST}
+"""
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+]
+
+EMAIL_REGEX = re.compile(
+    r"^[a-zA-Z0-9](?:[a-zA-Z0-9._%+\-]{0,62}[a-zA-Z0-9])?@"
+    r"[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z]{2,})+$"
+)
+
+DOMAIN_REGEX = re.compile(
+    r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+"
+    r"[a-zA-Z]{2,}$"
+)
+
+IP_REGEX = re.compile(
+    r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}"
+    r"(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
+)
+
+PHONE_REGEX = re.compile(r"^\+?[1-9]\d{6,14}$")
+
+DISPOSABLE_DOMAINS = frozenset([
+    "guerrillamail.com", "guerrillamail.de", "grr.la", "guerrillamail.net",
+    "mailinator.com", "maildrop.cc", "tempmail.com", "temp-mail.org",
+    "throwaway.email", "yopmail.com", "yopmail.fr", "trashmail.com",
+    "trashmail.me", "trashmail.net", "sharklasers.com", "guerrillamailblock.com",
+    "10minutemail.com", "10minutemail.net", "minutemail.com",
+    "dispostable.com", "mailnesia.com", "tempail.com", "tempr.email",
+    "discard.email", "discardmail.com", "fakeinbox.com", "mailcatch.com",
+    "mailsac.com", "inboxkitten.com", "harakirimail.com", "mohmal.com",
+    "getnada.com", "emailondeck.com", "tempinbox.com", "burnermail.io",
+    "mailtemp.info", "tmpmail.net", "tmpmail.org", "moakt.com",
+    "crazymailing.com", "tempm.com", "spamgourmet.com", "mytemp.email",
+    "spam4.me", "binkmail.com", "safetymail.info", "trillianpro.com",
+    "tempmailo.com", "emailfake.com", "generator.email", "emkei.cz",
+    "mailexpire.com", "meltmail.com", "mt2015.com", "nospamfor.us",
+    "owlpic.com", "proxymail.eu", "rcpt.at", "reallymymail.com",
+    "tafmail.com", "uggsrock.com", "venompen.com", "veryrealemail.com",
+    "wimsg.com", "xkx.me", "yep.it", "zoemail.org", "jetable.org",
+    "maildax.com", "mailforspam.com", "mailmoat.com", "mailnull.com",
+    "mailshell.com", "mailslurp.com", "mailzilla.com", "nomail.xl.cx",
+    "nowmymail.com", "pokemail.net", "spambox.us", "spamcero.com",
+    "spamex.com", "spamfree24.org", "spamherelots.com", "spaml.de",
+    "tempail.com", "tempomail.fr", "thankyouno.com", "trashinbox.com",
+    "trashymail.com", "turfmail.com", "wegwerfmail.de", "wegwerfmail.net",
+    "get2mail.fr", "getairmail.com", "getonemail.com", "getonemail.net",
+    "girlsindetention.com", "gishpuppy.com", "gold1.com",
+])
+
+COMMON_SUBDOMAINS = [
+    "www", "mail", "ftp", "admin", "blog", "dev", "staging", "api",
+    "cdn", "vpn", "webmail", "remote", "portal", "app", "test",
+    "beta", "demo", "ns1", "ns2", "mx", "mx1", "mx2", "smtp",
+    "pop", "imap", "cpanel", "whm", "autodiscover", "autoconfig",
+    "shop", "store", "m", "mobile", "secure", "login", "sso",
+    "auth", "id", "gateway", "proxy", "relay", "backup", "db",
+    "database", "sql", "mysql", "postgres", "mongo", "redis",
+    "elasticsearch", "kibana", "grafana", "jenkins", "ci", "cd",
+    "git", "gitlab", "bitbucket", "jira", "confluence", "wiki",
+    "docs", "help", "support", "status", "monitor", "nagios",
+    "zabbix", "prometheus", "vault", "consul", "nomad", "docker",
+    "k8s", "kubernetes", "rancher", "cloud", "aws", "azure", "gcp",
+    "s3", "static", "assets", "media", "img", "images", "video",
+    "files", "download", "upload", "exchange", "owa", "outlook",
+    "calendar", "meet", "chat", "slack", "teams", "zoom", "vpn2",
+    "uat", "qa", "stage", "preprod", "prod", "internal", "intranet",
+    "extranet", "partner", "vendor", "client", "crm", "erp",
+]
+
+COMMON_PORTS = {
+    21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS",
+    80: "HTTP", 110: "POP3", 111: "RPCbind", 135: "MSRPC",
+    139: "NetBIOS", 143: "IMAP", 443: "HTTPS", 445: "SMB",
+    993: "IMAPS", 995: "POP3S", 1433: "MSSQL", 1521: "Oracle",
+    2049: "NFS", 3306: "MySQL", 3389: "RDP", 5432: "PostgreSQL",
+    5900: "VNC", 5985: "WinRM", 6379: "Redis", 8080: "HTTP-Alt",
+    8443: "HTTPS-Alt", 8888: "HTTP-Alt2", 9090: "WebUI",
+    9200: "Elasticsearch", 27017: "MongoDB",
+}
+
+COUNTRY_CODES = {
+    "1": "US/CA", "7": "RU/KZ", "20": "EG", "27": "ZA", "30": "GR",
+    "31": "NL", "32": "BE", "33": "FR", "34": "ES", "36": "HU",
+    "39": "IT", "40": "RO", "41": "CH", "43": "AT", "44": "GB",
+    "45": "DK", "46": "SE", "47": "NO", "48": "PL", "49": "DE",
+    "51": "PE", "52": "MX", "53": "CU", "54": "AR", "55": "BR",
+    "56": "CL", "57": "CO", "58": "VE", "60": "MY", "61": "AU",
+    "62": "ID", "63": "PH", "64": "NZ", "65": "SG", "66": "TH",
+    "81": "JP", "82": "KR", "84": "VN", "86": "CN", "90": "TR",
+    "91": "IN", "92": "PK", "93": "AF", "94": "LK", "95": "MM",
+    "98": "IR", "212": "MA", "213": "DZ", "216": "TN", "218": "LY",
+    "220": "GM", "234": "NG", "254": "KE", "255": "TZ", "256": "UG",
+    "260": "ZM", "263": "ZW", "351": "PT", "352": "LU", "353": "IE",
+    "354": "IS", "358": "FI", "370": "LT", "371": "LV", "372": "EE",
+    "380": "UA", "381": "RS", "385": "HR", "386": "SI", "420": "CZ",
+    "421": "SK", "852": "HK", "853": "MO", "855": "KH", "856": "LA",
+    "880": "BD", "886": "TW", "960": "MV", "961": "LB", "962": "JO",
+    "963": "SY", "964": "IQ", "965": "KW", "966": "SA", "967": "YE",
+    "968": "OM", "970": "PS", "971": "AE", "972": "IL", "973": "BH",
+    "974": "QA", "975": "BT", "976": "MN", "977": "NP", "992": "TJ",
+    "993": "TM", "994": "AZ", "995": "GE", "996": "KG", "998": "UZ",
+}
+
+
+PLATFORMS: List[Dict[str, Any]] = [
+    {"name": "GitHub", "url": "https://github.com/{}", "cat": "Dev", "method": "status"},
+    {"name": "GitLab", "url": "https://gitlab.com/{}", "cat": "Dev", "method": "status"},
+    {"name": "Bitbucket", "url": "https://bitbucket.org/{}/", "cat": "Dev", "method": "status"},
+    {"name": "Dev.to", "url": "https://dev.to/{}", "cat": "Dev", "method": "status"},
+    {"name": "Codepen", "url": "https://codepen.io/{}", "cat": "Dev", "method": "status"},
+    {"name": "Replit", "url": "https://replit.com/@{}", "cat": "Dev", "method": "status"},
+    {"name": "HackerRank", "url": "https://www.hackerrank.com/profile/{}", "cat": "Dev", "method": "status"},
+    {"name": "LeetCode", "url": "https://leetcode.com/{}/", "cat": "Dev", "method": "status"},
+    {"name": "Codewars", "url": "https://www.codewars.com/users/{}", "cat": "Dev", "method": "status"},
+    {"name": "HackerNews", "url": "https://news.ycombinator.com/user?id={}", "cat": "Dev", "method": "message", "err": "No such user."},
+    {"name": "StackOverflow", "url": "https://stackoverflow.com/users/{}", "cat": "Dev", "method": "status"},
+    {"name": "DockerHub", "url": "https://hub.docker.com/u/{}", "cat": "Dev", "method": "status"},
+    {"name": "NPM", "url": "https://www.npmjs.com/~{}", "cat": "Dev", "method": "status"},
+    {"name": "PyPI", "url": "https://pypi.org/user/{}/", "cat": "Dev", "method": "status"},
+    {"name": "RubyGems", "url": "https://rubygems.org/profiles/{}", "cat": "Dev", "method": "status"},
+    {"name": "Crates.io", "url": "https://crates.io/users/{}", "cat": "Dev", "method": "status"},
+    {"name": "Kaggle", "url": "https://www.kaggle.com/{}", "cat": "Dev", "method": "status"},
+    {"name": "HuggingFace", "url": "https://huggingface.co/{}", "cat": "Dev", "method": "status"},
+    {"name": "Hashnode", "url": "https://hashnode.com/@{}", "cat": "Dev", "method": "status"},
+    {"name": "Reddit", "url": "https://www.reddit.com/user/{}/about.json","cat": "Social", "method": "status"},
+    {"name": "Pinterest", "url": "https://www.pinterest.com/{}/", "cat": "Social", "method": "status"},
+    {"name": "Tumblr", "url": "https://{}.tumblr.com", "cat": "Social", "method": "status"},
+    {"name": "TikTok", "url": "https://www.tiktok.com/@{}", "cat": "Social", "method": "status"},
+    {"name": "Mastodon", "url": "https://mastodon.social/@{}", "cat": "Social", "method": "status"},
+    {"name": "VK", "url": "https://vk.com/{}", "cat": "Social", "method": "message", "err": "Page not found"},
+    {"name": "OK.ru", "url": "https://ok.ru/{}", "cat": "Social", "method": "status"},
+    {"name": "YouTube", "url": "https://www.youtube.com/@{}", "cat": "Media", "method": "status"},
+    {"name": "Twitch", "url": "https://www.twitch.tv/{}", "cat": "Media", "method": "status"},
+    {"name": "SoundCloud", "url": "https://soundcloud.com/{}", "cat": "Media", "method": "status"},
+    {"name": "Spotify", "url": "https://open.spotify.com/user/{}", "cat": "Media", "method": "status"},
+    {"name": "Behance", "url": "https://www.behance.net/{}", "cat": "Media", "method": "status"},
+    {"name": "Dribbble", "url": "https://dribbble.com/{}", "cat": "Media", "method": "status"},
+    {"name": "DeviantArt", "url": "https://www.deviantart.com/{}", "cat": "Media", "method": "status"},
+    {"name": "Flickr", "url": "https://www.flickr.com/people/{}/", "cat": "Media", "method": "status"},
+    {"name": "500px", "url": "https://500px.com/p/{}", "cat": "Media", "method": "status"},
+    {"name": "Vimeo", "url": "https://vimeo.com/{}", "cat": "Media", "method": "status"},
+    {"name": "Mixcloud", "url": "https://www.mixcloud.com/{}/", "cat": "Media", "method": "status"},
+    {"name": "Bandcamp", "url": "https://{}.bandcamp.com", "cat": "Media", "method": "status"},
+    {"name": "Last.fm", "url": "https://www.last.fm/user/{}", "cat": "Media", "method": "status"},
+    {"name": "Giphy", "url": "https://giphy.com/{}", "cat": "Media", "method": "status"},
+    {"name": "Imgur", "url": "https://imgur.com/user/{}", "cat": "Media", "method": "status"},
+    {"name": "Slideshare", "url": "https://www.slideshare.net/{}", "cat": "Media", "method": "status"},
+    {"name": "Speakerdeck", "url": "https://speakerdeck.com/{}", "cat": "Media", "method": "status"},
+    {"name": "Letterboxd", "url": "https://letterboxd.com/{}/", "cat": "Media", "method": "status"},
+    {"name": "Pixiv", "url": "https://www.pixiv.net/en/users/{}", "cat": "Media", "method": "status"},
+    {"name": "Medium", "url": "https://medium.com/@{}", "cat": "Prof", "method": "status"},
+    {"name": "WordPress", "url": "https://profiles.wordpress.org/{}/", "cat": "Prof", "method": "status"},
+    {"name": "Gravatar", "url": "https://en.gravatar.com/{}", "cat": "Prof", "method": "status"},
+    {"name": "About.me", "url": "https://about.me/{}", "cat": "Prof", "method": "status"},
+    {"name": "Linktree", "url": "https://linktr.ee/{}", "cat": "Prof", "method": "status"},
+    {"name": "ProductHunt", "url": "https://www.producthunt.com/@{}", "cat": "Prof", "method": "status"},
+    {"name": "Steam", "url": "https://steamcommunity.com/id/{}", "cat": "Gaming", "method": "message", "err": "The specified profile could not be found"},
+    {"name": "Chess.com", "url": "https://www.chess.com/member/{}", "cat": "Gaming", "method": "status"},
+    {"name": "Lichess", "url": "https://lichess.org/api/user/{}", "cat": "Gaming", "method": "status"},
+    {"name": "Roblox", "url": "https://www.roblox.com/user.aspx?username={}", "cat": "Gaming", "method": "status"},
+    {"name": "Telegram", "url": "https://t.me/{}", "cat": "Comm", "method": "message", "err": "tgme_page_icon"},
+    {"name": "Keybase", "url": "https://keybase.io/{}", "cat": "Comm", "method": "status"},
+    {"name": "Wattpad", "url": "https://www.wattpad.com/user/{}", "cat": "Writing", "method": "status"},
+    {"name": "Goodreads", "url": "https://www.goodreads.com/{}", "cat": "Writing", "method": "status"},
+    {"name": "AO3", "url": "https://archiveofourown.org/users/{}", "cat": "Writing", "method": "status"},
+    {"name": "AniList", "url": "https://anilist.co/user/{}/", "cat": "Writing", "method": "status"},
+    {"name": "Patreon", "url": "https://www.patreon.com/{}", "cat": "Finance", "method": "status"},
+    {"name": "BuyMeACoffee", "url": "https://buymeacoffee.com/{}", "cat": "Finance", "method": "status"},
+    {"name": "Fiverr", "url": "https://www.fiverr.com/{}", "cat": "Finance", "method": "status"},
+    {"name": "Pastebin", "url": "https://pastebin.com/u/{}", "cat": "Misc", "method": "status"},
+    {"name": "Instructables", "url": "https://www.instructables.com/member/{}/", "cat": "Misc", "method": "status"},
+    {"name": "Disqus", "url": "https://disqus.com/by/{}/", "cat": "Misc", "method": "status"},
+    {"name": "Codecademy", "url": "https://www.codecademy.com/profiles/{}", "cat": "Misc", "method": "status"},
+    {"name": "Trello", "url": "https://trello.com/{}", "cat": "Misc", "method": "status"},
+    {"name": "Minecraft", "url": "https://api.mojang.com/users/profiles/minecraft/{}", "cat": "Gaming", "method": "status"},
+    {"name": "OpenSea", "url": "https://opensea.io/{}", "cat": "Web3", "method": "status"},
+    {"name": "MyAnimeList", "url": "https://myanimelist.net/profile/{}", "cat": "Media", "method": "status"},
+    {"name": "Duolingo", "url": "https://www.duolingo.com/profile/{}", "cat": "Edu", "method": "status"},
+    {"name": "TryHackMe", "url": "https://tryhackme.com/p/{}", "cat": "Security", "method": "status"},
+    {"name": "HackTheBox", "url": "https://app.hackthebox.com/profile/{}", "cat": "Security", "method": "status"},
+    {"name": "Freelancer", "url": "https://www.freelancer.com/u/{}", "cat": "Finance", "method": "status"},
+    {"name": "Flipboard", "url": "https://flipboard.com/@{}", "cat": "Social", "method": "status"},
+    {"name": "Kongregate", "url": "https://www.kongregate.com/accounts/{}", "cat": "Gaming", "method": "status"},
+    {"name": "Itch.io", "url": "https://{}.itch.io", "cat": "Gaming", "method": "status"},
+    {"name": "Newgrounds", "url": "https://{}.newgrounds.com", "cat": "Media", "method": "status"},
+    {"name": "Thingiverse", "url": "https://www.thingiverse.com/{}/designs", "cat": "Maker", "method": "status"},
+    {"name": "GrabCAD", "url": "https://grabcad.com/{}", "cat": "Maker", "method": "status"},
+    {"name": "Unsplash", "url": "https://unsplash.com/@{}", "cat": "Media", "method": "status"},
+    {"name": "VSCO", "url": "https://vsco.co/{}/gallery", "cat": "Media", "method": "status"},
+    {"name": "Pexels", "url": "https://www.pexels.com/@{}", "cat": "Media", "method": "status"},
+    {"name": "Snapchat", "url": "https://www.snapchat.com/add/{}", "cat": "Social", "method": "status"},
+]
+
+
+@dataclass
+class Finding:
+    module: str
+    source: str
+    found: bool
+    data: Dict[str, Any] = field(default_factory=dict)
+    url: str = ""
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+@dataclass
+class Report:
+    target: str
+    target_type: str
+    findings: List[Finding] = field(default_factory=list)
+    start_time: str = ""
+    end_time: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def add(self, finding: Finding):
+        self.findings.append(finding)
+
+    @property
+    def found_count(self):
+        return sum(1 for f in self.findings if f.found)
+
+    def to_dict(self):
+        return asdict(self)
+
+    def to_json(self, indent=2):
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
+
+class Log:
+
+    @staticmethod
+    def info(msg: str):
+        print(f" {C.BLUE}[*]{C.RST} {msg}")
+
+    @staticmethod
+    def success(msg: str):
+        print(f" {C.GREEN}[+]{C.RST} {msg}")
+
+    @staticmethod
+    def warn(msg: str):
+        print(f" {C.YELLOW}[!]{C.RST} {msg}")
+
+    @staticmethod
+    def error(msg: str):
+        print(f" {C.RED}[-]{C.RST} {msg}")
+
+    @staticmethod
+    def found(source: str, details: str = ""):
+        tag = _c(C.GREEN, "FOUND")
+        extra = f" — {details}" if details else ""
+        print(f" {C.GREEN}{C.RST} {C.WHITE}{source}{C.RST}{extra}")
+
+    @staticmethod
+    def not_found(source: str):
+        print(f" {C.DARK} {source}{C.RST}")
+
+    @staticmethod
+    def unknown(source: str, reason: str = ""):
+        extra = f" ({reason})" if reason else ""
+        print(f" {C.YELLOW}?{C.RST} {C.GRAY}{source}{extra}{C.RST}")
+
+    @staticmethod
+    def header(title: str):
+        width = 55
+        print()
+        print(f" {C.PINK}{'' * width}{C.RST}")
+        print(f" {C.PINK}{C.RST} {C.BOLD}{C.WHITE}{title}{C.RST}")
+        print(f" {C.PINK}{'' * width}{C.RST}")
+
+    @staticmethod
+    def subheader(title: str):
+        print(f"\n {C.PURPLE} {title} {C.RST}")
+
+    @staticmethod
+    def detail(key: str, value: str, indent: int = 2):
+        pad = " " * indent
+        print(f"{pad}{C.GRAY} {C.CYAN}{key}{C.RST}: {value}")
+
+    @staticmethod
+    def detail_last(key: str, value: str, indent: int = 2):
+        pad = " " * indent
+        print(f"{pad}{C.GRAY} {C.CYAN}{key}{C.RST}: {value}")
+
+    @staticmethod
+    def progress(current: int, total: int, text: str = ""):
+        pct = int((current / total) * 100) if total > 0 else 0
+        bar_len = 30
+        filled = int(bar_len * current / total) if total > 0 else 0
+        bar = f"{C.GREEN}{'' * filled}{C.DARK}{'' * (bar_len - filled)}{C.RST}"
+        extra = f" {text}" if text else ""
+        print(f"\r {bar} {pct:3d}% ({current}/{total}){extra}", end="", flush=True)
+
+
+class RateLimiter:
+
+    def __init__(self, rate: float = 10.0, burst: int = 15):
+        self._rate = rate
+        self._burst = burst
+        self._tokens = float(burst)
+        self._last = time.monotonic()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self):
+        async with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last
+            self._tokens = min(self._burst, self._tokens + elapsed * self._rate)
+            self._last = now
+            if self._tokens < 1:
+                wait = (1 - self._tokens) / self._rate
+                await asyncio.sleep(wait)
+                self._tokens = 0
+            else:
+                self._tokens -= 1
+
+
+class HTTPClient:
+
+    def __init__(self, rate_limit: float = 10.0, max_retries: int = 2,
+                 timeout: float = 15.0, follow_redirects: bool = True):
+        self._limiter = RateLimiter(rate=rate_limit)
+        self._max_retries = max_retries
+        self._timeout = timeout
+        self._follow_redirects = follow_redirects
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def _ensure_client(self):
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self._timeout, connect=10.0),
+                follow_redirects=self._follow_redirects,
+                limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+                http2=False,
+            )
+
+    def _headers(self, extra: Optional[Dict] = None) -> Dict[str, str]:
+        h = {
+            "User-Agent": random.choice(USER_AGENTS),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        }
+        if extra:
+            h.update(extra)
+        return h
+
+    async def get(self, url: str, headers: Optional[Dict] = None,
+                  params: Optional[Dict] = None,
+                  no_retry_on: Optional[set] = None) -> Optional[httpx.Response]:
+        await self._ensure_client()
+        no_retry = no_retry_on or {400, 401, 403, 404, 410, 422}
+
+        for attempt in range(self._max_retries + 1):
+            try:
+                await self._limiter.acquire()
+                resp = await self._client.get(url, headers=self._headers(headers), params=params)
+                if resp.status_code in no_retry or resp.status_code < 500:
+                    return resp
+                if attempt < self._max_retries:
+                    await asyncio.sleep(1.5 ** attempt)
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError):
+                if attempt < self._max_retries:
+                    await asyncio.sleep(1.5 ** attempt)
+            except Exception:
+                return None
+        return None
+
+    async def post(self, url: str, data: Optional[Dict] = None,
+                   json_data: Optional[Dict] = None,
+                   headers: Optional[Dict] = None) -> Optional[httpx.Response]:
+        await self._ensure_client()
+        for attempt in range(self._max_retries + 1):
+            try:
+                await self._limiter.acquire()
+                resp = await self._client.post(
+                    url, headers=self._headers(headers),
+                    data=data, json=json_data
+                )
+                return resp
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError):
+                if attempt < self._max_retries:
+                    await asyncio.sleep(1.5 ** attempt)
+            except Exception:
+                return None
+        return None
+
+    async def head(self, url: str, headers: Optional[Dict] = None) -> Optional[httpx.Response]:
+        await self._ensure_client()
+        try:
+            await self._limiter.acquire()
+            return await self._client.head(url, headers=self._headers(headers))
+        except Exception:
+            return None
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+
+class DNS:
+
+    @staticmethod
+    async def _run_dig(domain: str, rtype: str) -> List[str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "dig", "+short", "+time=5", "+tries=2", rtype, domain,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+            lines = stdout.decode("utf-8", errors="replace").strip().split("\n")
+            return [l.strip() for l in lines if l.strip()]
+        except FileNotFoundError:
+            return await DNS._run_host(domain, rtype)
+        except Exception:
+            return []
+
+    @staticmethod
+    async def _run_host(domain: str, rtype: str) -> List[str]:
+        try:
+            flag_map = {"A": "-t A", "AAAA": "-t AAAA", "MX": "-t MX",
+                        "NS": "-t NS", "TXT": "-t TXT", "CNAME": "-t CNAME",
+                        "SOA": "-t SOA", "PTR": "-t PTR"}
+            flag = flag_map.get(rtype, f"-t {rtype}")
+            proc = await asyncio.create_subprocess_exec(
+                "host", *flag.split(), domain,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+            lines = stdout.decode("utf-8", errors="replace").strip().split("\n")
+            results = []
+            for line in lines:
+                if "has address" in line or "mail is handled" in line or \
+                   "name server" in line or "descriptive text" in line:
+                    parts = line.split()
+                    results.append(parts[-1].strip('"'))
+            return results
+        except Exception:
+            return []
+
+    @staticmethod
+    async def resolve_a(domain: str) -> List[str]:
+        return await DNS._run_dig(domain, "A")
+
+    @staticmethod
+    async def resolve_aaaa(domain: str) -> List[str]:
+        return await DNS._run_dig(domain, "AAAA")
+
+    @staticmethod
+    async def resolve_mx(domain: str) -> List[str]:
+        return await DNS._run_dig(domain, "MX")
+
+    @staticmethod
+    async def resolve_ns(domain: str) -> List[str]:
+        return await DNS._run_dig(domain, "NS")
+
+    @staticmethod
+    async def resolve_txt(domain: str) -> List[str]:
+        return await DNS._run_dig(domain, "TXT")
+
+    @staticmethod
+    async def resolve_cname(domain: str) -> List[str]:
+        return await DNS._run_dig(domain, "CNAME")
+
+    @staticmethod
+    async def resolve_soa(domain: str) -> List[str]:
+        return await DNS._run_dig(domain, "SOA")
+
+    @staticmethod
+    async def resolve_ptr(ip: str) -> List[str]:
+        try:
+            parts = ip.split(".")
+            arpa = ".".join(reversed(parts)) + ".in-addr.arpa"
+            return await DNS._run_dig(arpa, "PTR")
+        except Exception:
+            return []
+
+    @staticmethod
+    def resolve_sync(domain: str, port: int = 80) -> List[str]:
+        try:
+            results = socket.getaddrinfo(domain, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            return list({r[4][0] for r in results})
+        except Exception:
+            return []
+
+
+class SSLAnalyzer:
+
+    @staticmethod
+    async def get_cert(domain: str, port: int = 443) -> Optional[Dict[str, Any]]:
+        def _get():
+            ctx = ssl.create_default_context()
+            try:
+                with socket.create_connection((domain, port), timeout=10) as sock:
+                    with ctx.wrap_socket(sock, server_hostname=domain) as tls:
+                        return tls.getpeercert()
+            except Exception:
+                return None
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _get)
+
+    @staticmethod
+    def parse_cert(cert: Dict) -> Dict[str, Any]:
+        if not cert:
+            return {}
+        info = {}
+        subj = cert.get("subject", ())
+        for rdn in subj:
+            for attr_type, attr_value in rdn:
+                if attr_type == "commonName":
+                    info["common_name"] = attr_value
+                elif attr_type == "organizationName":
+                    info["organization"] = attr_value
+        issuer = cert.get("issuer", ())
+        for rdn in issuer:
+            for attr_type, attr_value in rdn:
+                if attr_type == "commonName":
+                    info["issuer_cn"] = attr_value
+                elif attr_type == "organizationName":
+                    info["issuer_org"] = attr_value
+        info["not_before"] = cert.get("notBefore", "N/A")
+        info["not_after"] = cert.get("notAfter", "N/A")
+        sans = []
+        for san_type, san_value in cert.get("subjectAltName", ()):
+            sans.append(san_value)
+        info["sans"] = sans
+        info["serial"] = cert.get("serialNumber", "N/A")
+        return info
+
+
+class EmailIntel:
+
+    def __init__(self, http: HTTPClient):
+        self.http = http
+
+    async def investigate(self, email: str, report: Report):
+        Log.header("EMAIL INTELLIGENCE")
+        Log.info(f"Target: {_c(C.WHITE, email)}")
+
+        if not EMAIL_REGEX.match(email):
+            Log.error("Invalid email format")
+            report.add(Finding("email", "format_check", False, {"error": "invalid format"}))
+            return
+
+        name, domain = email.split("@", 1)
+        Log.detail("Local part", name)
+        Log.detail("Domain", domain)
+
+        report.metadata["email_name"] = name
+        report.metadata["email_domain"] = domain
+
+        await asyncio.gather(
+            self._check_disposable(domain, report),
+            self._check_mx(domain, report),
+            self._check_spf(domain, report),
+            self._check_dmarc(domain, report),
+            self._check_gravatar(email, report),
+            self._check_github(email, report),
+            self._check_gitlab(email, report),
+            self._check_have_i_been_pwned_info(email, report),
+            self._check_disqus(email, report),
+            return_exceptions=True,
+        )
+
+        self._generate_permutations(name, domain, report)
+
+        self._generate_email_dorks(email, report)
+
+    async def _check_disposable(self, domain: str, report: Report):
+        Log.subheader("Disposable Email Check")
+        is_disp = domain.lower() in DISPOSABLE_DOMAINS
+        if is_disp:
+            Log.warn(f"Domain {domain} is a known disposable email provider")
+        else:
+            Log.success(f"Domain {domain} is not a known disposable provider")
+        report.add(Finding("email", "disposable_check", is_disp,
+                           {"domain": domain, "disposable": is_disp}))
+
+    async def _check_mx(self, domain: str, report: Report):
+        Log.subheader("MX Records (Mail Servers)")
+        records = await DNS.resolve_mx(domain)
+        if records:
+            for rec in records:
+                Log.detail("MX", rec)
+            provider = self._identify_provider(records)
+            if provider:
+                Log.detail_last("Provider", _c(C.GREEN, provider))
+        else:
+            Log.warn("No MX records found")
+        report.add(Finding("email", "mx_records", bool(records),
+                           {"records": records, "provider": self._identify_provider(records) if records else None}))
+
+    @staticmethod
+    def _identify_provider(mx_records: List[str]) -> Optional[str]:
+        mx_lower = " ".join(mx_records).lower()
+        providers = {
+            "google": "Google Workspace / Gmail",
+            "googlemail": "Google Workspace / Gmail",
+            "outlook": "Microsoft 365 / Outlook",
+            "microsoft": "Microsoft 365 / Outlook",
+            "protonmail": "ProtonMail",
+            "proton.ch": "ProtonMail",
+            "yahoo": "Yahoo Mail",
+            "yandex": "Yandex Mail",
+            "zoho": "Zoho Mail",
+            "icloud": "Apple iCloud Mail",
+            "fastmail": "FastMail",
+            "mailgun": "Mailgun (Transactional)",
+            "sendgrid": "SendGrid (Transactional)",
+            "amazonaws": "Amazon SES",
+            "mimecast": "Mimecast (Security Gateway)",
+            "barracuda": "Barracuda (Security Gateway)",
+            "pphosted": "Proofpoint (Security Gateway)",
+            "messagelabs": "Symantec MessageLabs",
+            "secureserver": "GoDaddy",
+            "ovh": "OVH",
+            "gandi": "Gandi",
+            "namecheap": "Namecheap",
+            "titan": "Titan Email",
+            "tutanota": "Tutanota",
+            "tuta": "Tutanota",
+            "hetzner": "Hetzner",
+            "mailcheap": "MailCheap",
+            "migadu": "Migadu",
+        }
+        for key, name in providers.items():
+            if key in mx_lower:
+                return name
+        return None
+
+    async def _check_spf(self, domain: str, report: Report):
+        Log.subheader("SPF Record")
+        txt_records = await DNS.resolve_txt(domain)
+        spf = [r for r in txt_records if "v=spf1" in r.lower()]
+        if spf:
+            for s in spf:
+                Log.detail("SPF", s)
+        else:
+            Log.warn("No SPF record found — email domain may be spoofable")
+        report.add(Finding("email", "spf_record", bool(spf), {"records": spf}))
+
+    async def _check_dmarc(self, domain: str, report: Report):
+        Log.subheader("DMARC Record")
+        dmarc_domain = f"_dmarc.{domain}"
+        records = await DNS.resolve_txt(dmarc_domain)
+        dmarc = [r for r in records if "v=dmarc1" in r.lower()]
+        if dmarc:
+            for d in dmarc:
+                Log.detail("DMARC", d)
+                if "p=reject" in d.lower():
+                    Log.detail("Policy", _c(C.GREEN, "reject (strict)"))
+                elif "p=quarantine" in d.lower():
+                    Log.detail("Policy", _c(C.YELLOW, "quarantine (moderate)"))
+                elif "p=none" in d.lower():
+                    Log.detail("Policy", _c(C.RED, "none (monitoring only)"))
+        else:
+            Log.warn("No DMARC record found — domain may be vulnerable to spoofing")
+        report.add(Finding("email", "dmarc_record", bool(dmarc), {"records": dmarc}))
+
+    async def _check_gravatar(self, email: str, report: Report):
+        Log.subheader("Gravatar")
+        email_hash = hashlib.md5(email.strip().lower().encode()).hexdigest()
+        url = f"https://www.gravatar.com/avatar/{email_hash}?d=404&s=1"
+        resp = await self.http.get(url)
+        has_avatar = resp is not None and resp.status_code == 200
+
+        profile_url = f"https://www.gravatar.com/{email_hash}.json"
+        profile_resp = await self.http.get(profile_url)
+        profile_data = {}
+
+        if profile_resp and profile_resp.status_code == 200:
+            try:
+                pdata = profile_resp.json()
+                if "entry" in pdata and pdata["entry"]:
+                    entry = pdata["entry"][0]
+                    profile_data = {
+                        "display_name": entry.get("displayName", ""),
+                        "profile_url": entry.get("profileUrl", ""),
+                        "about_me": entry.get("aboutMe", ""),
+                        "current_location": entry.get("currentLocation", ""),
+                    }
+                    accounts = entry.get("accounts", [])
+                    if accounts:
+                        profile_data["linked_accounts"] = [
+                            {"service": a.get("shortname", ""), "url": a.get("url", "")}
+                            for a in accounts
+                        ]
+                    photos = entry.get("photos", [])
+                    if photos:
+                        profile_data["avatar_url"] = photos[0].get("value", "")
+            except Exception:
+                pass
+
+        found = has_avatar or bool(profile_data)
+        if found:
+            Log.found("Gravatar",
+                      f"https://www.gravatar.com/{email_hash}")
+            for k, v in profile_data.items():
+                if v and k != "linked_accounts":
+                    Log.detail(k.replace("_", " ").title(), str(v))
+            if "linked_accounts" in profile_data:
+                for acc in profile_data["linked_accounts"]:
+                    Log.detail(f"Linked [{acc['service']}]", acc["url"])
+        else:
+            Log.not_found("Gravatar")
+
+        report.add(Finding("email", "gravatar", found,
+                           {"hash": email_hash, **profile_data},
+                           url=f"https://www.gravatar.com/{email_hash}"))
+
+    async def _check_github(self, email: str, report: Report):
+        Log.subheader("GitHub")
+        url = f"https://api.github.com/search/users?q={quote_plus(email)}+in:email"
+        resp = await self.http.get(url, headers={"Accept": "application/vnd.github.v3+json"})
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                count = data.get("total_count", 0)
+                if count > 0:
+                    items = data.get("items", [])
+                    for item in items[:5]: # Top 5 results
+                        login = item.get("login", "N/A")
+                        avatar = item.get("avatar_url", "")
+                        profile = item.get("html_url", f"https://github.com/{login}")
+                        Log.found("GitHub", login)
+                        Log.detail("Profile", profile)
+                        Log.detail("Avatar", avatar)
+                        report.add(Finding("email", "github", True,
+                                           {"username": login, "avatar": avatar},
+                                           url=profile))
+                    return
+            except Exception:
+                pass
+        Log.not_found("GitHub")
+        report.add(Finding("email", "github", False))
+
+    async def _check_gitlab(self, email: str, report: Report):
+        Log.subheader("GitLab")
+        url = f"https://gitlab.com/api/v4/users?search={quote_plus(email)}"
+        resp = await self.http.get(url)
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    for user in data[:3]:
+                        uname = user.get("username", "N/A")
+                        name = user.get("name", "N/A")
+                        Log.found("GitLab", uname)
+                        Log.detail("Name", name)
+                        Log.detail("Profile", f"https://gitlab.com/{uname}")
+                        report.add(Finding("email", "gitlab", True,
+                                           {"username": uname, "name": name},
+                                           url=f"https://gitlab.com/{uname}"))
+                    return
+            except Exception:
+                pass
+        Log.not_found("GitLab")
+        report.add(Finding("email", "gitlab", False))
+
+    async def _check_have_i_been_pwned_info(self, email: str, report: Report):
+        Log.subheader("Have I Been Pwned")
+        Log.info("HIBP requires an API key for direct lookup.")
+        hibp_url = f"https://haveibeenpwned.com/account/{quote_plus(email)}"
+        Log.detail("Manual check", hibp_url)
+        report.add(Finding("email", "hibp_info", True,
+                           {"check_url": hibp_url, "note": "Manual verification required"}))
+
+    async def _check_disqus(self, email: str, report: Report):
+        Log.subheader("Disqus")
+        url = "https://disqus.com/api/3.0/users/checkUsername.json"
+        email_hash = hashlib.md5(email.strip().lower().encode()).hexdigest()
+        check_url = f"https://disqus.com/by/{email_hash}/"
+        Log.info(f"Disqus email verification requires API access")
+        report.add(Finding("email", "disqus", False, {"note": "Requires API key"}))
+
+    def _generate_permutations(self, name: str, domain: str, report: Report):
+        Log.subheader("Email Permutations")
+        perms = set()
+
+        if "." in name:
+            parts = name.split(".")
+            base = "".join(parts)
+            perms.add(f"{base}@{domain}")
+            perms.add(f"{'_'.join(parts)}@{domain}")
+            perms.add(f"{'-'.join(parts)}@{domain}")
+            if len(parts) == 2:
+                perms.add(f"{parts[1]}.{parts[0]}@{domain}")
+                perms.add(f"{parts[0][0]}{parts[1]}@{domain}")
+                perms.add(f"{parts[0][0]}.{parts[1]}@{domain}")
+        elif "_" in name:
+            parts = name.split("_")
+            perms.add(f"{'.'.join(parts)}@{domain}")
+            perms.add(f"{''.join(parts)}@{domain}")
+            if len(parts) == 2:
+                perms.add(f"{parts[1]}_{parts[0]}@{domain}")
+        else:
+            if len(name) > 3:
+                perms.add(f"{name[0]}.{name[1:]}@{domain}")
+            for i in range(2, min(len(name) - 1, 8)):
+                perms.add(f"{name[:i]}.{name[i:]}@{domain}")
+                perms.add(f"{name[:i]}_{name[i:]}@{domain}")
+
+        original = f"{name}@{domain}"
+        common_domains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+                          "protonmail.com", "icloud.com", "mail.com", "aol.com"]
+        for d in common_domains:
+            if d != domain:
+                perms.add(f"{name}@{d}")
+
+        perms.discard(original)
+
+        if perms:
+            Log.info(f"Generated {len(perms)} possible permutations:")
+            shown = 0
+            for p in sorted(perms):
+                if shown < 15:
+                    Log.detail("Variant", p)
+                    shown += 1
+            if len(perms) > 15:
+                Log.detail_last("...", f"and {len(perms) - 15} more")
+            report.add(Finding("email", "permutations", True,
+                               {"count": len(perms), "permutations": sorted(perms)}))
+        else:
+            report.add(Finding("email", "permutations", False))
+
+    def _generate_email_dorks(self, email: str, report: Report):
+        Log.subheader("Google Dorks for Email")
+        name, domain = email.split("@", 1)
+        dorks = [
+            (f'"{email}"', "Exact email mentions"),
+            (f'"{email}" site:pastebin.com', "Pastebin leaks"),
+            (f'"{email}" site:github.com', "GitHub references"),
+            (f'"{email}" password OR passwd OR credentials', "Credential leaks"),
+            (f'"{email}" filetype:pdf OR filetype:doc OR filetype:xls', "Documents"),
+            (f'"{name}" "@{domain}"', "Partial matches on same domain"),
+            (f'"{email}" site:linkedin.com', "LinkedIn profile"),
+            (f'"{email}" site:facebook.com', "Facebook profile"),
+            (f'"{email}" inurl:register OR inurl:signup', "Registration pages"),
+            (f'"{email}" "database" OR "dump" OR "leak"', "Database leaks"),
+        ]
+        for query, desc in dorks:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+        report.add(Finding("email", "dorks", True,
+                           {"dorks": [{"query": q, "desc": d} for q, d in dorks]}))
+
+
+class UsernameIntel:
+
+    def __init__(self, http: HTTPClient):
+        self.http = http
+
+    async def investigate(self, username: str, report: Report):
+        Log.header("USERNAME RECONNAISSANCE")
+        Log.info(f"Target: {_c(C.WHITE, username)}")
+        Log.info(f"Scanning {len(PLATFORMS)} platforms...")
+        print()
+
+        found_platforms = []
+        errors = 0
+        sem = asyncio.Semaphore(20) # Max 20 concurrent checks
+
+        async def check_platform(platform: Dict, idx: int):
+            nonlocal errors
+            async with sem:
+                try:
+                    result = await self._check_single(username, platform)
+                    Log.progress(idx + 1, len(PLATFORMS), platform["name"])
+                    return result
+                except Exception:
+                    errors += 1
+                    return None
+
+        tasks = [check_platform(p, i) for i, p in enumerate(PLATFORMS)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        print("\r" + " " * 80 + "\r", end="")
+        print()
+
+        found = []
+        not_found = []
+        unknown = []
+
+        for r in results:
+            if isinstance(r, Exception) or r is None:
+                continue
+            if r["status"] == "found":
+                found.append(r)
+            elif r["status"] == "not_found":
+                not_found.append(r)
+            else:
+                unknown.append(r)
+
+        if found:
+            Log.subheader(f"Found on {len(found)} platforms")
+            by_cat = {}
+            for f in found:
+                cat = f.get("category", "Other")
+                by_cat.setdefault(cat, []).append(f)
+
+            for cat, items in sorted(by_cat.items()):
+                print(f"\n {C.PURPLE}[{cat}]{C.RST}")
+                for item in items:
+                    Log.found(item["name"], item["url"])
+                    report.add(Finding("username", item["name"], True,
+                                       {"category": cat}, url=item["url"]))
+        else:
+            Log.warn("Username not found on any platform")
+
+        if unknown:
+            Log.subheader(f"Uncertain ({len(unknown)} platforms)")
+            for u in unknown[:10]:
+                Log.unknown(u["name"], u.get("reason", ""))
+                report.add(Finding("username", u["name"], False,
+                                   {"status": "unknown", "reason": u.get("reason", "")}))
+            if len(unknown) > 10:
+                Log.info(f"... and {len(unknown) - 10} more")
+
+        Log.subheader("Summary")
+        Log.info(f"Checked: {len(PLATFORMS)} | "
+                 f"Found: {_c(C.GREEN, str(len(found)))} | "
+                 f"Not Found: {len(not_found)} | "
+                 f"Unknown: {_c(C.YELLOW, str(len(unknown)))} | "
+                 f"Errors: {_c(C.RED, str(errors))}")
+
+        report.metadata["username_found_count"] = len(found)
+        report.metadata["username_total_checked"] = len(PLATFORMS)
+
+    async def _check_single(self, username: str, platform: Dict) -> Dict:
+        name = platform["name"]
+        url = platform["url"].format(username)
+        method = platform.get("method", "status")
+        category = platform.get("cat", "Other")
+
+        try:
+            resp = await self.http.get(url)
+            if resp is None:
+                return {"name": name, "url": url, "status": "unknown",
+                        "reason": "timeout/error", "category": category}
+
+            status = resp.status_code
+
+            if method == "status":
+                if status == 200:
+                    return {"name": name, "url": url, "status": "found", "category": category}
+                elif status in (301, 302, 303, 307, 308):
+                    return {"name": name, "url": url, "status": "not_found", "category": category}
+                elif status == 404:
+                    return {"name": name, "url": url, "status": "not_found", "category": category}
+                elif status == 429:
+                    return {"name": name, "url": url, "status": "unknown",
+                            "reason": "rate-limited", "category": category}
+                elif status in (403, 401):
+                    return {"name": name, "url": url, "status": "unknown",
+                            "reason": "blocked", "category": category}
+                else:
+                    return {"name": name, "url": url, "status": "unknown",
+                            "reason": f"HTTP {status}", "category": category}
+
+            elif method == "message":
+                err_text = platform.get("err", "")
+                if status == 200 and err_text:
+                    body = resp.text[:10000] # Only check first 10KB
+                    if err_text in body:
+                        return {"name": name, "url": url, "status": "not_found", "category": category}
+                    else:
+                        return {"name": name, "url": url, "status": "found", "category": category}
+                elif status == 404:
+                    return {"name": name, "url": url, "status": "not_found", "category": category}
+                else:
+                    return {"name": name, "url": url, "status": "unknown",
+                            "reason": f"HTTP {status}", "category": category}
+
+        except Exception as e:
+            return {"name": name, "url": url, "status": "unknown",
+                    "reason": str(e)[:50], "category": category}
+
+
+class DomainIntel:
+
+    def __init__(self, http: HTTPClient):
+        self.http = http
+
+    async def investigate(self, domain: str, report: Report):
+        Log.header("DOMAIN INTELLIGENCE")
+        Log.info(f"Target: {_c(C.WHITE, domain)}")
+
+        if not DOMAIN_REGEX.match(domain):
+            Log.error("Invalid domain format")
+            return
+
+        await self._dns_records(domain, report)
+
+        await asyncio.gather(
+            self._whois(domain, report),
+            self._ssl_cert(domain, report),
+            self._http_headers(domain, report),
+            self._robots_txt(domain, report),
+            self._sitemap(domain, report),
+            self._wayback(domain, report),
+            return_exceptions=True,
+        )
+
+        await self._subdomain_enum(domain, report)
+
+    async def _dns_records(self, domain: str, report: Report):
+        Log.subheader("DNS Records")
+
+        record_types = [
+            ("A", DNS.resolve_a),
+            ("AAAA", DNS.resolve_aaaa),
+            ("MX", DNS.resolve_mx),
+            ("NS", DNS.resolve_ns),
+            ("TXT", DNS.resolve_txt),
+            ("CNAME", DNS.resolve_cname),
+            ("SOA", DNS.resolve_soa),
+        ]
+
+        all_records = {}
+        tasks = [(rtype, func(domain)) for rtype, func in record_types]
+        results = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
+
+        for (rtype, _), result in zip(tasks, results):
+            if isinstance(result, Exception):
+                continue
+            if result:
+                all_records[rtype] = result
+                for rec in result:
+                    Log.detail(rtype, rec)
+
+        if not all_records:
+            Log.warn("No DNS records found")
+
+        report.add(Finding("domain", "dns_records", bool(all_records),
+                           {"records": all_records}))
+
+    async def _whois(self, domain: str, report: Report):
+        Log.subheader("WHOIS Information")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "whois", domain,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20)
+            raw = stdout.decode("utf-8", errors="replace")
+
+            if not raw.strip():
+                Log.warn("WHOIS data not available")
+                report.add(Finding("domain", "whois", False))
+                return
+
+            fields = {}
+            interesting = {
+                "Registrar": "registrar",
+                "Creation Date": "created",
+                "Updated Date": "updated",
+                "Registry Expiry Date": "expires",
+                "Registrant Organization": "org",
+                "Registrant Country": "country",
+                "Name Server": "nameservers",
+                "Domain Status": "status",
+                "Registrant Name": "registrant",
+                "Registrant Email": "email",
+                "Admin Email": "admin_email",
+                "Tech Email": "tech_email",
+            }
+
+            ns_list = []
+            status_list = []
+
+            for line in raw.split("\n"):
+                line = line.strip()
+                for pattern, key in interesting.items():
+                    if line.lower().startswith(pattern.lower() + ":"):
+                        value = line.split(":", 1)[1].strip()
+                        if key == "nameservers":
+                            ns_list.append(value)
+                        elif key == "status":
+                            status_list.append(value.split(" ")[0])
+                        else:
+                            fields[key] = value
+
+            if ns_list:
+                fields["nameservers"] = ns_list
+            if status_list:
+                fields["status"] = list(set(status_list))
+
+            for k, v in fields.items():
+                if isinstance(v, list):
+                    Log.detail(k.title(), ", ".join(v[:5]))
+                else:
+                    Log.detail(k.title(), v)
+
+            report.add(Finding("domain", "whois", bool(fields),
+                               {"fields": fields}))
+
+        except FileNotFoundError:
+            Log.warn("whois command not available on this system")
+            report.add(Finding("domain", "whois", False, {"error": "whois not installed"}))
+        except asyncio.TimeoutError:
+            Log.warn("WHOIS lookup timed out")
+            report.add(Finding("domain", "whois", False, {"error": "timeout"}))
+        except Exception as e:
+            Log.error(f"WHOIS error: {e}")
+            report.add(Finding("domain", "whois", False, {"error": str(e)}))
+
+    async def _ssl_cert(self, domain: str, report: Report):
+        Log.subheader("SSL/TLS Certificate")
+        cert_raw = await SSLAnalyzer.get_cert(domain)
+        if cert_raw:
+            info = SSLAnalyzer.parse_cert(cert_raw)
+            for k, v in info.items():
+                if k == "sans":
+                    san_str = ", ".join(v[:10])
+                    if len(v) > 10:
+                        san_str += f" (+{len(v) - 10} more)"
+                    Log.detail("SANs", san_str)
+                else:
+                    Log.detail(k.replace("_", " ").title(), str(v))
+            report.add(Finding("domain", "ssl_cert", True, {"cert": info}))
+        else:
+            Log.warn("No SSL certificate found or connection failed")
+            report.add(Finding("domain", "ssl_cert", False))
+
+    async def _http_headers(self, domain: str, report: Report):
+        Log.subheader("HTTP Headers Analysis")
+
+        for scheme in ["https", "http"]:
+            url = f"{scheme}://{domain}"
+            resp = await self.http.get(url)
+            if resp is None:
+                continue
+
+            headers = dict(resp.headers)
+            Log.detail("URL", url)
+            Log.detail("Status", str(resp.status_code))
+
+            tech = []
+            server = headers.get("server", "")
+            if server:
+                tech.append(f"Server: {server}")
+                Log.detail("Server", server)
+
+            powered = headers.get("x-powered-by", "")
+            if powered:
+                tech.append(f"Powered-By: {powered}")
+                Log.detail("Powered By", powered)
+
+            security_headers = {
+                "strict-transport-security": "HSTS",
+                "content-security-policy": "CSP",
+                "x-content-type-options": "X-Content-Type-Options",
+                "x-frame-options": "X-Frame-Options",
+                "x-xss-protection": "X-XSS-Protection",
+                "referrer-policy": "Referrer-Policy",
+                "permissions-policy": "Permissions-Policy",
+                "cross-origin-opener-policy": "COOP",
+                "cross-origin-embedder-policy": "COEP",
+                "cross-origin-resource-policy": "CORP",
+            }
+
+            present = []
+            missing = []
+            for hdr, label in security_headers.items():
+                if hdr in headers:
+                    present.append(label)
+                else:
+                    missing.append(label)
+
+            if present:
+                Log.detail("Security Headers Present",
+                          _c(C.GREEN, ", ".join(present)))
+            if missing:
+                Log.detail("Security Headers Missing",
+                          _c(C.RED, ", ".join(missing)))
+
+            score = int((len(present) / len(security_headers)) * 100)
+            color = C.GREEN if score >= 70 else C.YELLOW if score >= 40 else C.RED
+            Log.detail("Security Score", _c(color, f"{score}%"))
+
+            report.add(Finding("domain", "http_headers", True, {
+                "url": url, "status": resp.status_code,
+                "technology": tech, "security_headers_present": present,
+                "security_headers_missing": missing, "security_score": score,
+                "all_headers": {k: v for k, v in headers.items()
+                               if not k.startswith("set-cookie")},
+            }))
+            return # Only need one successful check
+
+        Log.warn("Could not connect to domain via HTTP/HTTPS")
+        report.add(Finding("domain", "http_headers", False))
+
+    async def _robots_txt(self, domain: str, report: Report):
+        Log.subheader("robots.txt")
+        for scheme in ["https", "http"]:
+            url = f"{scheme}://{domain}/robots.txt"
+            resp = await self.http.get(url)
+            if resp and resp.status_code == 200 and len(resp.text) > 5:
+                lines = resp.text.strip().split("\n")
+                disallowed = [l.split(":")[1].strip()
+                              for l in lines if l.lower().startswith("disallow:") and ":" in l]
+                sitemaps = [l.split(":", 1)[1].strip()
+                            for l in lines if l.lower().startswith("sitemap:") and ":" in l]
+
+                Log.detail("Total rules", str(len(lines)))
+                if disallowed:
+                    for d in disallowed[:8]:
+                        Log.detail("Disallow", d)
+                    if len(disallowed) > 8:
+                        Log.detail("...", f"+{len(disallowed) - 8} more rules")
+                if sitemaps:
+                    for s in sitemaps:
+                        Log.detail("Sitemap", s)
+
+                report.add(Finding("domain", "robots_txt", True, {
+                    "disallowed_paths": disallowed,
+                    "sitemaps": sitemaps,
+                    "total_rules": len(lines),
+                }))
+                return
+
+        Log.info("No robots.txt found")
+        report.add(Finding("domain", "robots_txt", False))
+
+    async def _sitemap(self, domain: str, report: Report):
+        Log.subheader("Sitemap")
+        for scheme in ["https", "http"]:
+            url = f"{scheme}://{domain}/sitemap.xml"
+            resp = await self.http.get(url)
+            if resp and resp.status_code == 200 and "xml" in resp.headers.get("content-type", "").lower():
+                Log.found("sitemap.xml", url)
+                url_count = resp.text.count("<loc>")
+                Log.detail("URL count", str(url_count))
+                report.add(Finding("domain", "sitemap", True,
+                                   {"url": url, "url_count": url_count}))
+                return
+            elif resp and resp.status_code == 200 and "<url" in resp.text.lower():
+                Log.found("sitemap.xml", url)
+                url_count = resp.text.lower().count("<url")
+                Log.detail("URL count", str(url_count))
+                report.add(Finding("domain", "sitemap", True,
+                                   {"url": url, "url_count": url_count}))
+                return
+
+        Log.info("No sitemap.xml found at default location")
+        report.add(Finding("domain", "sitemap", False))
+
+    async def _wayback(self, domain: str, report: Report):
+        Log.subheader("Wayback Machine Archive")
+        url = f"https://archive.org/wayback/available?url={domain}"
+        resp = await self.http.get(url)
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                snapshots = data.get("archived_snapshots", {})
+                closest = snapshots.get("closest", {})
+                if closest:
+                    Log.found("Wayback Machine")
+                    Log.detail("Archived URL", closest.get("url", "N/A"))
+                    Log.detail("Timestamp", closest.get("timestamp", "N/A"))
+                    Log.detail("Status", str(closest.get("status", "N/A")))
+                    report.add(Finding("domain", "wayback", True,
+                                       {"snapshot": closest}))
+                    return
+            except Exception:
+                pass
+        Log.info("No Wayback Machine snapshots found")
+        report.add(Finding("domain", "wayback", False))
+
+    async def _subdomain_enum(self, domain: str, report: Report):
+        Log.subheader("Subdomain Enumeration")
+        Log.info(f"Checking {len(COMMON_SUBDOMAINS)} common subdomains...")
+
+        found_subs = []
+        sem = asyncio.Semaphore(30)
+
+        async def check_sub(sub: str, idx: int):
+            async with sem:
+                fqdn = f"{sub}.{domain}"
+                try:
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(
+                        None, lambda: socket.getaddrinfo(fqdn, None, socket.AF_INET, socket.SOCK_STREAM)
+                    )
+                    if result:
+                        ip = result[0][4][0]
+                        return (fqdn, ip)
+                except (socket.gaierror, socket.herror, OSError):
+                    pass
+                return None
+
+        tasks = [check_sub(s, i) for i, s in enumerate(COMMON_SUBDOMAINS)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in results:
+            if isinstance(r, tuple) and r is not None:
+                found_subs.append(r)
+
+        if found_subs:
+            Log.success(f"Found {len(found_subs)} active subdomains:")
+            for fqdn, ip in sorted(found_subs):
+                Log.detail(fqdn, ip)
+            report.add(Finding("domain", "subdomains", True, {
+                "found": [{"subdomain": s, "ip": i} for s, i in found_subs],
+                "count": len(found_subs),
+            }))
+        else:
+            Log.info("No common subdomains resolved")
+            report.add(Finding("domain", "subdomains", False))
+
+
+class IPIntel:
+
+    def __init__(self, http: HTTPClient):
+        self.http = http
+
+    async def investigate(self, ip: str, report: Report):
+        Log.header("IP ADDRESS INTELLIGENCE")
+        Log.info(f"Target: {_c(C.WHITE, ip)}")
+
+        if not IP_REGEX.match(ip):
+            Log.error("Invalid IPv4 address format")
+            return
+
+        await asyncio.gather(
+            self._geolocation(ip, report),
+            self._reverse_dns(ip, report),
+            self._blacklist_check(ip, report),
+            self._wayback_ip(ip, report),
+            return_exceptions=True,
+        )
+
+        await self._port_scan(ip, report)
+
+        self._generate_ip_dorks(ip, report)
+
+    async def _geolocation(self, ip: str, report: Report):
+        Log.subheader("Geolocation")
+        url = f"http://ip-api.com/json/{ip}?fields=status,message,continent,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,asname,reverse,mobile,proxy,hosting,query"
+        resp = await self.http.get(url)
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                if data.get("status") == "success":
+                    fields = [
+                        ("Country", f"{data.get('country', 'N/A')} ({data.get('countryCode', '')})"),
+                        ("Region", data.get("regionName", "N/A")),
+                        ("City", data.get("city", "N/A")),
+                        ("ZIP", data.get("zip", "N/A")),
+                        ("Coordinates", f"{data.get('lat', 'N/A')}, {data.get('lon', 'N/A')}"),
+                        ("Timezone", data.get("timezone", "N/A")),
+                        ("ISP", data.get("isp", "N/A")),
+                        ("Organization", data.get("org", "N/A")),
+                        ("AS Number", data.get("as", "N/A")),
+                        ("AS Name", data.get("asname", "N/A")),
+                        ("Reverse DNS", data.get("reverse", "N/A")),
+                        ("Mobile", str(data.get("mobile", False))),
+                        ("Proxy/VPN", str(data.get("proxy", False))),
+                        ("Hosting/DC", str(data.get("hosting", False))),
+                    ]
+                    for k, v in fields:
+                        Log.detail(k, v)
+
+                    if data.get("proxy"):
+                        Log.warn("IP is associated with a proxy/VPN service")
+                    if data.get("hosting"):
+                        Log.info("IP belongs to a hosting/datacenter provider")
+
+                    report.add(Finding("ip", "geolocation", True, data))
+                    return
+            except Exception:
+                pass
+        Log.warn("Geolocation lookup failed")
+        report.add(Finding("ip", "geolocation", False))
+
+    async def _reverse_dns(self, ip: str, report: Report):
+        Log.subheader("Reverse DNS")
+        records = await DNS.resolve_ptr(ip)
+        if records:
+            for r in records:
+                Log.detail("PTR", r)
+            report.add(Finding("ip", "reverse_dns", True, {"ptr": records}))
+        else:
+            try:
+                hostname, _, _ = socket.gethostbyaddr(ip)
+                Log.detail("Hostname", hostname)
+                report.add(Finding("ip", "reverse_dns", True, {"hostname": hostname}))
+            except Exception:
+                Log.info("No reverse DNS records found")
+                report.add(Finding("ip", "reverse_dns", False))
+
+    async def _blacklist_check(self, ip: str, report: Report):
+        Log.subheader("DNSBL Blacklist Check")
+        blacklists = [
+            "zen.spamhaus.org",
+            "bl.spamcop.net",
+            "b.barracudacentral.org",
+            "dnsbl.sorbs.net",
+            "spam.dnsbl.sorbs.net",
+            "cbl.abuseat.org",
+            "dnsbl-1.uceprotect.net",
+        ]
+
+        reversed_ip = ".".join(reversed(ip.split(".")))
+        listed = []
+
+        async def check_bl(bl: str):
+            query = f"{reversed_ip}.{bl}"
+            try:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None, lambda: socket.getaddrinfo(query, None)
+                )
+                return bl
+            except (socket.gaierror, socket.herror, OSError):
+                return None
+
+        results = await asyncio.gather(*[check_bl(bl) for bl in blacklists],
+                                       return_exceptions=True)
+        for r in results:
+            if isinstance(r, str):
+                listed.append(r)
+
+        if listed:
+            Log.warn(f"IP is listed on {len(listed)} blacklist(s):")
+            for bl in listed:
+                Log.detail("Listed on", _c(C.RED, bl))
+        else:
+            Log.success("IP is not listed on any checked DNSBL")
+
+        report.add(Finding("ip", "blacklist", bool(listed),
+                           {"listed_on": listed, "checked": len(blacklists)}))
+
+    async def _port_scan(self, ip: str, report: Report):
+        Log.subheader("Port Scan (Common Ports)")
+        Log.info(f"Scanning {len(COMMON_PORTS)} ports...")
+
+        open_ports = []
+        sem = asyncio.Semaphore(50)
+
+        async def scan_port(port: int, service: str):
+            async with sem:
+                try:
+                    loop = asyncio.get_event_loop()
+                    fut = loop.run_in_executor(None, self._try_connect, ip, port)
+                    is_open = await asyncio.wait_for(fut, timeout=3.0)
+                    if is_open:
+                        return (port, service)
+                except (asyncio.TimeoutError, Exception):
+                    pass
+                return None
+
+        tasks = [scan_port(p, s) for p, s in COMMON_PORTS.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in results:
+            if isinstance(r, tuple) and r is not None:
+                open_ports.append(r)
+
+        if open_ports:
+            Log.success(f"Found {len(open_ports)} open port(s):")
+            for port, service in sorted(open_ports):
+                Log.detail(f"Port {port}", _c(C.GREEN, f"{service} (OPEN)"))
+        else:
+            Log.info("No open ports detected (may be filtered)")
+
+        report.add(Finding("ip", "port_scan", bool(open_ports), {
+            "open_ports": [{"port": p, "service": s} for p, s in open_ports],
+            "scanned": len(COMMON_PORTS),
+        }))
+
+    @staticmethod
+    def _try_connect(ip: str, port: int) -> bool:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2.0)
+        try:
+            result = sock.connect_ex((ip, port))
+            return result == 0
+        except Exception:
+            return False
+        finally:
+            sock.close()
+
+    async def _wayback_ip(self, ip: str, report: Report):
+        Log.subheader("Wayback Machine")
+        url = f"https://archive.org/wayback/available?url={ip}"
+        resp = await self.http.get(url)
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                closest = data.get("archived_snapshots", {}).get("closest", {})
+                if closest:
+                    Log.found("Wayback Machine", closest.get("url", ""))
+                    report.add(Finding("ip", "wayback", True, closest))
+                    return
+            except Exception:
+                pass
+        Log.info("No Wayback Machine archives for this IP")
+        report.add(Finding("ip", "wayback", False))
+
+    def _generate_ip_dorks(self, ip: str, report: Report):
+        Log.subheader("Google Dorks for IP")
+        dorks = [
+            (f'"{ip}"', "All mentions"),
+            (f'"{ip}" site:shodan.io', "Shodan results"),
+            (f'"{ip}" site:censys.io', "Censys results"),
+            (f'"{ip}" site:virustotal.com', "VirusTotal"),
+            (f'"{ip}" site:abuseipdb.com', "AbuseIPDB"),
+            (f'"{ip}" inurl:target OR inurl:scan', "Scan results"),
+        ]
+        for query, desc in dorks:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+        report.add(Finding("ip", "dorks", True,
+                           {"dorks": [{"query": q, "desc": d} for q, d in dorks]}))
+
+
+class PhoneIntel:
+
+    def __init__(self, http: HTTPClient):
+        self.http = http
+
+    async def investigate(self, phone: str, report: Report):
+        Log.header("PHONE NUMBER INTELLIGENCE")
+        phone = phone.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+        Log.info(f"Target: {_c(C.WHITE, phone)}")
+
+        if not PHONE_REGEX.match(phone):
+            Log.error("Invalid phone number format. Use international format: +1234567890")
+            return
+
+        self._detect_country(phone, report)
+
+        self._format_analysis(phone, report)
+
+        self._generate_phone_dorks(phone, report)
+
+        self._social_search(phone, report)
+
+    def _detect_country(self, phone: str, report: Report):
+        Log.subheader("Country Detection")
+        number = phone.lstrip("+")
+
+        found_code = None
+        found_country = None
+
+        for length in [3, 2, 1]:
+            prefix = number[:length]
+            if prefix in COUNTRY_CODES:
+                found_code = prefix
+                found_country = COUNTRY_CODES[prefix]
+                break
+
+        if found_country:
+            Log.detail("Country Code", f"+{found_code}")
+            Log.detail("Country", found_country)
+            Log.detail("National Number", number[len(found_code):])
+            report.add(Finding("phone", "country", True, {
+                "country_code": found_code, "country": found_country,
+                "national_number": number[len(found_code):]
+            }))
+        else:
+            Log.warn("Could not identify country from calling code")
+            report.add(Finding("phone", "country", False))
+
+    def _format_analysis(self, phone: str, report: Report):
+        Log.subheader("Format Analysis")
+        number = phone.lstrip("+")
+
+        Log.detail("Raw", phone)
+        Log.detail("E.164", f"+{number}")
+        Log.detail("Length", f"{len(number)} digits")
+
+        if len(number) >= 10:
+            national = number[-10:]
+            Log.detail("Local (last 10)", national)
+            if len(national) == 10:
+                Log.detail("Formatted", f"({national[:3]}) {national[3:6]}-{national[6:]}")
+
+        report.add(Finding("phone", "format", True, {
+            "e164": f"+{number}", "digits": len(number)
+        }))
+
+    def _generate_phone_dorks(self, phone: str, report: Report):
+        Log.subheader("Google Dorks for Phone")
+        number = phone.lstrip("+")
+
+        dorks = [
+            (f'"{phone}"', "Exact match (international)"),
+            (f'"{number}"', "Number without +"),
+            (f'"{phone}" site:facebook.com', "Facebook"),
+            (f'"{phone}" site:linkedin.com', "LinkedIn"),
+            (f'"{phone}" site:whitepages.com OR site:truecaller.com', "Phone directories"),
+            (f'"{phone}" "whatsapp" OR "telegram" OR "signal"', "Messaging apps"),
+            (f'"{phone}" "contact" OR "phone" OR "call"', "Contact pages"),
+        ]
+
+        for query, desc in dorks:
+            url = f"https://www.google.com/search?q={quote_plus(query)}"
+            Log.detail(desc, url)
+
+        report.add(Finding("phone", "dorks", True,
+                           {"dorks": [{"query": q, "desc": d} for q, d in dorks]}))
+
+    def _social_search(self, phone: str, report: Report):
+        Log.subheader("Social Media Search Links")
+        number = phone.lstrip("+")
+
+        links = [
+            ("Truecaller", f"https://www.truecaller.com/search/{phone.replace('+', '')}"),
+            ("Sync.me", f"https://sync.me/search/?number={phone}"),
+            ("WhatsApp", f"https://wa.me/{number}"),
+            ("Telegram", f"https://t.me/+{number}"),
+            ("Viber", f"viber://chat?number=%2B{number}"),
+        ]
+
+        for name, url in links:
+            Log.detail(name, url)
+
+        report.add(Finding("phone", "social_links", True,
+                           {"links": [{"name": n, "url": u} for n, u in links]}))
+
+
+class DorkGenerator:
+
+    @staticmethod
+    def generate(target: str, report: Report):
+        Log.header("GOOGLE DORK GENERATOR")
+        Log.info(f"Target: {_c(C.WHITE, target)}")
+
+        categories = {
+            "Social Media": [
+                (f'"{target}" site:facebook.com', "Facebook profiles/posts"),
+                (f'"{target}" site:twitter.com OR site:x.com', "Twitter/X"),
+                (f'"{target}" site:instagram.com', "Instagram"),
+                (f'"{target}" site:linkedin.com', "LinkedIn"),
+                (f'"{target}" site:reddit.com', "Reddit"),
+                (f'"{target}" site:tiktok.com', "TikTok"),
+            ],
+            "Code & Dev": [
+                (f'"{target}" site:github.com', "GitHub"),
+                (f'"{target}" site:gitlab.com', "GitLab"),
+                (f'"{target}" site:stackoverflow.com', "StackOverflow"),
+                (f'"{target}" site:pastebin.com', "Pastebin"),
+                (f'"{target}" site:gist.github.com', "GitHub Gists"),
+                (f'"{target}" site:codepen.io', "CodePen"),
+            ],
+            "Data Leaks": [
+                (f'"{target}" "password" OR "passwd" OR "pwd"', "Password mentions"),
+                (f'"{target}" "database" OR "dump" OR "leak" OR "breach"', "Data breaches"),
+                (f'"{target}" filetype:sql', "SQL dumps"),
+                (f'"{target}" filetype:env', "Environment files"),
+                (f'"{target}" filetype:log', "Log files"),
+                (f'"{target}" filetype:cfg OR filetype:conf', "Config files"),
+                (f'"{target}" site:paste.ee OR site:pastebin.com OR site:ghostbin.com', "Paste sites"),
+            ],
+            "Documents": [
+                (f'"{target}" filetype:pdf', "PDF documents"),
+                (f'"{target}" filetype:doc OR filetype:docx', "Word documents"),
+                (f'"{target}" filetype:xls OR filetype:xlsx', "Excel spreadsheets"),
+                (f'"{target}" filetype:ppt OR filetype:pptx', "PowerPoint"),
+                (f'"{target}" filetype:csv', "CSV data"),
+                (f'"{target}" filetype:txt', "Text files"),
+            ],
+            "Infrastructure": [
+                (f'site:{target}', "Indexed pages"),
+                (f'site:{target} inurl:admin', "Admin panels"),
+                (f'site:{target} inurl:login', "Login pages"),
+                (f'site:{target} inurl:api', "API endpoints"),
+                (f'site:{target} intitle:"index of"', "Directory listings"),
+                (f'site:{target} filetype:xml OR filetype:json', "Data feeds"),
+                (f'site:{target} inurl:wp-content', "WordPress content"),
+                (f'site:{target} inurl:.git', "Git repositories"),
+                (f'site:{target} ext:bak OR ext:old OR ext:backup', "Backup files"),
+            ],
+            "People Search": [
+                (f'"{target}" resume OR CV', "Resume/CV"),
+                (f'"{target}" "phone" OR "email" OR "contact"', "Contact info"),
+                (f'"{target}" site:whitepages.com OR site:pipl.com', "People search engines"),
+                (f'"{target}" site:zoominfo.com OR site:spokeo.com', "Business directories"),
+            ],
+        }
+
+        all_dorks = []
+        for category, dorks in categories.items():
+            Log.subheader(category)
+            for query, desc in dorks:
+                url = f"https://www.google.com/search?q={quote_plus(query)}"
+                Log.detail(desc, url)
+                all_dorks.append({"category": category, "query": query,
+                                  "desc": desc, "url": url})
+
+        report.add(Finding("dorks", "google_dorks", True,
+                           {"target": target, "dork_count": len(all_dorks),
+                            "dorks": all_dorks}))
+
+
+class ReportExporter:
+
+    @staticmethod
+    def ensure_dir():
+        os.makedirs(REPORT_DIR, exist_ok=True)
+
+    @staticmethod
+    def export_json(report: Report) -> str:
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_target = re.sub(r'[^\w\-.]', '_', report.target)
+        filename = f"5piderx_{report.target_type}_{safe_target}_{ts}.json"
+        filepath = os.path.join(REPORT_DIR, filename)
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(report.to_json())
+        return filepath
+
+    @staticmethod
+    def export_txt(report: Report) -> str:
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_target = re.sub(r'[^\w\-.]', '_', report.target)
+        filename = f"5piderx_{report.target_type}_{safe_target}_{ts}.txt"
+        filepath = os.path.join(REPORT_DIR, filename)
+
+        lines = [
+            "=" * 60,
+            f" 5PiderX v{VERSION} — Investigation Report",
+            "=" * 60,
+            f" Target : {report.target}",
+            f" Type : {report.target_type}",
+            f" Start : {report.start_time}",
+            f" End : {report.end_time}",
+            f" Findings : {len(report.findings)} ({report.found_count} positive)",
+            "=" * 60,
+            "",
+        ]
+
+        for finding in report.findings:
+            status = "[+] FOUND" if finding.found else "[-] NOT FOUND"
+            lines.append(f"[{finding.module.upper()}] {finding.source} — {status}")
+            if finding.url:
+                lines.append(f" URL: {finding.url}")
+            if finding.data:
+                for k, v in finding.data.items():
+                    if isinstance(v, (list, dict)):
+                        lines.append(f" {k}: {json.dumps(v, ensure_ascii=False)[:200]}")
+                    else:
+                        lines.append(f" {k}: {v}")
+            lines.append("")
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        return filepath
+
+    @staticmethod
+    def export_html(report: Report) -> str:
+        ReportExporter.ensure_dir()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_target = re.sub(r'[^\w\-.]', '_', report.target)
+        filename = f"5piderx_{report.target_type}_{safe_target}_{ts}.html"
+        filepath = os.path.join(REPORT_DIR, filename)
+
+        findings_html = ""
+        for f in report.findings:
+            status_class = "found" if f.found else "not-found"
+            status_icon = "+" if f.found else "-"
+            url_html = f'<a href="{f.url}" target="_blank">{f.url}</a>' if f.url else ""
+
+            data_rows = ""
+            if f.data:
+                for k, v in f.data.items():
+                    if isinstance(v, (list, dict)):
+                        val = json.dumps(v, ensure_ascii=False, indent=1)[:500]
+                    else:
+                        val = str(v)
+                    val = val.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    data_rows += f'<tr><td class="key">{k}</td><td><pre>{val}</pre></td></tr>'
+
+            findings_html += f"""
+            <div class="finding {status_class}">
+                <div class="finding-header">
+                    <span class="status-icon">{status_icon}</span>
+                    <span class="module">[{f.module.upper()}]</span>
+                    <span class="source">{f.source}</span>
+                    {f'<span class="url">{url_html}</span>' if url_html else ''}
+                </div>
+                {'<table class="data-table">' + data_rows + '</table>' if data_rows else ''}
+            </div>
+            """
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>5PiderX Report — {report.target}</title>
+    <style>
+        :root {{
+            --bg: #0d1117; --surface: #161b22; --border: #30363d;
+            --text: #e6edf3; --text-dim: #8b949e; --accent: #ff79c6;
+            --green: #50fa7b; --red: #ff5555; --yellow: #f1fa8c;
+            --blue: #8be9fd; --purple: #bd93f9;
+        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg); color: var(--text); padding: 2rem;
+            line-height: 1.6;
+        }}
+        .container {{ max-width: 1000px; margin: 0 auto; }}
+        .header {{
+            background: linear-gradient(135deg, #1a1e2e, #2d1b3d);
+            border: 1px solid var(--border); border-radius: 12px;
+            padding: 2rem; margin-bottom: 2rem; text-align: center;
+        }}
+        .header h1 {{ color: var(--accent); font-size: 2rem; margin-bottom: 0.5rem; }}
+        .header .meta {{ color: var(--text-dim); font-size: 0.9rem; }}
+        .stats {{
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem; margin-bottom: 2rem;
+        }}
+        .stat {{
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; padding: 1rem; text-align: center;
+        }}
+        .stat .value {{ font-size: 1.8rem; font-weight: bold; color: var(--accent); }}
+        .stat .label {{ color: var(--text-dim); font-size: 0.85rem; }}
+        .finding {{
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem;
+            transition: border-color 0.2s;
+        }}
+        .finding:hover {{ border-color: var(--accent); }}
+        .finding.found {{ border-left: 3px solid var(--green); }}
+        .finding.not-found {{ border-left: 3px solid var(--border); }}
+        .finding-header {{
+            display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+        }}
+        .status-icon {{ font-size: 1.2rem; }}
+        .found .status-icon {{ color: var(--green); }}
+        .not-found .status-icon {{ color: var(--text-dim); }}
+        .module {{ color: var(--purple); font-weight: bold; font-size: 0.85rem; }}
+        .source {{ color: var(--text); font-weight: 500; }}
+        .url {{ color: var(--blue); font-size: 0.85rem; }}
+        .url a {{ color: var(--blue); text-decoration: none; }}
+        .url a:hover {{ text-decoration: underline; }}
+        .data-table {{ width: 100%; margin-top: 0.75rem; border-collapse: collapse; }}
+        .data-table td {{
+            padding: 0.3rem 0.5rem; border-top: 1px solid var(--border);
+            font-size: 0.85rem; vertical-align: top;
+        }}
+        .data-table .key {{ color: var(--blue); width: 150px; font-weight: 500; }}
+        .data-table pre {{
+            margin: 0; white-space: pre-wrap; word-break: break-all;
+            font-family: 'Fira Code', monospace; font-size: 0.8rem;
+            color: var(--text-dim);
+        }}
+        .footer {{
+            text-align: center; color: var(--text-dim); font-size: 0.8rem;
+            margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border);
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1> 5PiderX Investigation Report</h1>
+            <div class="meta">
+                Target: <strong>{report.target}</strong> |
+                Type: <strong>{report.target_type}</strong> |
+                Generated: {report.end_time}
+            </div>
+        </div>
+        <div class="stats">
+            <div class="stat">
+                <div class="value">{len(report.findings)}</div>
+                <div class="label">Total Checks</div>
+            </div>
+            <div class="stat">
+                <div class="value" style="color: var(--green);">{report.found_count}</div>
+                <div class="label">Positive Findings</div>
+            </div>
+            <div class="stat">
+                <div class="value" style="color: var(--text-dim);">{len(report.findings) - report.found_count}</div>
+                <div class="label">Negative</div>
+            </div>
+        </div>
+        {findings_html}
+        <div class="footer">
+            5PiderX v{VERSION} "{CODENAME}" — Developed by emka'thas — For authorized use only
+        </div>
+    </div>
+</body>
+</html>"""
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(html)
+        return filepath
+
+
+class InteractiveMenu:
+
+    def __init__(self):
+        self.http = HTTPClient(rate_limit=12.0, max_retries=2, timeout=12.0)
+        self.last_report: Optional[Report] = None
+
+    async def run(self):
+        print("\033]0;5PiderX v{} - OSINT Intelligence\007".format(VERSION), end="", flush=True)
+        print(BANNER)
+        print(LEGAL_NOTICE)
+
+        while True:
+            self._show_menu()
+            choice = input(f"\n  {C.PINK}5PiderX{C.RST} > ").strip()
+
+            try:
+                if choice == "1":
+                    await self._run_email()
+                elif choice == "2":
+                    await self._run_username()
+                elif choice == "3":
+                    await self._run_domain()
+                elif choice == "4":
+                    await self._run_ip()
+                elif choice == "5":
+                    await self._run_phone()
+                elif choice == "6":
+                    await self._run_dorks()
+                elif choice == "7":
+                    await self._run_full()
+                elif choice == "8":
+                    await self._export_report()
+                elif choice in ("0", "q", "quit", "exit"):
+                    await self.http.close()
+                    print(f"\n {C.GRAY}Goodbye.{C.RST}\n")
+                    break
+                else:
+                    Log.warn("Invalid option. Please try again.")
+            except KeyboardInterrupt:
+                print(f"\n\n {C.YELLOW}[!] Interrupted. Returning to menu...{C.RST}")
+            except Exception as e:
+                Log.error(f"Unexpected error: {e}")
+
+    def _show_menu(self):
+        print(f"""
+  {C.DARK}+===============================================+{C.RST}
+  {C.DARK}|{C.RST}  {C.BOLD}{C.WHITE}5PiderX Main Menu{C.RST}                              {C.DARK}|{C.RST}
+  {C.DARK}+===============================================+{C.RST}
+  {C.DARK}|{C.RST}                                              {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.GREEN}[1]{C.RST}  Email Intelligence                     {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.GREEN}[2]{C.RST}  Username Reconnaissance                {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.GREEN}[3]{C.RST}  Domain Intelligence                    {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.GREEN}[4]{C.RST}  IP Address Intelligence                {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.GREEN}[5]{C.RST}  Phone Number Lookup                    {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.GREEN}[6]{C.RST}  Google Dork Generator                  {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.GREEN}[7]{C.RST}  Full Investigation (Email)             {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.YELLOW}[8]{C.RST}  Export Last Report                     {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}  {C.RED}[0]{C.RST}  Exit                                   {C.DARK}|{C.RST}
+  {C.DARK}|{C.RST}                                              {C.DARK}|{C.RST}
+  {C.DARK}+===============================================+{C.RST}""")
+
+    def _create_report(self, target: str, target_type: str) -> Report:
+        r = Report(target=target, target_type=target_type)
+        r.start_time = datetime.now(timezone.utc).isoformat()
+        return r
+
+    def _finalize_report(self, report: Report):
+        report.end_time = datetime.now(timezone.utc).isoformat()
+        self.last_report = report
+        print()
+        Log.info(f"Investigation complete. "
+                 f"Findings: {_c(C.GREEN, str(report.found_count))}/{len(report.findings)}")
+        Log.info(f"Use option {_c(C.YELLOW, '[8]')} to export this report.")
+
+    async def _run_email(self):
+        email = input(f" {C.BLUE}Enter email{C.RST}: ").strip()
+        if not email:
+            return
+        report = self._create_report(email, "email")
+        await EmailIntel(self.http).investigate(email, report)
+        self._finalize_report(report)
+
+    async def _run_username(self):
+        username = input(f" {C.BLUE}Enter username{C.RST}: ").strip()
+        if not username:
+            return
+        report = self._create_report(username, "username")
+        await UsernameIntel(self.http).investigate(username, report)
+        self._finalize_report(report)
+
+    async def _run_domain(self):
+        domain = input(f" {C.BLUE}Enter domain{C.RST}: ").strip()
+        if not domain:
+            return
+        domain = domain.replace("https://", "").replace("http://", "").rstrip("/")
+        report = self._create_report(domain, "domain")
+        await DomainIntel(self.http).investigate(domain, report)
+        self._finalize_report(report)
+
+    async def _run_ip(self):
+        ip = input(f" {C.BLUE}Enter IP address{C.RST}: ").strip()
+        if not ip:
+            return
+        report = self._create_report(ip, "ip")
+        await IPIntel(self.http).investigate(ip, report)
+        self._finalize_report(report)
+
+    async def _run_phone(self):
+        phone = input(f" {C.BLUE}Enter phone (intl format, e.g. +1234567890){C.RST}: ").strip()
+        if not phone:
+            return
+        report = self._create_report(phone, "phone")
+        await PhoneIntel(self.http).investigate(phone, report)
+        self._finalize_report(report)
+
+    async def _run_dorks(self):
+        target = input(f" {C.BLUE}Enter target (name, email, domain, etc.){C.RST}: ").strip()
+        if not target:
+            return
+        report = self._create_report(target, "dorks")
+        DorkGenerator.generate(target, report)
+        self._finalize_report(report)
+
+    async def _run_full(self):
+        email = input(f" {C.BLUE}Enter email for full investigation{C.RST}: ").strip()
+        if not email or "@" not in email:
+            Log.error("Please provide a valid email address")
+            return
+
+        report = self._create_report(email, "full")
+        name, domain = email.split("@", 1)
+
+        await EmailIntel(self.http).investigate(email, report)
+
+        Log.header("PIVOT: Username Enumeration")
+        Log.info(f"Using extracted username: {_c(C.WHITE, name)}")
+        await UsernameIntel(self.http).investigate(name, report)
+
+        Log.header("PIVOT: Domain Intelligence")
+        Log.info(f"Investigating email domain: {_c(C.WHITE, domain)}")
+        await DomainIntel(self.http).investigate(domain, report)
+
+        DorkGenerator.generate(email, report)
+
+        self._finalize_report(report)
+
+    async def _export_report(self):
+        if not self.last_report:
+            Log.warn("No report available. Run an investigation first.")
+            return
+
+        print(f"""
+  {C.GRAY}Export format:{C.RST}
+  {C.GREEN}[1]{C.RST} JSON (machine-readable)
+  {C.GREEN}[2]{C.RST} TXT (plain text)
+  {C.GREEN}[3]{C.RST} HTML (browser report)
+  {C.GREEN}[4]{C.RST} All formats
+""")
+        fmt = input(f" {C.BLUE}Choose format{C.RST}: ").strip()
+
+        paths = []
+        if fmt in ("1", "4"):
+            p = ReportExporter.export_json(self.last_report)
+            paths.append(p)
+        if fmt in ("2", "4"):
+            p = ReportExporter.export_txt(self.last_report)
+            paths.append(p)
+        if fmt in ("3", "4"):
+            p = ReportExporter.export_html(self.last_report)
+            paths.append(p)
+
+        if paths:
+            Log.success("Report exported:")
+            for p in paths:
+                Log.detail("File", p)
+        else:
+            Log.warn("No format selected")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="5piderx",
+        description=f"5PiderX v{VERSION} — OSINT Framework",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Examples:
+  5piderx Interactive menu
+  5piderx -e user@example.com Email investigation
+  5piderx -u johndoe Username enumeration
+  5piderx -d example.com Domain intelligence
+  5piderx -i 1.2.3.4 IP investigation
+  5piderx -p +1234567890 Phone number lookup
+  5piderx -g "John Doe" Google dork generator
+  5piderx --full user@example.com Full investigation chain
+  5piderx -e user@example.com --export Export results (json/txt/html)
+
+Developed by emka'thas | For legal and ethical use only.
+        """,
+    )
+
+    p.add_argument("-e", "--email", type=str, help="Email address to investigate")
+    p.add_argument("-u", "--username", type=str, help="Username to enumerate across platforms")
+    p.add_argument("-d", "--domain", type=str, help="Domain name to investigate")
+    p.add_argument("-i", "--ip", type=str, help="IP address to investigate")
+    p.add_argument("-p", "--phone", type=str, help="Phone number to investigate (intl format)")
+    p.add_argument("-g", "--dorks", type=str, help="Generate Google dorks for target")
+    p.add_argument("--full", type=str, metavar="EMAIL",
+                   help="Full investigation chain (email → username → domain → dorks)")
+    p.add_argument("--export", type=str, choices=["json", "txt", "html", "all"],
+                   default=None, help="Export report format")
+    p.add_argument("-m", "--modules", action="store_true",
+                   help="List all available modules and platform count")
+    p.add_argument("--rate", type=float, default=12.0,
+                   help="Requests per second rate limit (default: 12)")
+    p.add_argument("--timeout", type=float, default=12.0,
+                   help="HTTP request timeout in seconds (default: 12)")
+    p.add_argument("-v", "--version", action="version",
+                   version=f"5PiderX v{VERSION}")
+    return p
+
+
+async def cli_main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if len(sys.argv) == 1:
+        menu = InteractiveMenu()
+        await menu.run()
+        return
+
+    print(BANNER)
+
+    if args.modules:
+        categories = {}
+        for p in PLATFORMS:
+            categories.setdefault(p["cat"], []).append(p["name"])
+
+        Log.header("AVAILABLE MODULES & PLATFORMS")
+
+        print(f"""
+  {C.BOLD}{C.WHITE}Investigation Modules:{C.RST}
+  {C.GREEN}{C.RST} Email Intelligence (DNS, MX, SPF, DMARC, Gravatar, GitHub, dorks)
+  {C.GREEN}{C.RST} Username Reconnaissance ({len(PLATFORMS)} platforms)
+  {C.GREEN}{C.RST} Domain Intelligence (DNS, WHOIS, SSL, headers, subdomains, Wayback)
+  {C.GREEN}{C.RST} IP Intelligence (Geo, rDNS, ports, DNSBL)
+  {C.GREEN}{C.RST} Phone Lookup (Country, format, dorks)
+  {C.GREEN}{C.RST} Google Dork Generator (60+ dork templates)
+""")
+        Log.subheader(f"Username Platforms ({len(PLATFORMS)} total)")
+        for cat, names in sorted(categories.items()):
+            print(f" {C.PURPLE}[{cat}]{C.RST} ({len(names)}): {', '.join(names)}")
+        print()
+        return
+
+    http = HTTPClient(rate_limit=args.rate, max_retries=2, timeout=args.timeout)
+
+    report = None
+
+    try:
+        if args.full:
+            email = args.full
+            report = Report(target=email, target_type="full",
+                            start_time=datetime.now(timezone.utc).isoformat())
+            name, domain = email.split("@", 1)
+            await EmailIntel(http).investigate(email, report)
+            await UsernameIntel(http).investigate(name, report)
+            await DomainIntel(http).investigate(domain, report)
+            DorkGenerator.generate(email, report)
+
+        elif args.email:
+            report = Report(target=args.email, target_type="email",
+                            start_time=datetime.now(timezone.utc).isoformat())
+            await EmailIntel(http).investigate(args.email, report)
+
+        elif args.username:
+            report = Report(target=args.username, target_type="username",
+                            start_time=datetime.now(timezone.utc).isoformat())
+            await UsernameIntel(http).investigate(args.username, report)
+
+        elif args.domain:
+            domain = args.domain.replace("https://", "").replace("http://", "").rstrip("/")
+            report = Report(target=domain, target_type="domain",
+                            start_time=datetime.now(timezone.utc).isoformat())
+            await DomainIntel(http).investigate(domain, report)
+
+        elif args.ip:
+            report = Report(target=args.ip, target_type="ip",
+                            start_time=datetime.now(timezone.utc).isoformat())
+            await IPIntel(http).investigate(args.ip, report)
+
+        elif args.phone:
+            report = Report(target=args.phone, target_type="phone",
+                            start_time=datetime.now(timezone.utc).isoformat())
+            await PhoneIntel(http).investigate(args.phone, report)
+
+        elif args.dorks:
+            report = Report(target=args.dorks, target_type="dorks",
+                            start_time=datetime.now(timezone.utc).isoformat())
+            DorkGenerator.generate(args.dorks, report)
+
+        else:
+            parser.print_help()
+            return
+
+        if report:
+            report.end_time = datetime.now(timezone.utc).isoformat()
+            print()
+            Log.info(f"Investigation complete. "
+                     f"Findings: {_c(C.GREEN, str(report.found_count))}/{len(report.findings)}")
+
+            if args.export:
+                paths = []
+                if args.export in ("json", "all"):
+                    paths.append(ReportExporter.export_json(report))
+                if args.export in ("txt", "all"):
+                    paths.append(ReportExporter.export_txt(report))
+                if args.export in ("html", "all"):
+                    paths.append(ReportExporter.export_html(report))
+                for p in paths:
+                    Log.success(f"Report saved: {p}")
+
+    except KeyboardInterrupt:
+        print(f"\n\n {C.YELLOW}[!] Interrupted by user.{C.RST}")
+    finally:
+        await http.close()
+
+
+def main():
+    try:
+        asyncio.run(cli_main())
+    except KeyboardInterrupt:
+        print(f"\n {C.GRAY}Exiting...{C.RST}")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=DNSCrypt-Proxy
+Comment=Secure DNS proxy with encryption and authentication
+Comment[tr]=Şifreleme ve kimlik doğrulama ile güvenli DNS proxy'si
+Comment[es]=Proxy DNS seguro con cifrado y autenticación
+Comment[fr]=Proxy DNS sécurisé avec chiffrement et authentification
+Comment[de]=Sicherer DNS-Proxy mit Verschlüsselung und Authentifizierung
+Comment[ar]=وكيل DNS آمن مع التشفير والمصادقة
+Comment[ru]=Безопасный DNS-прокси с шифрованием и аутентификацией
+Comment[zh]=具有加密和身份验证的安全DNS代理
+Comment[ja]=暗号化および認証機能付きの安全なDNSプロキシ
+Comment[ko]=암호화 및 인증이 있는 안전한 DNS 프록시
+Comment[pt]=Proxy DNS seguro com criptografia e autenticação
+Comment[it]=Proxy DNS sicuro con crittografia e autenticazione
+Comment[nl]=Veilige DNS-proxy met encryptie en authenticatie
+Comment[sv]=Säker DNS-proxy med kryptering och autentisering
+Comment[pl]=Bezpieczny serwer proxy DNS z szyfrowaniem i uwierzytelnianiem
+Exec=mate-terminal -- bash -c "dnscrypt-proxy -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

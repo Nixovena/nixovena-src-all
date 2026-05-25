@@ -1,0 +1,36 @@
+[Unit]
+Description=Slarpx DNS Guard - Static DNS Enforcement
+After=network.target NetworkManager.service
+Before=nss-lookup.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/slarpx-dns
+RemainAfterExit=yes
+
+# --- Security Hardening ---
+User=root
+Group=root
+
+NoNewPrivileges=yes
+# CAP_LINUX_IMMUTABLE: needed for chattr +i on resolv.conf
+# CAP_DAC_OVERRIDE: needed to write to /etc/resolv.conf regardless of permissions
+# CAP_FOWNER: needed to change ownership/permissions
+CapabilityBoundingSet=CAP_LINUX_IMMUTABLE CAP_DAC_OVERRIDE CAP_FOWNER
+
+# ProtectSystem=full instead of strict — strict makes /etc read-only even with ReadWritePaths
+# when the script needs to delete a symlink and create a new file (inode operation on /etc)
+ProtectSystem=full
+
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

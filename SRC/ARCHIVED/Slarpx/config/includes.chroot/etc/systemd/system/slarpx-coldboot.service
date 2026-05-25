@@ -1,0 +1,18 @@
+[Unit]
+Description=Slarpx Cold Boot Protection
+DefaultDependencies=no
+ConditionPathExists=/usr/bin/slarpx-coldboot
+# Run before the actual shutdown/reboot
+Before=shutdown.target reboot.target halt.target poweroff.target
+# Ensure filesystems are still mounted so we can read /proc/swaps and use dd
+Requires=local-fs.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/slarpx-coldboot
+TimeoutStartSec=15
+RemainAfterExit=yes
+
+[Install]
+WantedBy=shutdown.target reboot.target halt.target poweroff.target

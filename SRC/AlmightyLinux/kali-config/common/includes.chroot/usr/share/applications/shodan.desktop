@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=ShodanEye
+Comment=Query the Shodan search engine for exposed devices
+Comment[tr]=Shodan arama motorunda açık cihazları sorgula
+Comment[es]=Consulta el motor de búsqueda Shodan para dispositivos expuestos
+Comment[fr]=Interroge le moteur Shodan pour les appareils exposés
+Comment[de]=Fragt die Shodan-Suchmaschine nach exponierten Geräten ab
+Comment[ar]=استعلم محرك البحث Shodan عن الأجهزة المكشوفة
+Comment[ru]=Запрос к поисковой системе Shodan для поиска открытых устройств
+Comment[zh]=查询 Shodan 搜索引擎以查找暴露的设备
+Comment[ja]=Shodan 検索エンジンで公開されたデバイスを照会します
+Comment[ko]=Shodan 검색엔진에 노출된 장치를 조회합니다
+Comment[pt]=Consulta o motor de busca Shodan por dispositivos expostos
+Comment[it]=Interroga il motore di ricerca Shodan per dispositivi esposti
+Comment[nl]=Opvragen van Shodan-zoekmachine voor blootgestelde apparaten
+Comment[sv]=Frågar Shodan-sökmotorn efter exponerade enheter
+Comment[pl]=Zapytaj wyszukiwarkę Shodan o ujawnione urządzenia
+Exec=mate-terminal -- bash -c "shodaneye; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/shodan.png
+Categories=Domain;
+StartupNotify=false

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=maryam
+Comment=Open-source intelligence (OSINT) framework
+Comment[tr]=Açık kaynak istihbarat (OSINT) çerçevesi
+Comment[es]=Marco de inteligencia de código abierto (OSINT)
+Comment[fr]=Cadre de renseignement open source (OSINT)
+Comment[de]=Open-Source-Intelligence-Framework (OSINT)
+Comment[ar]=إطار استخبارات مفتوح المصدر (OSINT)
+Comment[ru]=Фреймворк разведки на основе открытых источников (OSINT)
+Comment[zh]=开源情报（OSINT）框架
+Comment[ja]=オープンソースインテリジェンス（OSINT）フレームワーク
+Comment[ko]=오픈 소스 인텔리전스(OSINT) 프레임워크
+Comment[pt]=Framework de inteligência de código aberto (OSINT)
+Comment[it]=Framework di intelligenza open source (OSINT)
+Comment[nl]=Open-source intelligence (OSINT) raamwerk
+Comment[sv]=Open-source intelligence (OSINT)-ramverk
+Comment[pl]=Ramy wywiadu open source (OSINT)
+Exec=mate-terminal -- bash -c "maryam -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Frameworks;
+StartupNotify=false

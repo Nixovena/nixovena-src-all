@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Wh0xIP
+Comment=IP intelligence and geolocation analysis tool
+Comment[tr]=IP istihbaratı ve coğrafi konum analiz aracı
+Comment[es]=Herramienta de inteligencia de IP y análisis de geolocalización
+Comment[fr]=Outil d'intelligence IP et d'analyse de géolocalisation
+Comment[de]=IP-Intelligence- und Geolokalisierungsanalysetool
+Comment[ar]=أداة استخبارات IP وتحليل الموقع الجغرافي
+Comment[ru]=Инструмент IP-разведки и геолокационного анализа
+Comment[zh]=IP情报和地理位置分析工具
+Comment[ja]=IPインテリジェンスおよびジオロケーション分析ツール
+Comment[ko]=IP 인텔리전스 및 지리 위치 분석 도구
+Comment[pt]=Ferramenta de inteligência de IP e análise de geolocalização
+Comment[it]=Strumento di intelligence IP e analisi della geolocalizzazione
+Comment[nl]=IP-intelligentie en geolocatie-analysehulpmiddel
+Comment[sv]=IP-intelligence och geolokaliseringsanalysverktyg
+Comment[pl]=Narzędzie do wywiadu IP i analizy geolokalizacji
+Exec=mate-terminal -- bash -c "wh0xip -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Domain;
+StartupNotify=false

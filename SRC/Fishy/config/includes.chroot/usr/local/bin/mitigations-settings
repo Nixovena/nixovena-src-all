@@ -1,0 +1,308 @@
+#!/bin/bash
+################################
+# Fishy-Linux Mitigations Manager
+################################
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+GRUB_CFG="/etc/default/grub.d/99-performance-tuning.cfg"
+
+print_header() {
+    clear
+    echo -e "${YELLOW}${BOLD}      Mitigations Settings — Fishy-Linux${NC}"
+    echo -e "  ${CYAN}──────────────────────────────────────${NC}"
+    echo ""
+}
+
+press_enter() {
+    echo ""
+    read -p "  Press Enter to continue..."
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        clear
+        echo -e "${RED}${BOLD}"
+        echo "  ✗ Permission Denied"
+        echo -e "${NC}"
+        echo -e "  This tool requires ${BOLD}sudo${NC} privileges to run."
+        echo ""
+        echo -e "  ${YELLOW}Usage: sudo $0${NC}"
+        echo ""
+        exit 1
+    fi
+}
+
+check_config() {
+    if [[ ! -f "$GRUB_CFG" ]]; then
+        echo -e "  ${RED}✗ Config file not found: $GRUB_CFG${NC}"
+        echo -e "  ${YELLOW}  Make sure Fishy-Linux performance config is installed.${NC}"
+        press_enter
+        exit 1
+    fi
+}
+
+get_current_status() {
+    if grep -q "mitigations=off" "$GRUB_CFG"; then
+        echo "off"
+    elif grep -q "mitigations=auto" "$GRUB_CFG"; then
+        echo "auto"
+    elif grep -q "mitigations=on" "$GRUB_CFG"; then
+        echo "on"
+    else
+        echo "unknown"
+    fi
+}
+
+update_grub() {
+    if command -v update-grub &>/dev/null; then
+        update-grub 2>/dev/null && \
+        echo -e "  ${GREEN}✓ GRUB updated.${NC}" || \
+        echo -e "  ${YELLOW}⚠ update-grub failed, run manually.${NC}"
+    elif command -v grub-mkconfig &>/dev/null; then
+        grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null && \
+        echo -e "  ${GREEN}✓ GRUB updated.${NC}" || \
+        echo -e "  ${YELLOW}⚠ grub-mkconfig failed, run manually.${NC}"
+    fi
+}
+
+set_mitigation() {
+    local value="$1"
+    sed -i "s/mitigations=[a-z]*/mitigations=$value/" "$GRUB_CFG"
+
+    if grep -q "mitigations=$value" "$GRUB_CFG"; then
+        echo -e "  ${GREEN}✓ mitigations=$value applied.${NC}"
+        return 0
+    else
+        echo -e "  ${RED}✗ Failed to update config.${NC}"
+        return 1
+    fi
+}
+
+detect_cpu() {
+    local model
+    model=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
+    echo "$model"
+}
+
+detect_cpu_year() {
+    local info
+    info=$(grep "model name" /proc/cpuinfo | head -1)
+
+    # Modern: Intel 8th gen+ (i_-8xxx, 9xxx, 10xxx+) veya Ryzen herhangi
+    if echo "$info" | grep -qiE "i[3579]-[89][0-9]{3}|i[3579]-1[0-9]{4}|Ryzen|Core i[3579]-1[0-9]{4}"; then
+        echo "modern"
+    # Eski: Intel 2nd-7th gen, AMD Phenom/Athlon/FX/A-series
+    elif echo "$info" | grep -qiE "i[3579]-[2-7][0-9]{3}|Phenom|Athlon|Core 2|FX-|A[468]-|A[68][0-9]{3}"; then
+        echo "old"
+    else
+        echo "unknown"
+    fi
+}
+
+mitigations_off() {
+    print_header
+    echo -e "  ${YELLOW}${BOLD}[1] Disable Mitigations (mitigations=off)${NC}"
+    echo -e "  ${CYAN}──────────────────────────────────────${NC}"
+    echo ""
+    echo -e "  ${RED}${BOLD}  ⚠ Security Warning${NC}"
+    echo -e "  ${RED}  Spectre and Meltdown protections will be disabled.${NC}"
+    echo ""
+    echo -e "  ${YELLOW}  Recommended for:${NC}"
+    echo -e "     • Old hardware (pre-2015 CPUs)"
+    echo -e "     • Personal/offline use only"
+    echo -e "     • Performance gain: ~%15 on old CPUs"
+    echo ""
+    echo -e "  ${YELLOW}  NOT recommended for:${NC}"
+    echo -e "     • Modern CPUs (2015+)"
+    echo -e "     • Systems connected to untrusted networks"
+    echo -e "     • Multi-user or server environments"
+    echo ""
+
+    local cpu
+    local gen
+    cpu=$(detect_cpu)
+    gen=$(detect_cpu_year)
+
+    echo -e "  ${CYAN}── Detected CPU ─────────────────────${NC}"
+    echo -e "  $cpu"
+
+    if [[ "$gen" == "modern" ]]; then
+        echo ""
+        echo -e "  ${RED}  ⚠ Modern CPU detected! This is not recommended.${NC}"
+    elif [[ "$gen" == "old" ]]; then
+        echo ""
+        echo -e "  ${GREEN}  ✓ Old CPU detected. Safe to disable.${NC}"
+    fi
+
+    echo ""
+    read -p "  Are you sure? (y/N): " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo -e "  ${YELLOW}  Cancelled.${NC}"
+        press_enter; return
+    fi
+
+    echo ""
+    set_mitigation "off" && update_grub
+    echo ""
+    echo -e "  ${YELLOW}  ⚠ Reboot required for changes to take effect.${NC}"
+    press_enter
+}
+
+mitigations_auto() {
+    print_header
+    echo -e "  ${YELLOW}${BOLD}[2] Enable Mitigations (mitigations=auto)${NC}"
+    echo -e "  ${CYAN}──────────────────────────────────────${NC}"
+    echo ""
+    echo -e "  Kernel will automatically apply only the necessary"
+    echo -e "  protections for your CPU. Best balance of"
+    echo -e "  security and performance."
+    echo ""
+    echo -e "  ${GREEN}  ✓ Recommended for modern CPUs (2015+)${NC}"
+    echo ""
+
+    set_mitigation "auto" && update_grub
+    echo ""
+    echo -e "  ${YELLOW}  ⚠ Reboot required for changes to take effect.${NC}"
+    press_enter
+}
+
+mitigations_on() {
+    print_header
+    echo -e "  ${YELLOW}${BOLD}[3] Full Mitigations (mitigations=on)${NC}"
+    echo -e "  ${CYAN}──────────────────────────────────────${NC}"
+    echo ""
+    echo -e "  All Spectre/Meltdown protections enabled."
+    echo -e "  Maximum security, slight performance cost."
+    echo ""
+    echo -e "  ${YELLOW}  Recommended for:${NC}"
+    echo -e "     • Multi-user environments"
+    echo -e "     • Servers or shared systems"
+    echo ""
+
+    set_mitigation "on" && update_grub
+    echo ""
+    echo -e "  ${YELLOW}  ⚠ Reboot required for changes to take effect.${NC}"
+    press_enter
+}
+
+show_status() {
+    print_header
+    echo -e "  ${YELLOW}${BOLD}[4] Current Status${NC}"
+    echo -e "  ${CYAN}──────────────────────────────────────${NC}"
+    echo ""
+
+    local status
+    status=$(get_current_status)
+
+    echo -e "  ${CYAN}── Config File ──────────────────────${NC}"
+    echo -e "  $GRUB_CFG"
+    echo ""
+
+    echo -e "  ${CYAN}── Mitigations Setting ──────────────${NC}"
+    case "$status" in
+        off)
+            echo -e "  Current: ${RED}${BOLD}mitigations=off${NC}  ${YELLOW}(security risk)${NC}"
+            ;;
+        auto)
+            echo -e "  Current: ${GREEN}${BOLD}mitigations=auto${NC}  ${GREEN}(recommended)${NC}"
+            ;;
+        on)
+            echo -e "  Current: ${GREEN}${BOLD}mitigations=on${NC}  ${GREEN}(full protection)${NC}"
+            ;;
+        unknown)
+            echo -e "  Current: ${YELLOW}${BOLD}unknown${NC}  ${YELLOW}(mitigations param not found)${NC}"
+            ;;
+    esac
+
+    echo ""
+    echo -e "  ${CYAN}── CPU Info ─────────────────────────${NC}"
+    echo -e "  $(detect_cpu)"
+    echo ""
+
+    echo -e "  ${CYAN}── Active Kernel Mitigations ────────${NC}"
+    if [[ -f /sys/devices/system/cpu/vulnerabilities/spectre_v1 ]]; then
+        for vuln in /sys/devices/system/cpu/vulnerabilities/*; do
+            local name status_v
+            name=$(basename "$vuln")
+            status_v=$(cat "$vuln" 2>/dev/null)
+            printf "  %-20s %s\n" "$name:" "$status_v"
+        done
+    else
+        echo -e "  ${YELLOW}  Vulnerability info not available.${NC}"
+    fi
+
+    press_enter
+}
+
+show_about() {
+    print_header
+    echo -e "  ${YELLOW}${BOLD}[5] About Mitigations${NC}"
+    echo -e "  ${CYAN}──────────────────────────────────────${NC}"
+    echo ""
+    echo -e "  Spectre and Meltdown are CPU hardware vulnerabilities"
+    echo -e "  discovered in 2018. Kernel patches protect against them"
+    echo -e "  but add CPU overhead."
+    echo ""
+    echo -e "  ${CYAN}${BOLD}  Options:${NC}"
+    echo ""
+    printf "  ${BOLD}  %-18s %-12s %-16s${NC}\n" "Setting" "Performance" "Security"
+    echo -e "  ${CYAN}  ──────────────────────────────────────────────${NC}"
+    printf "  ${RED}  %-18s %-12s %-16s${NC}\n"    "mitigations=off"  "★★★★★" "★☆☆☆☆"
+    printf "  ${GREEN}  %-18s %-12s %-16s${NC}\n"  "mitigations=auto" "★★★★☆" "★★★★☆"
+    printf "  ${GREEN}  %-18s %-12s %-16s${NC}\n"  "mitigations=on"   "★★★☆☆" "★★★★★"
+    echo ""
+    echo -e "  ${CYAN}${BOLD}  Fishy-Linux default:${NC}"
+    echo ""
+    echo -e "     mitigations=off — optimized for old hardware."
+    echo -e "     If you have a modern CPU (2015+), switch to auto."
+    echo ""
+
+    press_enter
+}
+
+main_menu() {
+    while true; do
+        print_header
+
+        local status
+        status=$(get_current_status)
+
+        case "$status" in
+            off)   echo -e "  Mitigations: ${RED}${BOLD}● OFF${NC}  ${YELLOW}(performance mode)${NC}" ;;
+            auto)  echo -e "  Mitigations: ${GREEN}${BOLD}● AUTO${NC}  ${GREEN}(balanced)${NC}" ;;
+            on)    echo -e "  Mitigations: ${GREEN}${BOLD}● ON${NC}  ${GREEN}(full protection)${NC}" ;;
+            *)     echo -e "  Mitigations: ${YELLOW}${BOLD}● UNKNOWN${NC}" ;;
+        esac
+
+        echo ""
+        echo -e "  ${BOLD}  1.${NC} Disable Mitigations  ${RED}(mitigations=off)${NC}"
+        echo -e "  ${BOLD}  2.${NC} Auto Mitigations     ${GREEN}(mitigations=auto)${NC}"
+        echo -e "  ${BOLD}  3.${NC} Full Mitigations     ${GREEN}(mitigations=on)${NC}"
+        echo -e "  ${BOLD}  4.${NC} Current Status"
+        echo -e "  ${BOLD}  5.${NC} About Mitigations"
+        echo -e "  ${BOLD}  0.${NC} Exit"
+        echo ""
+        echo -e "  ${CYAN}──────────────────────────────────────${NC}"
+        read -p "  Option: " choice
+
+        case $choice in
+            1) mitigations_off ;;
+            2) mitigations_auto ;;
+            3) mitigations_on ;;
+            4) show_status ;;
+            5) show_about ;;
+            0) clear; exit 0 ;;
+            *) echo -e "\n  ${RED}Invalid option!${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+check_root
+check_config
+main_menu

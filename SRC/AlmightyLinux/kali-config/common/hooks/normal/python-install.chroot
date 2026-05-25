@@ -1,0 +1,2 @@
+#!/bin/bash
+sudo pip install opencv-python openosint holehe ddgs iso639-lang imagehash selenium mmh3 beautifulsoup4 playwright whois --break-system-packages

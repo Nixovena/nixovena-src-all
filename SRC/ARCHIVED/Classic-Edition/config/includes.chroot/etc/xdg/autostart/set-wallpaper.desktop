@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Apply Default Wallpaper
+Exec=sh -c 'if [ ! -f ~/.config/.megamix-wallpaper-set ]; then sleep 0.5; plasma-apply-wallpaperimage /usr/share/backgrounds/megamix.png; if [ $? -eq 0 ]; then touch ~/.config/.megamix-wallpaper-set; fi; fi'
+Hidden=false
+NoDisplay=true
+X-KDE-autostart-after=panel

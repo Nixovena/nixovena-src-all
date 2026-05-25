@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Sleuthkit
+Comment=LengToolkit - sleuthkit
+Exec=mate-terminal -- bash -c "sleuthkit; exec bash"
+Icon=/usr/share/icons/lengtoolkit/terminal.png
+Terminal=true
+Type=Application
+Categories=LengToolkit;

@@ -1,0 +1,48 @@
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${CYAN}========================================================${NC}"
+echo -e "           RESCUEXY GRUB REINSTALL HELPER"
+echo -e "${CYAN}========================================================${NC}"
+
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo -e "${YELLOW}Usage:${NC} sudo rescuexy-grub /dev/sdXY /dev/sdX"
+    echo ""
+    echo "  /dev/sdXY = Root partition (e.g. /dev/sda2)"
+    echo "  /dev/sdX  = Target disk for GRUB (e.g. /dev/sda)"
+    echo ""
+    echo "Available partitions:"
+    lsblk -o NAME,SIZE,FSTYPE | grep -E "ext4|btrfs|xfs"
+    exit 1
+fi
+
+ROOT_PART=$1
+GRUB_DISK=$2
+MOUNT_DIR="/mnt/rescue"
+
+mkdir -p $MOUNT_DIR
+mount $ROOT_PART $MOUNT_DIR || { echo -e "${RED}Mount failed!${NC}"; exit 1; }
+
+mount --bind /dev $MOUNT_DIR/dev
+mount --bind /proc $MOUNT_DIR/proc
+mount --bind /sys $MOUNT_DIR/sys
+
+if [ -d /sys/firmware/efi ]; then
+    EFI=$(lsblk -o NAME,FSTYPE | grep vfat | awk '{print "/dev/"$1}' | head -1)
+    [ -n "$EFI" ] && mount $EFI $MOUNT_DIR/boot/efi 2>/dev/null
+    echo -e "${GREEN}[+]${NC} Reinstalling GRUB (UEFI)..."
+    chroot $MOUNT_DIR grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+else
+    echo -e "${GREEN}[+]${NC} Reinstalling GRUB (Legacy)..."
+    chroot $MOUNT_DIR grub-install $GRUB_DISK
+fi
+
+echo -e "${GREEN}[+]${NC} Updating GRUB config..."
+chroot $MOUNT_DIR update-grub
+
+umount -R $MOUNT_DIR
+echo -e "${GREEN}Done!${NC}"

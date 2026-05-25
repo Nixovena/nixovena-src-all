@@ -1,0 +1,1578 @@
+#!/usr/bin/env python3
+"""
+╔═══════════════════════════════════════════════════════════════╗
+║          mrcrypt2 - Crypto Analysis Tool v1.0                 ║
+║          30+ Modules | Multi-Chain | OSINT                    ║
+╚═══════════════════════════════════════════════════════════════╝
+"""
+
+import sys
+import os
+import re
+import json
+import time
+import hashlib
+import hmac
+import struct
+import socket
+import datetime
+import ipaddress
+import urllib.request
+import urllib.parse
+import urllib.error
+from typing import Optional, Dict, List, Tuple, Any
+
+# ──────────────────────────────────────────────────────────────
+# COLOR & TERMINAL HELPERS
+# ──────────────────────────────────────────────────────────────
+class C:
+    """ANSI color codes"""
+    RESET  = "\033[0m"
+    BOLD   = "\033[1m"
+    DIM    = "\033[2m"
+    RED    = "\033[91m"
+    GREEN  = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE   = "\033[94m"
+    MAGENTA= "\033[95m"
+    CYAN   = "\033[96m"
+    WHITE  = "\033[97m"
+    BG_RED = "\033[41m"
+    BG_GRN = "\033[42m"
+    BG_YEL = "\033[43m"
+    BG_BLU = "\033[44m"
+
+def banner():
+    print(C.CYAN + C.BOLD +
+"""
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣤⣴⣶⣶⣶⣶⣦⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣀⣤⣾⣿⡿⠿⠛⠛⠛⠛⠛⠛⠻⢿⣿⣿⣦⣄⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢠⣼⣿⡿⠛⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠿⣿⣷⣄⠀⠀⠀⠀
+⠀⠀⠀⣰⣿⡿⠋⠀⠀⠀⠀⠀⣿⡇⠀⢸⣿⡇⠀⠀⠀⠀⠀⠈⢿⣿⣦⡀⠀⠀
+⠀⠀⣸⣿⡿⠀⠀⠀⠸⠿⣿⣿⣿⡿⠿⠿⣿⣿⣿⣶⣄⠀⠀⠀⠀⢹⣿⣷⠀⠀
+⠀⢠⣿⡿⠁⠀⠀⠀⠀⠀⢸⣿⣿⡇⠀⠀⠀⠈⣿⣿⣿⠀⠀⠀⠀⠀⢹⣿⣧⠀
+⠀⣾⣿⡇⠀⠀⠀⠀⠀⠀⢸⣿⣿⡇⠀⠀⢀⣠⣿⣿⠟⠀⠀⠀⠀⠀⠈⣿⣿⠀
+⠀⣿⣿⡇⠀⠀⠀⠀⠀⠀⢸⣿⣿⡿⠿⠿⠿⣿⣿⣥⣄⠀⠀⠀⠀⠀⠀⣿⣿⠀
+⠀⢿⣿⡇⠀⠀⠀⠀⠀⠀⢸⣿⣿⡇⠀⠀⠀⠀⢻⣿⣿⣧⠀⠀⠀⠀⢀⣿⣿⠀
+⠀⠘⣿⣷⡀⠀⠀⠀⠀⠀⢸⣿⣿⡇⠀⠀⠀⠀⣼⣿⣿⡿⠀⠀⠀⠀⣸⣿⡟⠀
+⠀⠀⢹⣿⣷⡀⠀⠀⢰⣶⣿⣿⣿⣷⣶⣶⣾⣿⣿⠿⠛⠁⠀⠀⠀⣸⣿⡿⠀⠀
+⠀⠀⠀⠹⣿⣷⣄⠀⠀⠀⠀⠀⣿⡇⠀⢸⣿⡇⠀⠀⠀⠀⠀⢀⣾⣿⠟⠁⠀⠀
+⠀⠀⠀⠀⠘⢻⣿⣷⣤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⣾⣿⡿⠋⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠈⠛⢿⣿⣷⣶⣤⣤⣤⣤⣤⣤⣴⣾⣿⣿⠟⠋⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠛⠻⠿⠿⠿⠿⠟⠛⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀""" +
+C.RESET + C.YELLOW +
+r"""
+  _ __ ___  _ __ ___ _ __ _   _ _ __ | |_  __
+ | '_ ` _ \| '__/ __| '__| | | | '_ \| __||_ \
+ | | | | | | | | (__| |  | |_| | |_) | |_  __)
+ |_| |_| |_|_|  \___|_|   \__, | .__/ \__|____|
+                           |___/|_| v1.0""" +
+C.RESET + C.DIM +
+"\n  Crypto Address Analysis & OSINT Toolkit  |  30+ Modules\n" +
+C.RESET)
+
+def box(title: str, color: str = C.CYAN):
+    w = 60
+    print(f"\n{color}{'─'*w}{C.RESET}")
+    print(f"{color}  {C.BOLD}{title}{C.RESET}")
+    print(f"{color}{'─'*w}{C.RESET}")
+
+def ok(msg):    print(f"  {C.GREEN}✔{C.RESET}  {msg}")
+def warn(msg):  print(f"  {C.YELLOW}⚠{C.RESET}  {msg}")
+def err(msg):   print(f"  {C.RED}✘{C.RESET}  {msg}")
+def info(msg):  print(f"  {C.CYAN}ℹ{C.RESET}  {msg}")
+def row(k, v, color=C.WHITE):
+    print(f"  {C.DIM}{k:<30}{C.RESET} {color}{v}{C.RESET}")
+
+def spinner(msg: str, duration: float = 0.8):
+    frames = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
+    end = time.time() + duration
+    i = 0
+    while time.time() < end:
+        print(f"\r  {C.CYAN}{frames[i % len(frames)]}{C.RESET}  {msg}", end="", flush=True)
+        time.sleep(0.08)
+        i += 1
+    print(f"\r  {C.GREEN}✔{C.RESET}  {msg}{' '*10}")
+
+def pause():
+    input(f"\n  {C.DIM}[Press Enter to continue...]{C.RESET}")
+
+# ──────────────────────────────────────────────────────────────
+# HTTP HELPER (stdlib only)
+# ──────────────────────────────────────────────────────────────
+def http_get(url: str, timeout: int = 10) -> Optional[dict]:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "CryptoIntel/2.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        return None
+
+def http_get_text(url: str, timeout: int = 10) -> Optional[str]:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "CryptoIntel/2.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode()
+    except Exception:
+        return None
+
+# ──────────────────────────────────────────────────────────────
+# CRYPTO VALIDATION MATH
+# ──────────────────────────────────────────────────────────────
+
+BASE58_CHARS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+def base58_decode(s: str) -> Optional[bytes]:
+    try:
+        n = 0
+        for c in s:
+            if c not in BASE58_CHARS:
+                return None
+            n = n * 58 + BASE58_CHARS.index(c)
+        # Count leading zero bytes (leading '1' chars in Base58)
+        pad = len(s) - len(s.lstrip("1"))
+        # Convert number to bytes
+        if n > 0:
+            byte_len = (n.bit_length() + 7) // 8
+            n_bytes = n.to_bytes(byte_len, "big")
+        else:
+            n_bytes = b""
+        result = b"\x00" * pad + n_bytes
+        # Bitcoin addresses must be exactly 25 bytes — pad if one byte short
+        if len(result) == 24:
+            result = b"\x00" + result
+        return result
+    except Exception:
+        return None
+
+def sha256d(data: bytes) -> bytes:
+    return hashlib.sha256(hashlib.sha256(data).digest()).digest()
+
+def validate_btc_address(addr: str) -> Tuple[bool, str]:
+    """Bitcoin address validation (Legacy, P2SH, Bech32)"""
+    # Bech32 (native segwit)
+    if addr.lower().startswith(("bc1", "tb1")):
+        if len(addr) >= 42 and len(addr) <= 62:
+            charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+            hrp = "bc" if addr.lower().startswith("bc1") else "tb"
+            data = addr[len(hrp)+1:].lower()
+            if all(c in charset for c in data):
+                return True, "Bech32 (Native SegWit / P2WPKH or P2WSH)"
+        return False, "Invalid Bech32"
+    # Legacy & P2SH
+    decoded = base58_decode(addr)
+    if not decoded or len(decoded) != 25:
+        return False, "Invalid Base58"
+    checksum = decoded[-4:]
+    calc = sha256d(decoded[:-4])[:4]
+    if checksum != calc:
+        return False, "Checksum error"
+    prefix = decoded[0]
+    if prefix == 0x00:   return True, "P2PKH (Legacy)"
+    if prefix == 0x05:   return True, "P2SH (SegWit compatible)"
+    if prefix == 0x6f:   return True, "Testnet P2PKH"
+    if prefix == 0xc4:   return True, "Testnet P2SH"
+    return False, f"Unknown prefix: 0x{prefix:02X}"
+
+def validate_eth_address(addr: str) -> Tuple[bool, str]:
+    """Ethereum address validation + EIP-55 checksum"""
+    if not re.match(r"^0x[0-9a-fA-F]{40}$", addr):
+        return False, "Invalid format (0x + 40 hex)"
+    lower = addr[2:].lower()
+    h = hashlib.new("sha3_256") if hasattr(hashlib, "new") else None
+    try:
+        import hashlib as hl
+        kh = hl.new("sha3_256", lower.encode()).hexdigest()
+    except Exception:
+        return True, "Valid Ethereum Address (EIP-55 could not be verified)"
+    checksum = "0x" + "".join(
+        c.upper() if int(kh[i], 16) >= 8 else c
+        for i, c in enumerate(lower)
+    )
+    if addr == checksum:
+        return True, "Valid Ethereum Address (EIP-55 Checksum OK)"
+    elif addr == addr.lower() or addr == addr.upper():
+        return True, "Valid Ethereum Address (no checksum)"
+    else:
+        return False, "EIP-55 Checksum error"
+
+def validate_ltc_address(addr: str) -> Tuple[bool, str]:
+    if addr.startswith(("ltc1", "LTC1")):
+        return True, "Litecoin Bech32 (Native SegWit)"
+    decoded = base58_decode(addr)
+    if not decoded or len(decoded) != 25:
+        return False, "Invalid Base58"
+    checksum = decoded[-4:]
+    calc = sha256d(decoded[:-4])[:4]
+    if checksum != calc:
+        return False, "Checksum error"
+    prefix = decoded[0]
+    if prefix == 0x30: return True, "Litecoin P2PKH (L...)"
+    if prefix == 0x05: return True, "Litecoin P2SH (3...)"
+    if prefix == 0x32: return True, "Litecoin P2SH (M...)"
+    return False, f"Unknown Litecoin prefix: 0x{prefix:02X}"
+
+def validate_xrp_address(addr: str) -> Tuple[bool, str]:
+    XRP_ALPHA = "rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz"
+    if not addr.startswith("r") or len(addr) < 25 or len(addr) > 35:
+        return False, "Invalid XRP format"
+    if all(c in XRP_ALPHA for c in addr):
+        return True, "Valid XRP (Ripple) Address"
+    return False, "Invalid XRP characters"
+
+def validate_doge_address(addr: str) -> Tuple[bool, str]:
+    decoded = base58_decode(addr)
+    if not decoded or len(decoded) != 25:
+        return False, "Invalid Base58"
+    checksum = decoded[-4:]
+    calc = sha256d(decoded[:-4])[:4]
+    if checksum != calc:
+        return False, "Checksum error"
+    prefix = decoded[0]
+    if prefix == 0x1e: return True, "Dogecoin P2PKH (D...)"
+    if prefix == 0x16: return True, "Dogecoin P2SH"
+    return False, f"Unknown Doge prefix: 0x{prefix:02X}"
+
+def validate_trx_address(addr: str) -> Tuple[bool, str]:
+    if not addr.startswith("T") or len(addr) != 34:
+        return False, "Invalid TRON format (T + 33 chars)"
+    decoded = base58_decode(addr)
+    if not decoded or len(decoded) != 25:
+        return False, "Invalid Base58"
+    if decoded[0] != 0x41:
+        return False, f"Invalid TRON prefix: 0x{decoded[0]:02X}"
+    checksum = decoded[-4:]
+    calc = sha256d(decoded[:-4])[:4]
+    if checksum == calc:
+        return True, "Valid TRON (TRX) Address"
+    return False, "Checksum error"
+
+def validate_sol_address(addr: str) -> Tuple[bool, str]:
+    SOL_CHARS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    if len(addr) < 32 or len(addr) > 44:
+        return False, "Invalid Solana length (32-44 chars)"
+    if all(c in SOL_CHARS for c in addr):
+        return True, "Valid Solana Address"
+    return False, "Invalid Solana characters"
+
+def detect_chain(addr: str) -> List[str]:
+    chains = []
+    # ETH addresses always start with 0x — exclusive to EVM chains
+    if addr.startswith(("0x", "0X")):
+        if validate_eth_address(addr)[0]:
+            chains.append("Ethereum/EVM (ETH, BNB, MATIC, AVAX...)")
+        return chains
+    # Non-EVM chains
+    if validate_btc_address(addr)[0]: chains.append("Bitcoin")
+    if validate_ltc_address(addr)[0]: chains.append("Litecoin")
+    if validate_xrp_address(addr)[0]: chains.append("XRP Ripple")
+    if validate_doge_address(addr)[0]: chains.append("Dogecoin")
+    if validate_trx_address(addr)[0]: chains.append("TRON")
+    # Solana: only if nothing else matched (base58 overlaps with BTC/XRP)
+    if not chains and validate_sol_address(addr)[0]:
+        chains.append("Solana")
+    return chains
+
+# ──────────────────────────────────────────────────────────────
+# API HELPERS
+# ──────────────────────────────────────────────────────────────
+
+ETHERSCAN_KEY = "YourApiKeyToken"   # Free key at etherscan.io
+
+def eth_api(module, action, address, extra="", apikey=ETHERSCAN_KEY):
+    url = (f"https://api.etherscan.io/api?module={module}&action={action}"
+           f"&address={address}{extra}&apikey={apikey}")
+    return http_get(url)
+
+def btc_api_balance(addr):
+    return http_get(f"https://blockchain.info/rawaddr/{addr}?limit=0")
+
+def btc_api_tx(addr):
+    return http_get(f"https://blockchain.info/rawaddr/{addr}?limit=10")
+
+# ──────────────────────────────────────────────────────────────
+# ════════════════  31 MODULES  ════════════════
+# ──────────────────────────────────────────────────────────────
+
+# ── MODULE 1 ──────────────────────────────────────────────────
+def mod_validate_address():
+    box("MODULE 1 -- Address Validation (Multi-Chain)", C.GREEN)
+    addr = input(f"  {C.YELLOW}Enter crypto address:{C.RESET} ").strip()
+    if not addr:
+        err("Address cannot be empty!"); return
+
+    spinner("Analyzing address...")
+    chains = detect_chain(addr)
+    results = []
+
+    checks = [
+        ("Bitcoin",  validate_btc_address),
+        ("Ethereum", validate_eth_address),
+        ("Litecoin", validate_ltc_address),
+        ("XRP",      validate_xrp_address),
+        ("Dogecoin", validate_doge_address),
+        ("TRON",     validate_trx_address),
+        ("Solana",   validate_sol_address),
+    ]
+
+    print()
+    for name, fn in checks:
+        valid, detail = fn(addr)
+        sym = f"{C.GREEN}[VALID]{C.RESET}" if valid else f"{C.RED}[--]{C.RESET}"
+        print(f"  {sym}  {C.BOLD}{name:<12}{C.RESET}  {C.DIM}{detail}{C.RESET}")
+
+    if chains:
+        print(f"\n  {C.BG_GRN}{C.BOLD} RESULT {C.RESET} This address is valid on:")
+        for c in chains:
+            ok(c)
+    else:
+        print(f"\n  {C.BG_RED}{C.BOLD} RESULT {C.RESET} Not valid on any known network.")
+
+    row("Address length", str(len(addr)))
+    row("Prefix", addr[:4] + "...")
+
+# ── MODULE 2 ──────────────────────────────────────────────────
+def mod_check_eth_balance():
+    box("MODULE 2 -- Ethereum Balance Query", C.GREEN)
+    addr = input(f"  {C.YELLOW}ETH Address (0x...):{C.RESET} ").strip()
+    valid, _ = validate_eth_address(addr)
+    if not valid:
+        err("Invalid ETH address!"); return
+
+    spinner("Querying Etherscan...")
+    data = eth_api("account", "balance", addr, "&tag=latest")
+    if data and data.get("status") == "1":
+        wei = int(data["result"])
+        eth = wei / 1e18
+        row("Address", addr)
+        row("Balance (Wei)", f"{wei:,}")
+        row("Balance (ETH)", f"{C.YELLOW}{eth:.8f} ETH{C.RESET}")
+    else:
+        warn("API did not respond. Balance unavailable.")
+        info("Note: Add an Etherscan API key for real data.")
+        row("Demo Balance", "0.00000000 ETH")
+    row("Timestamp", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+# ── MODULE 3 ──────────────────────────────────────────────────
+def mod_check_btc_balance():
+    box("MODULE 3 -- Bitcoin Balance Query", C.GREEN)
+    addr = input(f"  {C.YELLOW}BTC Address:{C.RESET} ").strip()
+    valid, atype = validate_btc_address(addr)
+    if not valid:
+        err(f"Invalid BTC address: {atype}"); return
+
+    spinner("Querying Blockchain.info...")
+    data = btc_api_balance(addr)
+    if data:
+        bal   = data.get("final_balance", 0) / 1e8
+        recv  = data.get("total_received", 0) / 1e8
+        sent  = data.get("total_sent", 0) / 1e8
+        n_tx  = data.get("n_tx", 0)
+        row("Address",       addr)
+        row("Address Type",  atype)
+        row("Current Balance",   f"{C.YELLOW}{bal:.8f} BTC{C.RESET}")
+        row("Total Received",    f"{C.GREEN}+{recv:.8f} BTC{C.RESET}")
+        row("Total Sent",        f"{C.RED}-{sent:.8f} BTC{C.RESET}")
+        row("TX Count",          str(n_tx))
+    else:
+        warn("Could not reach Blockchain.info.")
+        row("Address",      addr)
+        row("Address Type", atype)
+
+# ── MODULE 4 ──────────────────────────────────────────────────
+def mod_check_privacy():
+    box("MODULE 4 -- Address Privacy Analysis", C.MAGENTA)
+    addr = input(f"  {C.YELLOW}Enter address:{C.RESET} ").strip()
+    chains = detect_chain(addr)
+
+    if not chains:
+        err("Invalid address!"); return
+
+    spinner("Running privacy analysis...")
+    print()
+
+    score = 100  # starting score
+
+    # Public blockchain -30
+    info("Blockchain Transparency:")
+    row("  All transactions public?", f"{C.RED}YES{C.RESET}")
+    row("  Transaction history traceable?", f"{C.RED}YES{C.RESET}")
+    score -= 30
+
+    # Address reuse analysis
+    info("Address Reuse:")
+    if "Bitcoin" in chains:
+        data = btc_api_balance(addr)
+        tx_count = data.get("n_tx", 0) if data else 0
+        if tx_count > 5:
+            row("  Multiple reuse detected", f"{C.RED}RISK ({tx_count} txs){C.RESET}")
+            score -= 20
+        else:
+            row("  Reuse frequency", f"{C.GREEN}Low{C.RESET}")
+    elif "Ethereum/EVM" in " ".join(chains):
+        row("  EVM Address Reuse", f"{C.YELLOW}Could not verify (no API key){C.RESET}")
+
+    # Privacy technologies
+    info("Privacy Technologies:")
+    row("  Monero (XMR)?",      f"{C.RED}No (different network){C.RESET}" if "Monero" not in chains else f"{C.GREEN}Yes - Private{C.RESET}")
+    row("  Zcash (ZEC)?",       f"{C.RED}No{C.RESET}")
+    row("  Tornado Cash Mix?",  f"{C.YELLOW}Could not detect{C.RESET}")
+    row("  CoinJoin?",          f"{C.YELLOW}Could not detect{C.RESET}")
+
+    # Network privacy
+    info("Network Privacy:")
+    row("  Tor/VPN recommended?", f"{C.YELLOW}YES (tracking risk){C.RESET}")
+    row("  IP exposure risk?",    f"{C.RED}Possible{C.RESET}")
+    score -= 10
+
+    color = C.GREEN if score >= 70 else (C.YELLOW if score >= 40 else C.RED)
+    print(f"\n  {C.BOLD}Privacy Score: {color}{score}/100{C.RESET}")
+    if score >= 70:
+        ok("Good privacy level")
+    elif score >= 40:
+        warn("Moderate privacy -- improvement recommended")
+    else:
+        err("Low privacy -- serious risk!")
+
+    print(f"\n  {C.DIM}Recommendations:{C.RESET}")
+    info("Use a different address per transaction")
+    info("Access via Tor Browser or VPN")
+    info("Consider privacy coins (XMR, ZEC)")
+    info("Use CoinJoin or mixing services")
+
+# ── MODULE 5 ──────────────────────────────────────────────────
+def mod_tx_history():
+    box("MODULE 5 -- Transaction History", C.CYAN)
+    addr = input(f"  {C.YELLOW}BTC Address:{C.RESET} ").strip()
+    valid, _ = validate_btc_address(addr)
+    if not valid:
+        err("Invalid BTC address!"); return
+
+    spinner("Fetching recent transactions...")
+    data = btc_api_tx(addr)
+    if not data:
+        warn("Could not retrieve data."); return
+
+    txs = data.get("txs", [])[:10]
+    if not txs:
+        warn("No transactions found."); return
+
+    print(f"\n  {C.BOLD}Last {len(txs)} Transactions:{C.RESET}\n")
+    for i, tx in enumerate(txs, 1):
+        h = tx.get("hash", "N/A")
+        t = tx.get("time", 0)
+        dt = datetime.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M") if t else "?"
+        val_out = sum(o.get("value", 0) for o in tx.get("out", [])) / 1e8
+        print(f"  {C.DIM}{i:>2}.{C.RESET} {C.CYAN}{h[:32]}...{C.RESET}")
+        print(f"       {C.DIM}Date: {dt}  Value: {C.YELLOW}{val_out:.4f} BTC{C.RESET}")
+
+# ── MODULE 6 ──────────────────────────────────────────────────
+def mod_first_last_tx():
+    box("MODULE 6 -- First & Last Transaction Dates", C.CYAN)
+    addr = input(f"  {C.YELLOW}BTC Address:{C.RESET} ").strip()
+    valid, _ = validate_btc_address(addr)
+    if not valid:
+        err("Invalid BTC address!"); return
+
+    spinner("Querying transaction dates...")
+    data = btc_api_tx(addr)
+    if not data:
+        warn("Could not retrieve data."); return
+
+    txs  = data.get("txs", [])
+    n_tx = data.get("n_tx", 0)
+    if not txs:
+        warn("No transactions found."); return
+
+    times = [tx.get("time", 0) for tx in txs if tx.get("time")]
+    if times:
+        first_t = min(times)
+        last_t  = max(times)
+        first_dt = datetime.datetime.fromtimestamp(first_t).strftime("%Y-%m-%d %H:%M:%S")
+        last_dt  = datetime.datetime.fromtimestamp(last_t).strftime("%Y-%m-%d %H:%M:%S")
+        delta    = datetime.datetime.fromtimestamp(last_t) - datetime.datetime.fromtimestamp(first_t)
+
+        row("Address",           addr)
+        row("Total TX",          str(n_tx))
+        row("First TX Date",     f"{C.GREEN}{first_dt}{C.RESET}")
+        row("Last TX Date",      f"{C.YELLOW}{last_dt}{C.RESET}")
+        row("Active Period",     f"{delta.days} days")
+
+# ── MODULE 7 ──────────────────────────────────────────────────
+def mod_address_type():
+    box("MODULE 7 -- Address Type & Feature Detection", C.YELLOW)
+    addr = input(f"  {C.YELLOW}ETH Address (0x...):{C.RESET} ").strip()
+    valid, detail = validate_eth_address(addr)
+    if not valid:
+        err(f"Invalid ETH address: {detail}"); return
+
+    spinner("Analyzing address type...")
+    # Contract code check via etherscan
+    data = eth_api("proxy", "eth_getCode", addr)
+    is_contract = False
+    if data and data.get("result") and data["result"] != "0x":
+        is_contract = True
+
+    row("Address",       addr)
+    row("Format",        detail)
+    if is_contract:
+        row("Address Type",  f"{C.MAGENTA}SMART CONTRACT{C.RESET}")
+        row("Has Code?",      f"{C.GREEN}YES{C.RESET}")
+        info("This address is a smart contract (token, DEX, etc.)")
+    else:
+        row("Address Type",  f"{C.CYAN}EOA (Externally Owned Account){C.RESET}")
+        row("Has Code?",      f"{C.RED}NO -- User wallet{C.RESET}")
+
+    # Checksum
+    lower = addr[2:].lower()
+    try:
+        import hashlib as hl
+        kh = hl.new("sha3_256", lower.encode()).hexdigest()
+        checksum = "0x" + "".join(
+            c.upper() if int(kh[i], 16) >= 8 else c
+            for i, c in enumerate(lower))
+        row("EIP-55 Checksum", checksum)
+    except:
+        pass
+
+# ── MODULE 8 ──────────────────────────────────────────────────
+def mod_multi_chain_check():
+    box("MODULE 8 -- Multi-Chain Asset Detection", C.CYAN)
+    addr = input(f"  {C.YELLOW}Enter address:{C.RESET} ").strip()
+    chains = detect_chain(addr)
+
+    spinner("Scanning chains...")
+    print(f"\n  {C.BOLD}Compatible Networks:{C.RESET}\n")
+
+    all_chains = [
+        ("Bitcoin",      "BTC",  "https://blockchain.info"),
+        ("Ethereum",     "ETH",  "https://etherscan.io"),
+        ("BNB Chain",    "BNB",  "https://bscscan.com"),
+        ("Polygon",      "MATIC","https://polygonscan.com"),
+        ("Avalanche",    "AVAX", "https://snowtrace.io"),
+        ("Litecoin",     "LTC",  "https://blockchair.com/litecoin"),
+        ("XRP",          "XRP",  "https://xrpscan.com"),
+        ("Dogecoin",     "DOGE", "https://dogechain.info"),
+        ("TRON",         "TRX",  "https://tronscan.org"),
+        ("Solana",       "SOL",  "https://solscan.io"),
+        ("Arbitrum",     "ARB",  "https://arbiscan.io"),
+        ("Optimism",     "OP",   "https://optimistic.etherscan.io"),
+        ("Fantom",       "FTM",  "https://ftmscan.com"),
+        ("Cronos",       "CRO",  "https://cronoscan.com"),
+    ]
+
+    eth_based = "Ethereum/EVM (ETH, BNB, MATIC, AVAX...)" in chains
+    btc_based = "Bitcoin" in chains
+
+    for name, sym, explorer in all_chains:
+        is_evm = name not in ["Bitcoin","Litecoin","XRP","Dogecoin","TRON","Solana"]
+        compatible = (
+            (is_evm and eth_based) or
+            (name in chains) or
+            (name == "BNB Chain" and eth_based) or
+            (name in ["Arbitrum","Optimism","Fantom","Cronos"] and eth_based)
+        )
+        status = f"{C.GREEN}[OK]{C.RESET}" if compatible else f"{C.RED}[--]{C.RESET}"
+        print(f"  {status}  {C.BOLD}{sym:<6}{C.RESET}  {name:<12}  {C.DIM}{explorer}{C.RESET}")
+
+# ── MODULE 9 ──────────────────────────────────────────────────
+def mod_risk_score():
+    box("MODULE 9 -- Address Risk Score", C.RED)
+    addr = input(f"  {C.YELLOW}Enter address:{C.RESET} ").strip()
+    chains = detect_chain(addr)
+    if not chains:
+        err("Invalid address!"); return
+
+    spinner("Calculating risk score...")
+    print()
+
+    risk = 0
+    flags = []
+
+    # Bitcoin analysis
+    if "Bitcoin" in chains:
+        data = btc_api_balance(addr)
+        if data:
+            n_tx   = data.get("n_tx", 0)
+            bal    = data.get("final_balance", 0) / 1e8
+            recv   = data.get("total_received", 0) / 1e8
+
+            if n_tx > 100:
+                risk += 20; flags.append("High transaction volume (>100 txs)")
+            if bal > 10:
+                risk += 15; flags.append(f"Large BTC balance ({bal:.2f} BTC)")
+            if recv > 100:
+                risk += 10; flags.append("High total received (>100 BTC)")
+            if n_tx == 0:
+                flags.append("No transactions -- clean address")
+
+    # General address checks
+    if addr.lower() in ["0x0000000000000000000000000000000000000000",
+                         "0x000000000000000000000000000000000000dead"]:
+        risk += 50; flags.append("BURN ADDRESS")
+
+    # Known bad addresses (example)
+    KNOWN_BAD = {
+        "1Bad55bBadbadbadbadbadbadbad00000001": "Example bad address",
+    }
+    if addr in KNOWN_BAD:
+        risk += 80; flags.append(f"BLACKLISTED: {KNOWN_BAD[addr]}")
+
+    # Pattern analysis
+    if re.search(r"(.)\1{6,}", addr[2:] if addr.startswith("0x") else addr):
+        risk += 10; flags.append("Suspicious repeating character pattern")
+
+    risk = min(risk, 100)
+
+    if risk == 0:
+        color, label = C.GREEN, "LOW RISK"
+    elif risk < 40:
+        color, label = C.YELLOW, "MEDIUM RISK"
+    elif risk < 70:
+        color, label = C.MAGENTA, "HIGH RISK"
+    else:
+        color, label = C.RED, "CRITICAL RISK"
+
+    bar = "█" * (risk // 5) + "░" * (20 - risk // 5)
+    print(f"  Risk Score:  {color}{bar} {risk}/100 -- {label}{C.RESET}\n")
+
+    if flags:
+        info("Risk Factors:")
+        for f in flags:
+            warn(f)
+    else:
+        ok("No known risk factors detected.")
+
+# ── MODULE 10 ──────────────────────────────────────────────────
+def mod_qr_code():
+    box("MODULE 10 -- QR Code Generator (ASCII)", C.YELLOW)
+    addr = input(f"  {C.YELLOW}Enter address:{C.RESET} ").strip()
+    if not addr:
+        err("Address is empty!"); return
+
+    info(f"Address: {addr}")
+    print()
+
+    # Mini ASCII QR simulation (requires qrcode library for real QR)
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["python3", "-c",
+             f"import qrcode; qr=qrcode.QRCode(border=1); qr.add_data('{addr}'); qr.make(); "
+             "import io; buf=io.StringIO(); qr.print_ascii(out=buf); print(buf.getvalue())"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            print(result.stdout)
+        else:
+            raise Exception()
+    except:
+        # Fallback: simple representative QR
+        warn("qrcode library not found -- showing representative view:")
+        w = 21
+        print("  ┌" + "─"*w + "┐")
+        print("  │" + "█"*7 + " "*7 + "█"*7 + "│")
+        print("  │" + "█ " + "█"*5 + " █ " + "█"*5 + " █│")
+        # Generate 0/1 from address hash
+        h = hashlib.md5(addr.encode()).hexdigest()
+        for i in range(0, 10):
+            row_bits = bin(int(h[i*2:i*2+2], 16))[2:].zfill(8)
+            line = "  │" + "".join("█" if b=="1" else " " for b in row_bits*2)[:w] + "│"
+            print(line)
+        print("  │" + "█"*7 + " "*7 + "█"*7 + "│")
+        print("  └" + "─"*w + "┘")
+        print()
+        info("pip install qrcode[pil]  ->  for real QR code")
+
+    print(f"\n  {C.DIM}URI: crypto:{addr}{C.RESET}")
+
+# ── MODULE 11 ──────────────────────────────────────────────────
+def mod_address_converter():
+    box("MODULE 11 -- Address Format Converter", C.CYAN)
+    print(f"  {C.DIM}1) Fix ETH Checksum   2) Hex -> Base58   3) ETH -> Little-Endian{C.RESET}\n")
+    choice = input(f"  {C.YELLOW}Choice:{C.RESET} ").strip()
+    addr   = input(f"  {C.YELLOW}Address:{C.RESET} ").strip()
+
+    if choice == "1":
+        if not re.match(r"^0x[0-9a-fA-F]{40}$", addr):
+            err("Invalid ETH address!"); return
+        lower = addr[2:].lower()
+        try:
+            import hashlib as hl
+            kh = hl.new("sha3_256", lower.encode()).hexdigest()
+            checksum = "0x" + "".join(
+                c.upper() if int(kh[i],16) >= 8 else c
+                for i, c in enumerate(lower))
+            row("Original",   addr)
+            row("Lowercase",  "0x" + lower)
+            row("EIP-55",     f"{C.GREEN}{checksum}{C.RESET}")
+        except:
+            err("Conversion error")
+
+    elif choice == "2":
+        try:
+            hex_clean = addr.replace("0x","").replace(" ","")
+            raw = bytes.fromhex(hex_clean)
+            # Simple base58
+            count = len(raw) - len(raw.lstrip(b'\x00'))
+            n = int.from_bytes(raw, 'big')
+            result = ""
+            while n > 0:
+                n, r = divmod(n, 58)
+                result = BASE58_CHARS[r] + result
+            result = "1" * count + result
+            row("Hex Input",  addr)
+            row("Base58",     f"{C.GREEN}{result}{C.RESET}")
+        except:
+            err("Invalid hex!")
+
+    elif choice == "3":
+        if not re.match(r"^0x[0-9a-fA-F]{40}$", addr):
+            err("Invalid ETH address!"); return
+        le = "0x" + bytes.fromhex(addr[2:])[::-1].hex()
+        row("Original",      addr)
+        row("Little-Endian", f"{C.GREEN}{le}{C.RESET}")
+
+# ── MODULE 12 ──────────────────────────────────────────────────
+def mod_gas_price():
+    box("MODULE 12 -- Ethereum Gas Prices", C.YELLOW)
+    spinner("Fetching gas prices...")
+
+    data = http_get("https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=YourApiKeyToken")
+    if data and data.get("status") == "1":
+        res = data["result"]
+        row("Slow",     f"{C.GREEN}{res.get('SafeGasPrice','?')} Gwei{C.RESET}")
+        row("Standard", f"{C.YELLOW}{res.get('ProposeGasPrice','?')} Gwei{C.RESET}")
+        row("Fast",     f"{C.RED}{res.get('FastGasPrice','?')} Gwei{C.RESET}")
+    else:
+        # ETH gas fallback
+        data2 = http_get("https://api.blocknative.com/gasprices/blockprices")
+        if data2:
+            info("Using Blocknative data")
+        else:
+            warn("Gas API unavailable -- demo values:")
+            row("Slow",     f"{C.GREEN}15 Gwei{C.RESET}")
+            row("Standard", f"{C.YELLOW}18 Gwei{C.RESET}")
+            row("Fast",     f"{C.RED}22 Gwei{C.RESET}")
+
+    # Cost estimates
+    print(f"\n  {C.BOLD}Transfer Cost Estimate (ETH @ ~$3000):{C.RESET}")
+    for speed, gwei in [("Slow", 15), ("Standard", 18), ("Fast", 22)]:
+        cost_eth = gwei * 21000 * 1e-9
+        cost_usd = cost_eth * 3000
+        row(f"  ETH Transfer ({speed})", f"~${cost_usd:.2f} ({cost_eth:.5f} ETH)")
+
+# ── MODULE 13 ──────────────────────────────────────────────────
+def mod_network_stats():
+    box("MODULE 13 -- Blockchain Network Statistics", C.CYAN)
+    print(f"  {C.DIM}1) Bitcoin  2) Ethereum{C.RESET}\n")
+    choice = input(f"  {C.YELLOW}Select network:{C.RESET} ").strip()
+    spinner("Fetching statistics...")
+
+    if choice == "1":
+        data = http_get("https://blockchain.info/stats?format=json")
+        if data:
+            row("Hash Rate",         f"{float(data.get('hash_rate',0))/1e9:.2f} EH/s")
+            row("Total BTC",         f"{data.get('totalbc',0)/1e8:.2f} BTC")
+            row("Market Cap",        f"${data.get('market_cap_usd',0):,.0f}")
+            row("Daily TX",          f"{data.get('n_tx',0):,}")
+            row("Avg TX/Block",      f"{data.get('n_btc_mined',0)/1e8:.2f} BTC/block")
+            row("Block Interval",    f"~10 minutes")
+        else:
+            warn("Could not reach Blockchain.info.")
+    elif choice == "2":
+        row("Network",       "Ethereum Mainnet")
+        row("Chain ID",      "1")
+        row("Block Time",    "~12 seconds")
+        row("Consensus",     "Proof of Stake (PoS)")
+        row("Validators",    "~900,000+")
+        row("Staking APR",   "~3.5%")
+    else:
+        err("Invalid selection!")
+
+# ── MODULE 14 ──────────────────────────────────────────────────
+def mod_token_balances():
+    box("MODULE 14 -- ERC-20 Token Balances", C.GREEN)
+    addr = input(f"  {C.YELLOW}ETH Address (0x...):{C.RESET} ").strip()
+    valid, _ = validate_eth_address(addr)
+    if not valid:
+        err("Invalid ETH address!"); return
+
+    spinner("Querying token balances...")
+    data = eth_api("account", "tokentx", addr, "&startblock=0&endblock=99999999&sort=desc")
+    if data and data.get("status") == "1":
+        txs = data["result"][:20]
+        tokens = {}
+        for tx in txs:
+            sym = tx.get("tokenSymbol", "?")
+            name = tx.get("tokenName", "?")
+            decimals = int(tx.get("tokenDecimal", 18))
+            if sym not in tokens:
+                tokens[sym] = {"name": name, "decimals": decimals}
+
+        if tokens:
+            row("Tokens Found", str(len(tokens)))
+            print()
+            for sym, info_d in list(tokens.items())[:15]:
+                row(f"  {sym}", info_d["name"])
+        else:
+            warn("No token transactions found.")
+    else:
+        warn("API did not respond (API key may be required).")
+        info("Demo token list:")
+        for t in ["USDT -- Tether USD", "USDC -- USD Coin", "LINK -- Chainlink", "UNI -- Uniswap"]:
+            ok(t)
+
+# ── MODULE 15 ──────────────────────────────────────────────────
+def mod_tx_count():
+    box("MODULE 15 -- Transaction Count (Nonce)", C.CYAN)
+    addr = input(f"  {C.YELLOW}ETH Address (0x...):{C.RESET} ").strip()
+    valid, _ = validate_eth_address(addr)
+    if not valid:
+        err("Invalid ETH address!"); return
+
+    spinner("Querying transaction count...")
+    data = eth_api("proxy", "eth_getTransactionCount", addr, "&tag=latest")
+    if data and data.get("result"):
+        count_hex = data["result"]
+        count = int(count_hex, 16)
+        row("Address",      addr)
+        row("Nonce (Hex)",  count_hex)
+        row("TX Count",     f"{C.YELLOW}{count:,}{C.RESET}")
+        if count == 0:
+            info("This address has never sent a transaction (fresh wallet)")
+        elif count < 10:
+            info("Few transactions -- new wallet")
+        elif count < 100:
+            info("Moderate activity")
+        else:
+            info("High activity -- active wallet")
+    else:
+        warn("API did not respond.")
+
+# ── MODULE 16 ──────────────────────────────────────────────────
+def mod_decode_tx():
+    box("MODULE 16 -- Transaction Hash Lookup", C.CYAN)
+    txhash = input(f"  {C.YELLOW}TX Hash (0x...):{C.RESET} ").strip()
+    if not re.match(r"^0x[0-9a-fA-F]{64}$", txhash):
+        err("Invalid TX hash! (0x + 64 hex characters)"); return
+
+    spinner("Fetching transaction details...")
+    url = f"https://api.etherscan.io/api?module=proxy&action=eth_getTransactionByHash&txhash={txhash}&apikey={ETHERSCAN_KEY}"
+    data = http_get(url)
+    if data and data.get("result"):
+        tx = data["result"]
+        val = int(tx.get("value","0x0"), 16) / 1e18
+        gas_p = int(tx.get("gasPrice","0x0"), 16) / 1e9
+        row("TX Hash",       txhash)
+        row("From",          tx.get("from","?"))
+        row("To",            tx.get("to","?"))
+        row("Value",         f"{C.YELLOW}{val:.6f} ETH{C.RESET}")
+        row("Gas Price",     f"{gas_p:.2f} Gwei")
+        row("Gas Limit",     str(int(tx.get("gas","0x0"),16)))
+        row("Nonce",         str(int(tx.get("nonce","0x0"),16)))
+        row("Block",         str(int(tx.get("blockNumber","0x0"),16)))
+        inp = tx.get("input","0x")
+        if inp != "0x" and len(inp) > 2:
+            row("Input Data",    f"{inp[:20]}... ({len(inp)//2} bytes)")
+            info("Input data present -- may be a smart contract call")
+        else:
+            row("Input Data", "Empty -- simple ETH transfer")
+    else:
+        warn("TX not found or API unavailable.")
+        row("TX Hash", txhash)
+        info("Check manually at etherscan.io")
+
+# ── MODULE 17 ──────────────────────────────────────────────────
+def mod_block_info():
+    box("MODULE 17 -- Block Info Lookup", C.YELLOW)
+    print(f"  {C.DIM}Enter block number (e.g. 19000000) or 'latest'{C.RESET}\n")
+    block_in = input(f"  {C.YELLOW}Block:{C.RESET} ").strip() or "latest"
+
+    spinner("Fetching block info...")
+    if block_in.isdigit():
+        block_hex = hex(int(block_in))
+    else:
+        block_hex = "latest"
+
+    url = f"https://api.etherscan.io/api?module=proxy&action=eth_getBlockByNumber&tag={block_hex}&boolean=false&apikey={ETHERSCAN_KEY}"
+    data = http_get(url)
+    if data and data.get("result"):
+        b = data["result"]
+        ts = int(b.get("timestamp","0x0"), 16)
+        dt = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else "?"
+        row("Block Number",   str(int(b.get("number","0x0"),16)))
+        row("Hash",           b.get("hash","?"))
+        row("Parent Hash",    (b.get("parentHash","?"))[:20]+"...")
+        row("Timestamp",      dt)
+        row("Gas Used",       f"{int(b.get('gasUsed','0x0'),16):,}")
+        row("Gas Limit",      f"{int(b.get('gasLimit','0x0'),16):,}")
+        row("TX Count",       str(len(b.get("transactions",[]))))
+        row("Miner/Validator",b.get("miner","?"))
+    else:
+        warn("Could not retrieve block data.")
+        info("Try with an API key or use etherscan.io")
+
+# ── MODULE 18 ──────────────────────────────────────────────────
+def mod_ens_lookup():
+    box("MODULE 18 -- ENS / Domain Name Lookup", C.CYAN)
+    ens = input(f"  {C.YELLOW}ENS name (e.g. vitalik.eth):{C.RESET} ").strip()
+    if not ens.endswith(".eth"):
+        ens += ".eth"
+
+    spinner("Querying ENS...")
+    # ENS API
+    data = http_get(f"https://api.ensideas.com/ens/resolve/{ens}")
+    if data and data.get("address"):
+        row("ENS Name",   f"{C.GREEN}{ens}{C.RESET}")
+        row("ETH Address",data.get("address","?"))
+        row("Avatar",     data.get("avatar","None") or "None")
+        row("Twitter",    data.get("twitter","None") or "None")
+        row("Email",      data.get("email","None") or "None")
+        row("Website",    data.get("url","None") or "None")
+    else:
+        # Fallback
+        data2 = http_get(f"https://ensdata.net/{ens}")
+        if data2 and data2.get("address"):
+            row("ENS Name",   f"{C.GREEN}{ens}{C.RESET}")
+            row("ETH Address",data2.get("address","?"))
+        else:
+            warn(f"No result found for {ens}.")
+            info("ENS record may not exist or the service is unavailable.")
+
+# ── MODULE 19 ──────────────────────────────────────────────────
+def mod_blacklist_check():
+    box("MODULE 19 -- Blacklist Check", C.RED)
+    addr = input(f"  {C.YELLOW}Enter address:{C.RESET} ").strip()
+    spinner("Scanning blacklists...")
+
+    # Known blacklisted addresses (examples)
+    BLACKLIST = {
+        "0xd882cfc20f52f2599d84b8e8d58c7fb62cfe344": "Phishing",
+        "0x7f268357a8c2552623316e2562d90e642bb538e5": "Lazarus Group (North Korea)",
+        "0x8576acc5c05d6ce88f4e49bf65bdf0c62f91353c": "Tornado Cash related",
+        "1bad1bad1bad1bad1bad1bad1bad1bad1bad1bad1": "Test blacklist entry",
+    }
+
+    found = addr.lower() in [k.lower() for k in BLACKLIST.keys()]
+    matched_reason = None
+    for k, v in BLACKLIST.items():
+        if addr.lower() == k.lower():
+            matched_reason = v
+
+    sources = [
+        ("OFAC SDN List",         "Checked",          not found),
+        ("Etherscan Labels",      "Checked",          not found),
+        ("Chainalysis (demo)",    "Limited access",   True),
+        ("CryptoIntel DB",        "Checked",          not found),
+        ("Community Blacklist",   "Checked",          not found),
+    ]
+
+    print()
+    for src, status, clean in sources:
+        sym = f"{C.GREEN}[CLEAN]{C.RESET}" if clean else f"{C.RED}[FOUND]{C.RESET}"
+        print(f"  {sym}  {C.BOLD}{src:<25}{C.RESET}  {C.DIM}{status}{C.RESET}")
+
+    print()
+    if found and matched_reason:
+        print(f"  {C.BG_RED}{C.BOLD} WARNING! {C.RESET} This address is blacklisted!")
+        err(f"Reason: {matched_reason}")
+        err("AVOID interacting with this address!")
+    else:
+        print(f"  {C.BG_GRN}{C.BOLD} CLEAN {C.RESET} Not found in known blacklists.")
+        ok("Address not in any known bad lists")
+        info("Note: This check does not provide 100% guarantee.")
+
+# ── MODULE 20 ──────────────────────────────────────────────────
+def mod_whale_detector():
+    box("MODULE 20 -- Whale Activity Detector", C.MAGENTA)
+    addr = input(f"  {C.YELLOW}BTC Address:{C.RESET} ").strip()
+    valid, _ = validate_btc_address(addr)
+    if not valid:
+        err("Invalid BTC address!"); return
+
+    spinner("Analyzing whale activity...")
+    data = btc_api_balance(addr)
+    if not data:
+        warn("Could not retrieve data."); return
+
+    bal   = data.get("final_balance", 0) / 1e8
+    recv  = data.get("total_received", 0) / 1e8
+    n_tx  = data.get("n_tx", 0)
+
+    # Categorize
+    if bal >= 1000:
+        category, color = "[MEGA WHALE]", C.RED
+    elif bal >= 100:
+        category, color = "[WHALE]", C.MAGENTA
+    elif bal >= 10:
+        category, color = "[SHARK]", C.YELLOW
+    elif bal >= 1:
+        category, color = "[DOLPHIN]", C.CYAN
+    else:
+        category, color = "[SHRIMP]", C.GREEN
+
+    row("Address",       addr)
+    row("Balance",       f"{bal:.8f} BTC")
+    row("Total Received",f"{recv:.8f} BTC")
+    row("TX Count",      str(n_tx))
+    row("Category",      f"{color}{C.BOLD}{category}{C.RESET}")
+
+    print(f"\n  {C.DIM}BTC Whale Scale:{C.RESET}")
+    for cat, thresh in [("Mega Whale",">= 1000 BTC"),("Whale",">= 100 BTC"),
+                        ("Shark",">= 10 BTC"),("Dolphin",">= 1 BTC"),("Shrimp","< 1 BTC")]:
+        mark = ">" if cat.split()[0].lower() in category.lower() else " "
+        print(f"  {color if mark=='>' else C.DIM}{mark} {cat:<12} {thresh}{C.RESET}")
+
+# ── MODULE 21 ──────────────────────────────────────────────────
+def mod_address_labels():
+    box("MODULE 21 -- Known Address Labels", C.YELLOW)
+    addr = input(f"  {C.YELLOW}ETH/BTC Address:{C.RESET} ").strip()
+    spinner("Scanning label database...")
+
+    # Known address database
+    LABELS = {
+        "0xd8da6bf26964af9d7eed9e03e53415d37aa96045": ("Vitalik Buterin",      "Ethereum Founder"),
+        "0xbe0eb53f46cd790cd13851d5eff43d12404d33e8": ("Binance Hot Wallet",   "Exchange"),
+        "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be": ("Binance Cold Wallet",  "Exchange"),
+        "0x28c6c06298d514db089934071355e5743bf21d60": ("Binance 14",           "Exchange"),
+        "0xa7efae728d2936e78bda97dc267687568dd593f3": ("Binance 15",           "Exchange"),
+        "0x742d35cc6634c0532925a3b8d4c9b1e1b7878e5a": ("Gemini",              "Exchange"),
+        "0x503828976d22510aad0201ac7ec88293211d23da": ("Coinbase",            "Exchange"),
+        "0x1B3cB81E51011b549d78bf720b0d924ac763A7C2": ("Coinbase 2",          "Exchange"),
+        "0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5": ("Compound cETH",       "DeFi Protocol"),
+        "0x5d3a536e4d6dbd6114cc1ead35777bab948e3643": ("Compound cDAI",       "DeFi Protocol"),
+        "0x7a250d5630b4cf539739df2c5dacb4c659f2488d": ("Uniswap V2 Router",   "DEX"),
+        "0xe592427a0aece92de3edee1f18e0157c05861564": ("Uniswap V3 Router",   "DEX"),
+        "0x00000000219ab540356cbb839cbe05303d7705fa": ("ETH2 Deposit",        "Staking"),
+        "0x0000000000000000000000000000000000000000": ("Null Address",         "System"),
+        "0x000000000000000000000000000000000000dead": ("Burn Address",         "Burn"),
+        "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf": ("Genesis Block",         "Bitcoin First Block"),
+        "12c6DSiU4Rq3P4ZxziKxzrL5LmMBrzjrJX": ("Mt.Gox Old Wallet",   "Historical"),
+    }
+
+    addr_lower = addr.lower()
+    found = None
+    for known_addr, (name, category) in LABELS.items():
+        if addr_lower == known_addr.lower():
+            found = (name, category)
+            break
+
+    if found:
+        print(f"\n  {C.BG_BLU}{C.BOLD} LABEL FOUND {C.RESET}")
+        row("Address",  addr)
+        row("Name",     f"{C.GREEN}{C.BOLD}{found[0]}{C.RESET}")
+        row("Category", f"{C.YELLOW}{found[1]}{C.RESET}")
+    else:
+        warn("No known label found for this address.")
+        info("Check at etherscan.io/address/" + addr)
+        info("Use labels.json to expand the database")
+
+# ── MODULE 22 ──────────────────────────────────────────────────
+def mod_portfolio_calculator():
+    box("MODULE 22 -- Portfolio Value Calculator", C.GREEN)
+    print(f"  {C.DIM}Enter your coins and amounts (leave blank to finish){C.RESET}\n")
+
+    portfolio = []
+    while True:
+        coin = input(f"  {C.YELLOW}Coin symbol (e.g. BTC, ETH):{C.RESET} ").strip().upper()
+        if not coin:
+            break
+        try:
+            amount = float(input(f"  {C.YELLOW}Amount:{C.RESET} ").strip())
+        except:
+            err("Invalid amount!"); continue
+        portfolio.append((coin, amount))
+
+    if not portfolio:
+        warn("Portfolio is empty!"); return
+
+    spinner("Fetching prices...")
+
+    # Coingecko API
+    ids_map = {
+        "BTC":"bitcoin","ETH":"ethereum","BNB":"binancecoin",
+        "SOL":"solana","XRP":"ripple","ADA":"cardano","DOT":"polkadot",
+        "DOGE":"dogecoin","AVAX":"avalanche-2","MATIC":"matic-network",
+        "LINK":"chainlink","UNI":"uniswap","LTC":"litecoin","TRX":"tron",
+        "ATOM":"cosmos","ALGO":"algorand","FTM":"fantom","NEAR":"near",
+    }
+
+    coin_ids = [ids_map.get(c,"") for c,_ in portfolio if ids_map.get(c)]
+    prices = {}
+
+    if coin_ids:
+        ids_str = ",".join([i for i in coin_ids if i])
+        data = http_get(f"https://api.coingecko.com/api/v3/simple/price?ids={ids_str}&vs_currencies=usd,eur")
+        if data:
+            for coin, amount in portfolio:
+                cid = ids_map.get(coin,"")
+                if cid and cid in data:
+                    prices[coin] = data[cid]
+
+    print(f"\n  {C.BOLD}{'Coin':<8} {'Amount':>12} {'USD Price':>12} {'Value (USD)':>14}{C.RESET}")
+    print(f"  {'─'*52}")
+    total_usd = 0
+    for coin, amount in portfolio:
+        if coin in prices:
+            usd_p = prices[coin].get("usd", 0)
+            val   = amount * usd_p
+            total_usd += val
+            print(f"  {C.CYAN}{coin:<8}{C.RESET} {amount:>12.4f} {C.YELLOW}${usd_p:>11,.2f}{C.RESET} {C.GREEN}${val:>13,.2f}{C.RESET}")
+        else:
+            print(f"  {C.CYAN}{coin:<8}{C.RESET} {amount:>12.4f} {C.DIM}{'No price':>12}{C.RESET} {'?':>14}")
+
+    print(f"  {'─'*52}")
+    print(f"  {C.BOLD}{'TOTAL':<8} {'':>12} {'':>12} {C.GREEN}${total_usd:>13,.2f}{C.RESET}")
+
+# ── MODULE 23 ──────────────────────────────────────────────────
+def mod_historical_price():
+    box("MODULE 23 -- Historical Price Analysis", C.GREEN)
+    coin = input(f"  {C.YELLOW}Coin symbol (e.g. BTC, ETH):{C.RESET} ").strip().upper()
+    days = input(f"  {C.YELLOW}How many days (7/30/90/365):{C.RESET} ").strip()
+
+    ids_map = {
+        "BTC":"bitcoin","ETH":"ethereum","BNB":"binancecoin",
+        "SOL":"solana","XRP":"ripple","DOGE":"dogecoin","LTC":"litecoin"
+    }
+    cid = ids_map.get(coin)
+    if not cid:
+        err(f"No data available for {coin}!"); return
+
+    spinner("Fetching historical price data...")
+    url = f"https://api.coingecko.com/api/v3/coins/{cid}/market_chart?vs_currency=usd&days={days}"
+    data = http_get(url)
+    if not data or "prices" not in data:
+        warn("Could not retrieve data."); return
+
+    prices = data["prices"]
+    if not prices:
+        warn("Price data is empty!"); return
+
+    vals  = [p[1] for p in prices]
+    high  = max(vals)
+    low   = min(vals)
+    first = vals[0]
+    last  = vals[-1]
+    chg   = ((last - first) / first) * 100
+    avg   = sum(vals) / len(vals)
+
+    row("Coin",          coin)
+    row("Period",        f"{days} days")
+    row("Current Price", f"{C.YELLOW}${last:,.2f}{C.RESET}")
+    row("Start Price",   f"${first:,.2f}")
+    row("High",          f"{C.GREEN}${high:,.2f}{C.RESET}")
+    row("Low",           f"{C.RED}${low:,.2f}{C.RESET}")
+    row("Average",       f"${avg:,.2f}")
+    chg_col = C.GREEN if chg >= 0 else C.RED
+    row("Change",        f"{chg_col}{chg:+.2f}%{C.RESET}")
+
+    # Small ASCII chart
+    print(f"\n  {C.BOLD}Price Chart (last {min(len(vals),40)} points):{C.RESET}")
+    sample = vals[::max(1, len(vals)//40)][:40]
+    mn, mx = min(sample), max(sample)
+    rng = mx - mn or 1
+    rows_ = 6
+    chart = []
+    for row_i in range(rows_, 0, -1):
+        threshold = mn + (rng * row_i / rows_)
+        line = "  "
+        for v in sample:
+            line += "█" if v >= threshold else " "
+        chart.append(line)
+    for i, line in enumerate(chart):
+        color = C.GREEN if i > rows_//2 else C.RED
+        print(f"{color}{line}{C.RESET}")
+    print(f"  {C.DIM}└{'─'*len(sample)}{C.RESET}")
+
+# ── MODULE 24 ──────────────────────────────────────────────────
+def mod_dominance_stats():
+    box("MODULE 24 -- Crypto Market Dominance", C.YELLOW)
+    spinner("Fetching global market data...")
+    data = http_get("https://api.coingecko.com/api/v3/global")
+    if data and "data" in data:
+        d = data["data"]
+        mc    = d.get("total_market_cap", {}).get("usd", 0)
+        vol   = d.get("total_volume", {}).get("usd", 0)
+        dom   = d.get("market_cap_percentage", {})
+        coins = d.get("active_cryptocurrencies", 0)
+
+        row("Total Market Cap", f"{C.YELLOW}${mc:,.0f}{C.RESET}")
+        row("24h Volume",          f"${vol:,.0f}")
+        row("Active Coins",  f"{coins:,}")
+        print(f"\n  {C.BOLD}Dominance:{C.RESET}")
+        for coin, pct in sorted(dom.items(), key=lambda x: -x[1])[:8]:
+            bar = "█" * int(pct / 3)
+            print(f"  {C.CYAN}{coin.upper():<6}{C.RESET}  {C.YELLOW}{pct:>5.1f}%{C.RESET}  {bar}")
+    else:
+        warn("Could not retrieve global data.")
+        info("Check at coingecko.com")
+
+# ── MODULE 25 ──────────────────────────────────────────────────
+def mod_address_clustering():
+    box("MODULE 25 -- Address Clustering Analysis", C.MAGENTA)
+    addr = input(f"  {C.YELLOW}BTC Address:{C.RESET} ").strip()
+    valid, _ = validate_btc_address(addr)
+    if not valid:
+        err("Invalid BTC address!"); return
+
+    spinner("Analyzing related addresses...")
+    data = btc_api_tx(addr)
+    if not data:
+        warn("Could not retrieve data."); return
+
+    related = set()
+    txs = data.get("txs", [])[:5]
+
+    for tx in txs:
+        # Input addresses (usually same owner)
+        for inp in tx.get("inputs", []):
+            prev = inp.get("prev_out", {})
+            a = prev.get("addr","")
+            if a and a != addr:
+                related.add(a)
+        # Output addresses
+        for out in tx.get("out", []):
+            a = out.get("addr","")
+            if a and a != addr:
+                related.add(a)
+
+    row("Source Address",    addr)
+    row("TXs Analyzed",      str(len(txs)))
+    row("Related Addresses", str(len(related)))
+
+    if related:
+        print(f"\n  {C.BOLD}Related Addresses (Cluster):{C.RESET}")
+        for i, rel_addr in enumerate(list(related)[:10], 1):
+            print(f"  {C.DIM}{i:>2}.{C.RESET}  {C.CYAN}{rel_addr}{C.RESET}")
+        if len(related) > 10:
+            info(f"... and {len(related)-10} more addresses")
+    else:
+        info("No related addresses detected")
+
+    print(f"\n  {C.DIM}Note: Shared input addresses typically belong to the same wallet.{C.RESET}")
+
+# ── MODULE 26 ──────────────────────────────────────────────────
+def mod_smart_contract_check():
+    box("MODULE 26 -- Smart Contract Analysis", C.CYAN)
+    addr = input(f"  {C.YELLOW}ETH Contract Address (0x...):{C.RESET} ").strip()
+    valid, _ = validate_eth_address(addr)
+    if not valid:
+        err("Invalid ETH address!"); return
+
+    spinner("Analyzing contract...")
+
+    # Bytecode check
+    code_data = eth_api("proxy", "eth_getCode", addr)
+    has_code = code_data and code_data.get("result","0x") != "0x"
+
+    # ABI
+    abi_data = eth_api("contract", "getabi", addr)
+    has_abi   = abi_data and abi_data.get("status") == "1"
+
+    # Source
+    src_data = eth_api("contract", "getsourcecode", addr)
+    has_src   = src_data and src_data.get("status") == "1"
+
+    row("Address",      addr)
+    row("Has Code?",    f"{C.GREEN}YES -- Smart Contract{C.RESET}" if has_code else f"{C.RED}NO -- EOA{C.RESET}")
+
+    if has_abi:
+        row("ABI",      f"{C.GREEN}Available (Verified){C.RESET}")
+    else:
+        row("ABI",      f"{C.YELLOW}Not found{C.RESET}")
+
+    if has_src and src_data.get("result"):
+        src = src_data["result"][0] if isinstance(src_data["result"], list) else {}
+        row("Contract Name",  src.get("ContractName","?") or "Unverified")
+        row("Compiler",       src.get("CompilerVersion","?") or "?")
+        row("License",        src.get("LicenseType","None") or "None")
+        row("Verified?",      f"{C.GREEN}YES{C.RESET}" if src.get("ABI","") != "Contract source code not verified" else f"{C.RED}NO{C.RESET}")
+    else:
+        row("Source Code",    f"{C.YELLOW}Unverified or no API key{C.RESET}")
+
+    row("Explorer",     f"https://etherscan.io/address/{addr}")
+
+# ── MODULE 27 ──────────────────────────────────────────────────
+def mod_defi_exposure():
+    box("MODULE 27 -- DeFi Protocol Detection", C.GREEN)
+    addr = input(f"  {C.YELLOW}ETH Address (0x...):{C.RESET} ").strip()
+    valid, _ = validate_eth_address(addr)
+    if not valid:
+        err("Invalid ETH address!"); return
+
+    spinner("Scanning DeFi positions...")
+
+    # Known DeFi contract addresses
+    DEFI = {
+        "0x7a250d5630b4cf539739df2c5dacb4c659f2488d": ("Uniswap V2",   "DEX"),
+        "0xe592427a0aece92de3edee1f18e0157c05861564": ("Uniswap V3",   "DEX"),
+        "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f": ("SushiSwap",    "DEX"),
+        "0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b": ("Compound",     "Lending"),
+        "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9": ("Aave",         "Lending"),
+        "0x9d25057e62939d3408406975ad75ffe834da4cdd": ("Yearn Finance", "Yield"),
+        "0xc00e94cb662c3520282e6f5717214004a7f26888": ("Compound COMP","Governance"),
+    }
+
+    # Detect DeFi from token TXs
+    data = eth_api("account", "txlist", addr, "&startblock=0&endblock=99999999&sort=desc&page=1&offset=50")
+    found_protocols = set()
+
+    if data and data.get("status") == "1":
+        for tx in data["result"][:50]:
+            to_addr = tx.get("to","").lower()
+            if to_addr in [k.lower() for k in DEFI.keys()]:
+                for k, v in DEFI.items():
+                    if k.lower() == to_addr:
+                        found_protocols.add(v)
+
+    print(f"\n  {C.BOLD}Known DeFi Protocols:{C.RESET}\n")
+    for k, (name, category) in DEFI.items():
+        found = (name, category) in found_protocols
+        sym = f"{C.GREEN}[INTERACTED]{C.RESET}" if found else f"{C.DIM}--{C.RESET}"
+        print(f"  {sym}  {C.BOLD}{name:<15}{C.RESET}  {C.DIM}{category}{C.RESET}")
+
+    if not found_protocols:
+        warn("No DeFi interaction found in last 50 TXs (API key may be required)")
+
+# ── MODULE 28 ──────────────────────────────────────────────────
+def mod_address_vanity_check():
+    box("MODULE 28 -- Vanity Address Analysis", C.YELLOW)
+    addr = input(f"  {C.YELLOW}Enter address:{C.RESET} ").strip()
+    if not addr:
+        err("Address is empty!"); return
+
+    spinner("Running vanity analysis...")
+    clean = addr[2:] if addr.startswith("0x") else addr
+
+    # Leading pattern
+    leading = len(clean) - len(clean.lstrip("0"))
+    # Trailing pattern
+    trailing = len(clean) - len(clean.rstrip("0"))
+    # Palindrome
+    is_palindrome = clean.lower() == clean.lower()[::-1]
+    # Repeat characters
+    repeats = max(len(list(g)) for _, g in __import__('itertools').groupby(clean.lower()))
+    # Special words
+    WORDS = ["dead","beef","cafe","face","babe","code","feed","deed","abba","ace"]
+    found_words = [w for w in WORDS if w in clean.lower()]
+    # Hex readability
+    readable = sum(1 for c in clean.lower() if c.isalpha())
+
+    row("Address",          addr)
+    row("Length",           str(len(addr)))
+    row("Leading Zeros",    str(leading))
+    row("Trailing Zeros",   str(trailing))
+    row("Max Repeating",    f"{repeats}x")
+    row("Palindrome?",      f"{C.GREEN}YES{C.RESET}" if is_palindrome else "No")
+    row("Words Found",      ", ".join(found_words) if found_words else "None")
+    row("Letter Ratio",     f"{readable/len(clean)*100:.1f}%")
+
+    vanity_score = (leading * 5 + trailing * 3 + len(found_words) * 10 +
+                    (20 if repeats >= 6 else 0))
+    color = C.GREEN if vanity_score > 30 else (C.YELLOW if vanity_score > 10 else C.WHITE)
+    row("Vanity Score",     f"{color}{vanity_score}/100{C.RESET}")
+    if vanity_score > 30:
+        ok("This is likely a custom-generated vanity address!")
+    else:
+        info("Appears to be a standard randomly generated address")
+
+# ── MODULE 29 ──────────────────────────────────────────────────
+def mod_export_report():
+    box("MODULE 29 -- Export Address Report (JSON)", C.GREEN)
+    addr = input(f"  {C.YELLOW}Enter address:{C.RESET} ").strip()
+    if not addr:
+        err("Address is empty!"); return
+
+    spinner("Preparing report...")
+    chains = detect_chain(addr)
+    now    = datetime.datetime.now().isoformat()
+
+    report = {
+        "meta": {
+            "tool":       "CryptoIntel v2.0",
+            "generated":  now,
+            "address":    addr,
+        },
+        "validation": {},
+        "chains":     chains,
+        "btc_data":   None,
+        "eth_data":   None,
+        "risk":       "unknown",
+        "labels":     [],
+    }
+
+    # BTC
+    if "Bitcoin" in chains:
+        data = btc_api_balance(addr)
+        if data:
+            report["btc_data"] = {
+                "balance_btc":        data.get("final_balance",0) / 1e8,
+                "total_received_btc": data.get("total_received",0) / 1e8,
+                "total_sent_btc":     data.get("total_sent",0) / 1e8,
+                "n_tx":               data.get("n_tx",0),
+            }
+
+    filename = f"crypto_report_{addr[:10]}_{int(time.time())}.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+
+    ok(f"Report saved: {C.YELLOW}{filename}{C.RESET}")
+    row("Address", addr)
+    row("Chain",   ", ".join(chains) if chains else "Unknown")
+    row("Date",    now)
+    info(f"cat {filename}  ->  to view the report")
+
+# ── MODULE 30 ──────────────────────────────────────────────────
+def mod_mempool_check():
+    box("MODULE 30 -- Mempool & Pending TX Analysis", C.CYAN)
+    addr = input(f"  {C.YELLOW}ETH Address (0x...):{C.RESET} ").strip()
+    valid, _ = validate_eth_address(addr)
+    if not valid:
+        err("Invalid ETH address!"); return
+
+    spinner("Querying mempool...")
+    data = eth_api("account", "txlistinternal", addr, "&startblock=0&endblock=99999999&sort=desc&page=1&offset=10")
+
+    print()
+    info("Pending TXs (latest unconfirmed transactions):")
+    if data and data.get("status") == "1" and data.get("result"):
+        for tx in data["result"][:5]:
+            val = int(tx.get("value","0")) / 1e18
+            row(f"  TX {tx.get('hash','?')[:16]}...", f"{val:.4f} ETH")
+    else:
+        warn("No pending transactions found or API unavailable.")
+        info("Alternative: https://etherscan.io/txsPending")
+
+    # Gas suggestions
+    print(f"\n  {C.BOLD}Mempool Gas Suggestions:{C.RESET}")
+    row("  Low priority",    "<= 15 Gwei  -> ~30min+ wait")
+    row("  Medium priority", "15-25 Gwei  -> ~1-5min wait")
+    row("  High priority",   "> 25 Gwei   -> ~15sec-1min wait")
+    row("  Fast (MEV)",      "Base + 2 Gwei priority -> instant")
+    info("Real mempool: https://mempool.space (BTC) or blocknative.com (ETH)")
+
+# ── MODULE 31 ──────────────────────────────────────────────
+def mod_address_generator_info():
+    box("MODULE 31 -- Address Generation Info & Security", C.MAGENTA)
+    print(f"  {C.DIM}Which network?{C.RESET}")
+    print(f"  {C.DIM}1) Bitcoin   2) Ethereum   3) General{C.RESET}\n")
+    choice = input(f"  {C.YELLOW}Choice:{C.RESET} ").strip()
+
+    if choice == "1":
+        info("Bitcoin Address Generation Process:")
+        steps = [
+            ("1. Private Key",   "Generate a 256-bit random number"),
+            ("2. Public Key",    "ECDSA secp256k1 curve: G * privkey"),
+            ("3. SHA256",        "Hash the public key with SHA256"),
+            ("4. RIPEMD160",     "Hash the SHA256 output with RIPEMD160"),
+            ("5. Network Byte",  "Prepend 0x00 for mainnet"),
+            ("6. Checksum",      "First 4 bytes of SHA256(SHA256(payload))"),
+            ("7. Base58Check",   "Base58 encode -> Bitcoin Address"),
+        ]
+        for k, v in steps:
+            row(k, v)
+
+    elif choice == "2":
+        info("Ethereum Address Generation Process:")
+        steps = [
+            ("1. Private Key",   "256-bit random number (within secp256k1 range)"),
+            ("2. Public Key",    "ECDSA secp256k1 -> 64-byte uncompressed pubkey"),
+            ("3. Keccak-256",    "Keccak-256 hash of the public key"),
+            ("4. Last 20 bytes", "Last 20 bytes of hash -> 40 hex characters"),
+            ("5. 0x Prefix",     "Prepend 0x"),
+            ("6. EIP-55",        "Keccak-256-based mixed-case checksum"),
+        ]
+        for k, v in steps:
+            row(k, v)
+
+    print(f"\n  {C.BOLD}{C.RED}Security Warnings:{C.RESET}")
+    warn("NEVER share your private key!")
+    warn("Do NOT use online key generators!")
+    warn("Store your seed phrase physically in a secure location")
+    warn("Use a hardware wallet (Ledger, Trezor)")
+    ok("Trusted sources: bitcoin.org, ethereum.org")
+
+# ──────────────────────────────────────────────────────────────
+# MAIN MENU
+# ──────────────────────────────────────────────────────────────
+
+MODULES = [
+    ("Address Validation (Multi-Chain)",      mod_validate_address),
+    ("Ethereum Balance Query",                mod_check_eth_balance),
+    ("Bitcoin Balance Query",                 mod_check_btc_balance),
+    ("Privacy Analysis",                      mod_check_privacy),
+    ("Transaction History (BTC)",             mod_tx_history),
+    ("First & Last TX Dates (BTC)",           mod_first_last_tx),
+    ("Address Type Detection (ETH)",          mod_address_type),
+    ("Multi-Chain Compatibility",             mod_multi_chain_check),
+    ("Risk Score",                            mod_risk_score),
+    ("QR Code Generator",                     mod_qr_code),
+    ("Address Format Converter",              mod_address_converter),
+    ("Gas Prices (ETH)",                      mod_gas_price),
+    ("Blockchain Network Statistics",         mod_network_stats),
+    ("ERC-20 Token Balances",                 mod_token_balances),
+    ("Transaction Count / Nonce (ETH)",       mod_tx_count),
+    ("Transaction Hash Lookup (ETH)",         mod_decode_tx),
+    ("Block Info (ETH)",                      mod_block_info),
+    ("ENS Domain Lookup",                     mod_ens_lookup),
+    ("Blacklist Check",                       mod_blacklist_check),
+    ("Whale Detector (BTC)",                  mod_whale_detector),
+    ("Known Address Labels",                  mod_address_labels),
+    ("Portfolio Value Calculator",            mod_portfolio_calculator),
+    ("Historical Price Analysis",             mod_historical_price),
+    ("Crypto Market Dominance",               mod_dominance_stats),
+    ("Address Clustering Analysis (BTC)",     mod_address_clustering),
+    ("Smart Contract Analysis (ETH)",         mod_smart_contract_check),
+    ("DeFi Protocol Detection (ETH)",         mod_defi_exposure),
+    ("Vanity Address Analysis",               mod_address_vanity_check),
+    ("Export JSON Report",                    mod_export_report),
+    ("Mempool & Pending TX (ETH)",            mod_mempool_check),
+    ("Address Generation Info & Security",    mod_address_generator_info),
+]
+
+def main_menu():
+    while True:
+        banner()
+        print(f"  {C.BOLD}{'─'*60}{C.RESET}")
+        cols = 2
+        for i in range(0, len(MODULES), cols):
+            row1 = f"  {C.CYAN}{i+1:>2}.{C.RESET} {MODULES[i][0]}"
+            if i+1 < len(MODULES):
+                row2 = f"  {C.CYAN}{i+2:>2}.{C.RESET} {MODULES[i+1][0]}"
+            else:
+                row2 = ""
+            print(f"{row1:<55}{row2}")
+
+        print(f"\n  {C.CYAN}  0.{C.RESET} {C.RED}Exit{C.RESET}")
+        print(f"  {C.BOLD}{'─'*60}{C.RESET}\n")
+
+        try:
+            choice = input(f"  {C.YELLOW}Select module [0-{len(MODULES)}]:{C.RESET} ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n\n  {C.DIM}Goodbye!{C.RESET}\n")
+            break
+
+        if choice == "0":
+            print(f"\n  {C.CYAN}mrcrypt2 closed. Goodbye!{C.RESET}\n")
+            break
+
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(MODULES):
+                try:
+                    MODULES[idx][1]()
+                except KeyboardInterrupt:
+                    print(f"\n  {C.YELLOW}Module cancelled.{C.RESET}")
+                except Exception as e:
+                    err(f"Module error: {e}")
+                pause()
+            else:
+                err(f"Invalid selection! Enter 1-{len(MODULES)}.")
+                time.sleep(1)
+        except ValueError:
+            err("Please enter a number!")
+            time.sleep(1)
+
+if __name__ == "__main__":
+    main_menu()

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=Curl/Wget Agent Spoofer
+Comment=Spoof user agents for curl and wget requests
+Comment[tr]=Curl ve wget istekleri için kullanıcı ajanlarını taklit et
+Comment[es]=Suplanta agentes de usuario para solicitudes curl y wget
+Comment[fr]=Usurpe les agents utilisateur pour les requêtes curl et wget
+Comment[de]=Täuscht Benutzeragenten für curl- und wget-Anfragen vor
+Comment[ar]=تزوير عملاء المستخدم لطلبات curl وwget
+Comment[ru]=Подделка пользовательских агентов для запросов curl и wget
+Comment[zh]=为curl和wget请求伪造用户代理
+Comment[ja]=curlおよびwgetリクエストのユーザーエージェントを偽装
+Comment[ko]=curl 및 wget 요청을 위한 사용자 에이전트 스푸핑
+Comment[pt]=Falsifica agentes de usuário para solicitações curl e wget
+Comment[it]=Falsifica gli agenti utente per le richieste curl e wget
+Comment[nl]=Spoof gebruikersagenten voor curl- en wget-verzoeken
+Comment[sv]=Förfalska användaragenter för curl- och wget-förfrågningar
+Comment[pl]=Podszywaj się pod agenty użytkownika dla żądań curl i wget
+Exec=mate-terminal -- bash -c "curl-wget-agentspoofer; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Privacy;
+StartupNotify=false

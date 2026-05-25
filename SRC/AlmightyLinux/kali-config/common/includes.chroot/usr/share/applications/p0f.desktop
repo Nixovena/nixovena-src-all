@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=p0f
+Comment=Passive OS fingerprinting and network analysis tool
+Comment[tr]=Pasif işletim sistemi tanımlama ve ağ analiz aracı
+Comment[es]=Herramienta pasiva de huellas dactilares de SO y análisis de red
+Comment[fr]=Outil passif de prise d'empreintes de système d'exploitation et d'analyse de réseau
+Comment[de]=Passives OS-Fingerabdruck- und Netzwerkanalyse-Tool
+Comment[ar]=أداة الفحص الشبكي السلبي وبصمة نظام التشغيل
+Comment[ru]=Пассивный инструмент определения ОС и анализа сети
+Comment[zh]=被动操作系统指纹识别和网络分析工具
+Comment[ja]=パッシブOSフィンガープリントおよびネットワーク分析ツール
+Comment[ko]=수동적 OS 지문 인식 및 네트워크 분석 도구
+Comment[pt]=Ferramenta de impressão digital passiva do SO e análise de rede
+Comment[it]=Strumento passivo di rilevamento del sistema operativo e analisi di rete
+Comment[nl]=Passieve OS fingerprinting en netwerkanalyse tool
+Comment[sv]=Passivt OS-fingeravtryck och nätverksanalysverktyg
+Comment[pl]=Pasywne narzędzie do pobierania odcisków palców OS i analizy sieci
+Exec=mate-terminal -- bash -c "p0f -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=NetworkOSINT;
+StartupNotify=false

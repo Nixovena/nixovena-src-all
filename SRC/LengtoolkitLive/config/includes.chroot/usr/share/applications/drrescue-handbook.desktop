@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Dr.Rescue's Handbook
+Comment=Detailed System Rescue & Linux Knowledge Base
+Exec=drrescue-handbook
+Icon=/usr/share/icons/lengtoolkit/drrescue.png
+Terminal=false
+Type=Application
+Categories=LengToolkit;

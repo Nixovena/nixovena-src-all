@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=oniextractor
+Comment=Onion link extractor and Dark Web OSINT tool
+Comment[tr]=Onion linki ayıklayıcı ve Dark Web OSINT aracı
+Comment[es]=Extractor de enlaces .onion y herramienta OSINT de la web oscura
+Comment[fr]=Extracteur de liens Onion et outil OSINT du Dark Web
+Comment[de]=Onion-Link-Extraktor und Dark-Web-OSINT-Tool
+Comment[ar]=أداة استخراج روابط Onion وأداة OSINT في شبكة الويب المظلمة
+Comment[ru]=Экстрактор луковых ссылок и инструмент OSINT Даркнета
+Comment[zh]=洋葱链接提取器和暗网OSINT工具
+Comment[ja]=OnionリンクエクストラクターおよびダークウェブOSINTツール
+Comment[ko]=양파 링크 추출기 및 Dark Web OSINT 도구
+Comment[pt]=Extrator de links onion e ferramenta Dark Web OSINT
+Comment[it]=Estrattore di collegamenti Onion e strumento Dark Web OSINT
+Comment[nl]=Onion-link-extractor en Dark Web OSINT-tool
+Comment[sv]=Onion link extractor och Dark Web OSINT verktyg
+Comment[pl]=Ekstraktor linków cebulowych i narzędzie OSINT Dark Web
+Exec=mate-terminal -- bash -c "oniextractor; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Darknet;
+StartupNotify=false

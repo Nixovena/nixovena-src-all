@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=torclawx
+Comment=Onion Crawler and Archive Tool
+Comment[tr]=Onion Tarayıcı ve Arşiv Aracı
+Comment[es]=Herramienta de rastreo y archivo de Onion
+Comment[fr]=Outil d'exploration et d'archivage Onion
+Comment[de]=Onion-Crawler und Archivierungs-Tool
+Comment[ar]=أداة زاحف Onion والأرشفة
+Comment[ru]=Сканер Onion и инструмент архивирования
+Comment[zh]=Onion爬虫和存档工具
+Comment[ja]=Onionクローラーおよびアーカイブツール
+Comment[ko]=Onion 크롤러 및 아카이브 도구
+Comment[pt]=Ferramenta de rastreamento e arquivo Onion
+Comment[it]=Crawler Onion e strumento di archiviazione
+Comment[nl]=Onion Crawler en Archieftool
+Comment[sv]=Onion-sökmotor och arkivverktyg
+Comment[pl]=Narzędzie do indeksowania i archiwizacji Onion
+Exec=mate-terminal -- bash -c "torclawx; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Darknet;
+StartupNotify=false

@@ -1,0 +1,24 @@
+[Desktop Entry]
+Version=1.0
+Name=inspy
+Comment=LinkedIn enumeration tool
+Comment[tr]=LinkedIn numaralandırma aracı
+Comment[es]=Herramienta de enumeración de LinkedIn
+Comment[fr]=Outil d'énumération LinkedIn
+Comment[de]=LinkedIn-Aufzählungstool
+Comment[ar]=أداة سرد لينكد إن
+Comment[ru]=Инструмент перечисления LinkedIn
+Comment[zh]=LinkedIn枚举工具
+Comment[ja]=LinkedIn列挙ツール
+Comment[ko]=LinkedIn 열거 도구
+Comment[pt]=Ferramenta de enumeração do LinkedIn
+Comment[it]=Strumento di enumerazione LinkedIn
+Comment[nl]=LinkedIn opsommingstool
+Comment[sv]=LinkedIn uppräkningsverktyg
+Comment[pl]=Narzędzie wyliczania LinkedIn
+Exec=mate-terminal -- bash -c "inspy -h; exec bash"
+Terminal=true
+Type=Application
+Icon=/usr/share/icons/almighty/terminal.png
+Categories=Social;
+StartupNotify=false
