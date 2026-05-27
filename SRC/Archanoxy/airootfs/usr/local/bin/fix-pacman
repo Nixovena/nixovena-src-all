@@ -1,0 +1,12 @@
+#!/bin/bash
+
+echo "Initializing pacman-key..."
+sudo pacman-key --init
+
+echo "Populating archlinux keys..."
+sudo pacman-key --populate archlinux
+
+echo "Updating package database..."
+sudo pacman -Syy
+
+echo "Pacman keys fixed and database updated."

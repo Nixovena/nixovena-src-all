@@ -1,0 +1,4 @@
+#!/bin/sh
+
+echo "you need to run archanoxy-install instead of this script"
+exit 1

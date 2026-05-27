@@ -74,6 +74,7 @@ Please do not reuse them in a way that makes unofficial forks appear as if they 
 | **Overkill Linux** | Debian (Stable) | KDE Plasma |
 | **Almighty Linux** | Kali Linux | MATE |
 | **Ultra Performance Tuning** | Debian (Stable) | XFCE |
+| **Archanoxy** | Arch & Blackarch | Openbox |
 
 ---
 
@@ -81,6 +82,7 @@ Please do not reuse them in a way that makes unofficial forks appear as if they 
 
 - Debian Live Build
 - Kali Live Build
+- Archiso
 
 ---
 

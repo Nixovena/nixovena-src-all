@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Color definitions
+G='\033[0;32m' # Green
+B='\033[0;34m' # Blue
+Y='\033[0;33m' # Yellow
+N='\033[0m'    # Reset
+
+clear
+echo -e "${B}=== Archanoxy System Update & Clean Utility ===${N}\n"
+
+# 1. System Upgrade
+echo -e "${Y}[1/4] Upgrading system packages...${N}"
+sudo pacman -Syu --noconfirm
+
+# 2. Remove Orphan Packages
+echo -e "\n${Y}[2/4] Checking for unused (orphan) packages...${N}"
+if [ -n "$(pacman -Qtdq)" ]; then
+    sudo pacman -Rns $(pacman -Qtdq) --noconfirm
+else
+    echo "No orphan packages to remove."
+fi
+
+# 3. Clean Pacman Cache
+echo -e "\n${Y}[3/4] Cleaning pacman cache...${N}"
+sudo pacman -Sc --noconfirm
+
+# 4. Clean User Cache
+echo -e "\n${Y}[4/4] Clearing user cache files...${N}"
+rm -rf ~/.cache/*
+
+echo -e "\n${G}=== System update and cleanup completed successfully! ===${N}"

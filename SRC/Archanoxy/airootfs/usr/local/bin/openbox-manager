@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# Color definitions
+G='\033[0;32m' # Green
+B='\033[0;34m' # Blue
+N='\033[0m'    # Reset
+
+clear
+echo -e "${B}=== Archanoxy Openbox Manager ===${N}\n"
+echo "1) Edit Openbox Menu"
+echo "2) Edit Openbox Autostart"
+echo "3) Edit Openbox RC"
+echo "4) Reconfigure Openbox"
+echo "5) Restart Openbox"
+echo "6) Restart Tint2"
+echo "7) Exit"
+echo ""
+read -p "Your choice [1-7]: " choice
+
+case $choice in
+    1) nano ~/.config/openbox/menu.xml ;;
+    2) nano ~/.config/openbox/autostart ;;
+    3) nano ~/.config/openbox/rc.xml ;;
+    4) openbox --reconfigure && echo -e "${G}Openbox reconfigured successfully!${N}" ;;
+    5) openbox --restart && echo -e "${G}Openbox restarted successfully!${N}" ;;
+    6) pkill tint2; tint2 >/dev/null 2>&1 & echo -e "${G}Tint2 restarted successfully!${N}" ;;
+    7) exit 0 ;;
+    *) echo "Invalid choice!" ;;
+esac

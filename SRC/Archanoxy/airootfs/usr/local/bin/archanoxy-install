@@ -1,0 +1,938 @@
+#!/usr/bin/env bash
+
+# Archanoxy Installer 
+# A comprehensive TUI script to install Archanoxy OS with desktop environments
+# Version: 3.1
+
+set -o errexit
+set -o pipefail
+
+# Global error trap so user actually SEES where things blow up.
+on_error () {
+    local exit_code=$?
+    local line_no=$1
+    echo
+    echo -e "\e[1m\e[91m[ \e[34m!\e[91m ] Installer failed at line ${line_no} (exit code ${exit_code}).\e[0m"
+    echo -e "\e[1m\e[91m[ \e[34m!\e[91m ] Check the messages above. The system has NOT been fully installed.\e[0m"
+    echo -e "\e[1m\e[91m[ \e[34m!\e[91m ] You can re-run 'archanoxy-install' after fixing the issue (e.g. network).\e[0m"
+    exit "$exit_code"
+}
+trap 'on_error $LINENO' ERR
+
+clear
+
+# Must be run as root.
+if [[ $EUID -ne 0 ]]; then
+    echo -e "\e[1m\e[91m[ ! ] This installer must be run as root. Use: sudo archanoxy-install\e[0m"
+    exit 1
+fi
+
+# Cosmetics 
+BOLD='\e[1m'
+BRED='\e[91m'
+BBLUE='\e[34m'  
+BGREEN='\e[92m'
+BYELLOW='\e[93m'
+RESET='\e[0m'
+
+# Pretty print
+info_print () {
+    echo -e "${BOLD}${BGREEN}[ ${BYELLOW}•${BGREEN} ] $1${RESET}"
+}
+
+# Pretty print for input
+input_print () {
+    echo -ne "${BOLD}${BYELLOW}[ ${BGREEN}•${BYELLOW} ] $1${RESET}"
+}
+
+# Alert user of bad input
+error_print () {
+    echo -e "${BOLD}${BRED}[ ${BBLUE}•${BRED} ] $1${RESET}"
+}
+
+# Map console keymap name to X11 layout/variant for setxkbmap and xorg.conf.d
+get_x11_layout () {
+    local console_keymap="$1"
+    case "$console_keymap" in
+        trq)       X11_LAYOUT="tr"; X11_VARIANT="";;
+        trf)       X11_LAYOUT="tr"; X11_VARIANT="f";;
+        uk)        X11_LAYOUT="gb"; X11_VARIANT="";;
+        us-acentos) X11_LAYOUT="us"; X11_VARIANT="intl";;
+        br-abnt2)  X11_LAYOUT="br"; X11_VARIANT="abnt2";;
+        jp106)     X11_LAYOUT="jp"; X11_VARIANT="";;
+        cz-qwertz) X11_LAYOUT="cz"; X11_VARIANT="qwerty";;
+        ru)        X11_LAYOUT="ru"; X11_VARIANT="";;
+        *)         X11_LAYOUT="$console_keymap"; X11_VARIANT="";;
+    esac
+}
+
+# User chooses the locale
+locale_selector () {
+    input_print "Please insert the locale you use (format: xx_XX. Enter empty to use en_US, or \"/\" to search locales): "
+    read -r locale
+    case "$locale" in
+        '') locale="en_US.UTF-8"
+            info_print "$locale will be the default locale."
+            return 0;;
+        '/') sed -E '/^# +|^#$/d;s/^#| *$//g;s/ .*/ (Charset:&)/' /etc/locale.gen | less -M
+                clear
+                return 1;;
+        *)  if ! grep -q "^#\?$(sed 's/[].*[]/\\&/g' <<< "$locale") " /etc/locale.gen; then
+                error_print "The specified locale doesn't exist or isn't supported."
+                return 1
+            fi
+            return 0
+    esac
+}
+
+# User chooses the console keyboard layout
+keyboard_selector () {
+    input_print "Please insert the keyboard layout to use in console (enter empty to use US, or \"/\" to look up for keyboard layouts): "
+    read -r kblayout
+    case "$kblayout" in
+        '') kblayout="us"
+            info_print "The standard US keyboard layout will be used."
+            return 0;;
+        '/') localectl list-keymaps
+             clear
+             return 1;;
+        *) if ! localectl list-keymaps | grep -Fxq "$kblayout"; then
+               error_print "The specified keymap doesn't exist."
+               return 1
+           fi
+        info_print "Changing console layout to $kblayout."
+        loadkeys "$kblayout"
+        # Map to X11 layout and apply immediately if X is running
+        get_x11_layout "$kblayout"
+        if command -v setxkbmap &>/dev/null; then
+            if [[ -n "$X11_VARIANT" ]]; then
+                setxkbmap "$X11_LAYOUT" -variant "$X11_VARIANT" 2>/dev/null || true
+            else
+                setxkbmap "$X11_LAYOUT" 2>/dev/null || true
+            fi
+            info_print "X11 keyboard layout set to $X11_LAYOUT${X11_VARIANT:+ (variant: $X11_VARIANT)}."
+        fi
+        return 0
+    esac
+}
+
+# User enters a hostname
+hostname_selector () {
+    input_print "Please enter the hostname: "
+    read -r hostname
+    if [[ -z "$hostname" ]]; then
+        error_print "You need to enter a hostname in order to continue."
+        return 1
+    fi
+    if [[ ! "$hostname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$ ]]; then
+        error_print "Invalid hostname. Use only letters, numbers, and hyphens (max 63 chars, cannot start/end with hyphen)."
+        return 1
+    fi
+    return 0
+}
+
+# Setting up a password for the user account 
+userpass_selector () {
+    input_print "Please enter name for a user account: "
+    read -r username
+    if [[ -z "$username" ]]; then
+        error_print "You need to enter a username in order to continue."
+        return 1
+    fi
+    if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+        error_print "Invalid username. Use lowercase letters, numbers, hyphens, underscores (max 32 chars)."
+        return 1
+    fi
+    if [[ "$username" == "root" ]]; then
+        error_print "Cannot use 'root' as username."
+        return 1
+    fi
+    input_print "Please enter a password for $username (you're not going to see the password): "
+    read -r -s userpass
+    if [[ -z "$userpass" ]]; then
+        echo
+        error_print "You need to enter a password for $username, please try again."
+        return 1
+    fi
+    echo
+    input_print "Please enter the password again (you're not going to see it): " 
+    read -r -s userpass2
+    echo
+    if [[ "$userpass" != "$userpass2" ]]; then
+        echo
+        error_print "Passwords don't match, please try again."
+        return 1
+    fi
+    return 0
+}
+
+# Setting up a password for the root account 
+rootpass_selector () {
+    input_print "Please enter a password for the root user (you're not going to see it): "
+    read -r -s rootpass
+    if [[ -z "$rootpass" ]]; then
+        echo
+        error_print "You need to enter a password for the root user, please try again."
+        return 1
+    fi
+    echo
+    input_print "Please enter the password again (you're not going to see it): " 
+    read -r -s rootpass2
+    echo
+    if [[ "$rootpass" != "$rootpass2" ]]; then
+        error_print "Passwords don't match, please try again."
+        return 1
+    fi
+    return 0
+}
+
+# User decides whether to use LUKS encryption 
+luks_selector () {
+    input_print "Do you want to encrypt your disk with LUKS? [y/N]: "
+    read -r luks_response
+    if [[ "${luks_response,,}" =~ ^(yes|y)$ ]]; then
+        USE_LUKS=true
+        return 0
+    else
+        USE_LUKS=false
+        info_print "Disk encryption will not be used."
+        return 0
+    fi
+}
+
+# User enters a password for the LUKS Container
+lukspass_selector () {
+    input_print "Please enter a password for the LUKS container (you're not going to see the password): "
+    read -r -s password
+    if [[ -z "$password" ]]; then
+        echo
+        error_print "You need to enter a password for the LUKS Container, please try again."
+        return 1
+    fi
+    echo
+    input_print "Please enter the password for the LUKS container again (you're not going to see the password): "
+    read -r -s password2
+    echo
+    if [[ "$password" != "$password2" ]]; then
+        error_print "Passwords don't match, please try again."
+        return 1
+    fi
+    return 0
+}
+
+# BlackArch toolset category selector 
+toolset_selector () {
+    echo
+    info_print "Choose Your Toolset Category"
+    echo
+    echo "Basic Categories (Frequently Used):"
+    echo "  1) blackarch-webapp        - Web application security and analysis tools"
+    echo "  2) blackarch-recon         - Information gathering and exploration tools (OSINT)"
+    echo "  3) blackarch-networking    - General network tools and protocol analysis"
+    echo "  4) blackarch-wireless      - Wi-Fi, Bluetooth and RF attack tools"
+    echo "  5) blackarch-cracker       - Password and hash cracking tools"
+    echo "  6) blackarch-database      - Database penetration testing tools"
+    echo "  7) blackarch-sniffer       - Packet sniffing and traffic analysis tools"
+    echo "  8) blackarch-scanner       - Automatic vulnerability scanners"
+    echo
+    echo "Advanced and Special Categories:"
+    echo "  9) blackarch-reversing     - Reverse engineering tools"
+    echo " 10) blackarch-forensic      - Forensic analysis and data recovery tools"
+    echo " 11) blackarch-malware       - Malware analysis and detection tools"
+    echo " 12) blackarch-crypto        - Cryptography and encryption analysis tools"
+    echo " 13) blackarch-exploitation  - Exploit development and execution tools"
+    echo " 14) blackarch-social        - Social engineering (phishing etc.) tools"
+    echo " 15) blackarch-binary        - Binary analysis tools"
+    echo " 16) blackarch-fuzzer        - Fuzzing (random data testing) tools"
+    echo " 17) blackarch-disassembler  - Disassembler (code disassembly) tools"
+    echo " 18) blackarch-debugger      - Debugging tools"
+    echo
+    echo "Hardware and Special Protocols:"
+    echo " 19) blackarch-hardware      - Physical hardware attack tools"
+    echo " 20) blackarch-bluetooth     - Specific Bluetooth attack tools"
+    echo " 21) blackarch-nfc           - Near field communication (NFC) tools"
+    echo " 22) blackarch-rfid          - RFID technology analysis tools"
+    echo " 23) blackarch-voip          - Voice over IP (VoIP) security tools"
+    echo " 24) blackarch-mobile        - Mobile platform (Android/iOS) security tools"
+    echo
+    echo "Automation and Others:"
+    echo " 25) blackarch-automation    - Security testing automation tools"
+    echo " 26) blackarch-backdoor      - Backdoor creation and management tools"
+    echo " 27) blackarch-proxy         - Proxy management and routing tools"
+    echo " 28) blackarch-tunnel        - Tunneling (VPN/SSH/HTTP) tools"
+    echo " 29) blackarch-ids           - Intrusion Detection System (IDS) analysis tools"
+    echo " 30) blackarch-honeypot      - Honeypot (decoy system) creation tools"
+    echo " 31) blackarch-anti-forensic - Trace erasing and anti-forensic tools"
+    echo " 32) blackarch-defensive     - Defensive security tools"
+    echo " 33) blackarch-all           - All BlackArch tools (not recommended for most users)"
+    echo
+    input_print "Choose a toolset category (you can choose multiple categories by entering the numbers separated by commas, e.g., \"1,2,3\"): "
+    read -r toolset_input
+
+    # Map numbers to package group names
+    declare -A TOOLSET_MAP
+    TOOLSET_MAP[1]="blackarch-webapp"
+    TOOLSET_MAP[2]="blackarch-recon"
+    TOOLSET_MAP[3]="blackarch-networking"
+    TOOLSET_MAP[4]="blackarch-wireless"
+    TOOLSET_MAP[5]="blackarch-cracker"
+    TOOLSET_MAP[6]="blackarch-database"
+    TOOLSET_MAP[7]="blackarch-sniffer"
+    TOOLSET_MAP[8]="blackarch-scanner"
+    TOOLSET_MAP[9]="blackarch-reversing"
+    TOOLSET_MAP[10]="blackarch-forensic"
+    TOOLSET_MAP[11]="blackarch-malware"
+    TOOLSET_MAP[12]="blackarch-crypto"
+    TOOLSET_MAP[13]="blackarch-exploitation"
+    TOOLSET_MAP[14]="blackarch-social"
+    TOOLSET_MAP[15]="blackarch-binary"
+    TOOLSET_MAP[16]="blackarch-fuzzer"
+    TOOLSET_MAP[17]="blackarch-disassembler"
+    TOOLSET_MAP[18]="blackarch-debugger"
+    TOOLSET_MAP[19]="blackarch-hardware"
+    TOOLSET_MAP[20]="blackarch-bluetooth"
+    TOOLSET_MAP[21]="blackarch-nfc"
+    TOOLSET_MAP[22]="blackarch-rfid"
+    TOOLSET_MAP[23]="blackarch-voip"
+    TOOLSET_MAP[24]="blackarch-mobile"
+    TOOLSET_MAP[25]="blackarch-automation"
+    TOOLSET_MAP[26]="blackarch-backdoor"
+    TOOLSET_MAP[27]="blackarch-proxy"
+    TOOLSET_MAP[28]="blackarch-tunnel"
+    TOOLSET_MAP[29]="blackarch-ids"
+    TOOLSET_MAP[30]="blackarch-honeypot"
+    TOOLSET_MAP[31]="blackarch-anti-forensic"
+    TOOLSET_MAP[32]="blackarch-defensive"
+    TOOLSET_MAP[33]="blackarch-all"
+
+    TOOLSET_PACKAGES=""
+    IFS=',' read -ra SELECTIONS <<< "$toolset_input"
+    for sel in "${SELECTIONS[@]}"; do
+        sel=$(echo "$sel" | tr -d ' ')
+        if [[ -n "${TOOLSET_MAP[$sel]}" ]]; then
+            if [[ -z "$TOOLSET_PACKAGES" ]]; then
+                TOOLSET_PACKAGES="${TOOLSET_MAP[$sel]}"
+            else
+                TOOLSET_PACKAGES="$TOOLSET_PACKAGES ${TOOLSET_MAP[$sel]}"
+            fi
+            info_print "Selected: ${TOOLSET_MAP[$sel]}"
+        else
+            error_print "Invalid selection: $sel (skipping)"
+        fi
+    done
+
+    if [[ -z "$TOOLSET_PACKAGES" ]]; then
+        error_print "No valid toolset categories selected. Please try again."
+        return 1
+    fi
+    return 0
+}
+
+# Welcome screen.
+echo -ne "${BOLD}${BYELLOW}
+ ======================================================================
+                                                
+      *                 .                 *     
+      #+               .#:               =#     
+      =##              %%%              #%*     
+    =. -#%*           *%%%#           +%#= .+   
+     #%= +%%*        =%%%%%+        +%#* =##    
+      +#%#**#%%.    -%%%%%%%+    .%%#*+#%%*     
+    *+. .#%%%%%%*  :-.#%%%%%%-  *%%%%%%#. .+#   
+     -#%%%#*#%%%:  #%%%#%%%%%#. .%%%#**%%%%=    
+        .+#%%%%*  %%%%%%%%%%%%%  +%%%%%*.       
+      *##%%%%%%+ #%%%%%#*#%%%%%% =%%%%%%%%#.    
+           .#%# #%%%%%     %%%%%# *%#:          
+        -##*=-.%%%%%%.     .#%%%%%.:+*##=       
+          :#=.#%%%%%%       #%%%*-*.:#-         
+            .#%%%%%%#       #%%%%%#.            
+           -%%%%#*-           -*#%%%%=          
+          =%%#:                   :#%%=         
+         ##:                         :*#        
+        -                               :       
+ ======================================================================
+${RESET}"
+info_print "Welcome to Archanoxy Installer!"
+
+# ============================================================
+# PHASE 1: User Configuration
+# ============================================================
+
+# Keyboard layout FIRST so user can type properly
+until keyboard_selector; do : ; done
+until locale_selector; do : ; done
+
+# User sets up username and password
+until userpass_selector; do : ; done
+until rootpass_selector; do : ; done
+
+# User sets up hostname
+until hostname_selector; do : ; done
+
+# ============================================================
+# PHASE 2: Optional Encryption
+# ============================================================
+luks_selector
+
+# ============================================================
+# PHASE 3: BlackArch Toolset Selection
+# ============================================================
+until toolset_selector; do : ; done
+
+# ============================================================
+# PHASE 4: Disk Selection & Partitioning
+# ============================================================
+
+# Choosing the target for the installation.
+info_print "Available disks for the installation:"
+DISK_LIST=$(lsblk -dpnoNAME | grep -P "/dev/sd|nvme|vd" || true)
+if [[ -z "$DISK_LIST" ]]; then
+    error_print "No suitable disks found for installation!"
+    exit 1
+fi
+PS3="Please select the number of the corresponding disk (e.g. 1): "
+select ENTRY in $DISK_LIST; do
+    if [[ -n "$ENTRY" ]]; then
+        DISK="$ENTRY"
+        info_print "Archanoxy will be installed on the following disk: $DISK"
+        break
+    else
+        error_print "Invalid selection, please try again."
+    fi
+done
+
+# Setting up LUKS password if encryption is enabled.
+if [[ "$USE_LUKS" == true ]]; then
+    until lukspass_selector; do : ; done
+fi
+
+# Warn user about deletion of old partition scheme.
+input_print "This will delete the current partition table on $DISK once installation starts. Do you agree [y/N]?: "
+read -r disk_response
+if ! [[ "${disk_response,,}" =~ ^(yes|y)$ ]]; then
+    error_print "Quitting."
+    exit
+fi
+
+# Detect boot mode early so we can partition correctly
+if [[ -d /sys/firmware/efi ]]; then
+    BOOT_MODE="UEFI"
+    info_print "UEFI boot mode detected."
+else
+    BOOT_MODE="BIOS"
+    info_print "BIOS (Legacy) boot mode detected."
+fi
+
+info_print "Wiping $DISK."
+wipefs -af "$DISK" &>/dev/null
+# Only use sgdisk (GPT tool) for UEFI; BIOS uses MBR so sgdisk is unnecessary
+if [[ "$BOOT_MODE" == "UEFI" ]]; then
+    sgdisk -Zo "$DISK" &>/dev/null
+fi
+
+# Helper: get partition device path (handles /dev/sda1 vs /dev/nvme0n1p1)
+get_part_dev () {
+    local disk="$1" num="$2"
+    if [[ "$disk" == *nvme* || "$disk" == *mmcblk* ]]; then
+        echo "${disk}p${num}"
+    else
+        echo "${disk}${num}"
+    fi
+}
+
+# Creating a new partition scheme based on boot mode.
+info_print "Creating the partitions on $DISK."
+if [[ "$BOOT_MODE" == "UEFI" ]]; then
+    parted -s "$DISK" \
+        mklabel gpt \
+        mkpart ESP fat32 1MiB 1025MiB \
+        set 1 esp on \
+        mkpart ROOT 1025MiB 100%
+    ESP="$(get_part_dev "$DISK" 1)"
+    ROOT_PART="$(get_part_dev "$DISK" 2)"
+else
+    # BIOS mode: use MBR (msdos) partition table for maximum compatibility
+    if [[ "$USE_LUKS" == true ]]; then
+        # With LUKS: separate /boot + encrypted root
+        parted -s "$DISK" \
+            mklabel msdos \
+            mkpart primary ext4 1MiB 513MiB \
+            set 1 boot on \
+            mkpart primary ext4 513MiB 100%
+        BOOT_PART="$(get_part_dev "$DISK" 1)"
+        ROOT_PART="$(get_part_dev "$DISK" 2)"
+    else
+        # Without LUKS: single root partition, /boot inside root
+        parted -s "$DISK" \
+            mklabel msdos \
+            mkpart primary ext4 1MiB 100% \
+            set 1 boot on
+        ROOT_PART="$(get_part_dev "$DISK" 1)"
+    fi
+fi
+
+# Informing the Kernel of the changes.
+info_print "Informing the Kernel about the disk changes."
+partprobe "$DISK"
+udevadm settle --timeout=10 2>/dev/null || sleep 2
+
+# Formatting partitions.
+if [[ "$BOOT_MODE" == "UEFI" ]]; then
+    info_print "Formatting the EFI Partition as FAT32."
+    mkfs.fat -F 32 "$ESP" &>/dev/null
+elif [[ "$USE_LUKS" == true ]]; then
+    info_print "Formatting the /boot partition as ext4."
+    mkfs.ext4 -F "$BOOT_PART" &>/dev/null
+fi
+
+# Setting up encryption or direct formatting
+if [[ "$USE_LUKS" == true ]]; then
+    # Creating a LUKS Container for the root partition.
+    info_print "Creating LUKS Container for the root partition."
+    echo -n "$password" | cryptsetup luksFormat "$ROOT_PART" -d - &>/dev/null
+    echo -n "$password" | cryptsetup open "$ROOT_PART" cryptroot -d - 
+    ROOT_DEVICE="/dev/mapper/cryptroot"
+else
+    ROOT_DEVICE="$ROOT_PART"
+fi
+
+# Formatting the root partition as EXT4.
+info_print "Formatting the root partition as EXT4."
+mkfs.ext4 -F "$ROOT_DEVICE" &>/dev/null
+
+# Mounting the root partition.
+info_print "Mounting the root partition."
+mount "$ROOT_DEVICE" /mnt
+mkdir -p /mnt/boot
+# Mount the boot partition if separate (UEFI ESP or BIOS+LUKS /boot).
+if [[ "$BOOT_MODE" == "UEFI" ]]; then
+    mount "$ESP" /mnt/boot/
+elif [[ "$USE_LUKS" == true ]]; then
+    mount "$BOOT_PART" /mnt/boot/
+fi
+
+# ============================================================
+# PHASE 5: Base System Installation
+# ============================================================
+
+# Make sure we actually have an internet connection before pacstrap.
+# Be lenient: some networks block HTTPS to specific hosts but DNS + pacman repos work fine.
+info_print "Checking internet connectivity."
+net_ok=false
+for target in \
+        "https://geo.mirror.pkgbuild.com/core/os/x86_64/core.db" \
+        "https://archlinux.org/" \
+        "https://www.google.com/" \
+        "http://ip-api.com/line?fields=status"; do
+    if curl -fsS --max-time 8 -o /dev/null "$target"; then
+        net_ok=true
+        break
+    fi
+done
+if [[ "$net_ok" != true ]]; then
+    if ping -c 1 -W 3 1.1.1.1 &>/dev/null || ping -c 1 -W 3 8.8.8.8 &>/dev/null; then
+        info_print "HTTP test failed, but ICMP works. Continuing anyway."
+        net_ok=true
+    fi
+fi
+if [[ "$net_ok" != true ]]; then
+    error_print "No internet connection detected. Please run 'net-settings' to connect to the internet, then re-run the installer."
+    exit 1
+fi
+
+# Refresh pacman keys / databases on the live system to avoid signature failures.
+info_print "Refreshing pacman databases on the live system."
+pacman -Sy --noconfirm >/dev/null || {
+    error_print "Failed to refresh pacman databases. Check your mirrors (/etc/pacman.d/mirrorlist) and retry."
+    exit 1
+}
+
+# Initialize pacman keyring properly before pacstrap.
+info_print "Initializing pacman keyring."
+pacman-key --init
+pacman-key --populate archlinux
+
+# Pacstrap (setting up a base system onto the new root).
+info_print "Installing the base system (it may take a while)."
+KERNEL_PACKAGES="linux linux-headers"
+pacstrap -K /mnt base $KERNEL_PACKAGES linux-firmware grub efibootmgr sudo networkmanager base-devel git wget curl nano vim openbox xorg-server xorg-xinit xfce4-terminal thunar feh xdg-utils ttf-dejavu ttf-hack tint2 pavucontrol volumeicon network-manager-applet xdg-user-dirs firefox pipewire pipewire-pulse wireplumber
+
+# Setting up the hostname.
+echo "$hostname" > /mnt/etc/hostname
+
+# Generating /etc/fstab.
+info_print "Generating a new fstab."
+genfstab -U /mnt >> /mnt/etc/fstab
+
+# Configure selected locale and console keymap
+sed -i "s/^#\(${locale}\)/\1/" /mnt/etc/locale.gen
+echo "LANG=$locale" > /mnt/etc/locale.conf
+echo "KEYMAP=$kblayout" > /mnt/etc/vconsole.conf
+
+# Setting hosts file.
+info_print "Setting hosts file."
+cat > /mnt/etc/hosts <<EOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $hostname.localdomain   $hostname
+EOF
+
+# Configuring /etc/mkinitcpio.conf.
+if [[ "$USE_LUKS" == true ]]; then
+    info_print "Configuring /etc/mkinitcpio.conf with encryption support."
+    cat > /mnt/etc/mkinitcpio.conf <<EOF
+HOOKS=(systemd autodetect keyboard sd-vconsole modconf block sd-encrypt filesystems fsck)
+EOF
+else
+    info_print "Configuring /etc/mkinitcpio.conf."
+    cat > /mnt/etc/mkinitcpio.conf <<EOF
+HOOKS=(systemd autodetect keyboard sd-vconsole modconf block filesystems fsck)
+EOF
+fi
+
+# Setting up GRUB.
+info_print "Setting up grub config."
+if [[ "$USE_LUKS" == true ]]; then
+    UUID=$(blkid -s UUID -o value "$ROOT_PART")
+    # Add allow-discards for SSD/NVMe performance with LUKS
+    sed -i "s,^GRUB_CMDLINE_LINUX=\"\",GRUB_CMDLINE_LINUX=\"rd.luks.name=$UUID=cryptroot rd.luks.options=$UUID=discard root=$ROOT_DEVICE\"," /mnt/etc/default/grub
+    # Enable GRUB cryptodisk support (required for LUKS + grub-install)
+    sed -i 's/^#\?GRUB_ENABLE_CRYPTODISK=.*/GRUB_ENABLE_CRYPTODISK=y/' /mnt/etc/default/grub
+    grep -q '^GRUB_ENABLE_CRYPTODISK' /mnt/etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /mnt/etc/default/grub
+fi
+
+# Configuring the system.
+info_print "Configuring the system (timezone, system clock, initramfs, GRUB)."
+
+# Detect timezone on the live system (with safe fallback) so we don't silently fail inside chroot.
+DETECTED_TZ="$(curl -fsS --max-time 5 http://ip-api.com/line?fields=timezone || true)"
+if [[ -z "$DETECTED_TZ" || ! -e "/mnt/usr/share/zoneinfo/$DETECTED_TZ" ]]; then
+    DETECTED_TZ="UTC"
+    info_print "Could not auto-detect timezone, falling back to UTC."
+else
+    info_print "Detected timezone: $DETECTED_TZ"
+fi
+
+if [[ "$BOOT_MODE" == "BIOS" ]]; then
+    info_print "Installing GRUB to $DISK (BIOS mode)."
+fi
+
+arch-chroot /mnt /bin/bash -e <<EOF
+    # Setting up timezone.
+    ln -sf "/usr/share/zoneinfo/${DETECTED_TZ}" /etc/localtime
+
+    # Setting up clock.
+    hwclock --systohc
+
+    # Generating locales.
+    locale-gen
+
+    # Generating a new initramfs.
+    mkinitcpio -P
+
+    # Installing GRUB based on detected boot mode
+    if [[ "${BOOT_MODE}" == "UEFI" ]]; then
+        if efivar --list &>/dev/null; then
+            grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+        else
+            grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --removable
+        fi
+    else
+        # BIOS / Legacy boot (MBR)
+        grub-install --target=i386-pc --recheck "${DISK}"
+    fi
+
+    # Set distributor name to Archanoxy
+    sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="Archanoxy"/' /etc/default/grub
+    # If no GRUB_DISTRIBUTOR line exists, add it
+    grep -q '^GRUB_DISTRIBUTOR' /etc/default/grub || echo 'GRUB_DISTRIBUTOR="Archanoxy"' >> /etc/default/grub
+
+    # Creating grub config file.
+    grub-mkconfig -o /boot/grub/grub.cfg
+
+    # Verify grub.cfg was created
+    if [[ ! -f /boot/grub/grub.cfg ]]; then
+        echo "ERROR: grub.cfg was not created!"
+        exit 1
+    fi
+EOF
+
+# ============================================================
+# PHASE 6: User & System Configuration
+# ============================================================
+
+# Setting root password.
+info_print "Setting root password."
+echo "root:$rootpass" | arch-chroot /mnt chpasswd
+
+# Setting user password.
+echo "%wheel ALL=(ALL:ALL) ALL" > /mnt/etc/sudoers.d/wheel
+info_print "Adding the user $username to the system with root privilege."
+arch-chroot /mnt useradd -m -G wheel -s /bin/bash "$username"
+info_print "Setting user password for $username."
+echo "$username:$userpass" | arch-chroot /mnt chpasswd
+
+# Setup auto-startx for the user on tty1 (Openbox)
+info_print "Configuring auto-start for Openbox on login."
+cat > /mnt/home/"$username"/.bash_profile <<'BPEOF'
+# Auto-start Openbox on tty1
+if [[ -z "$DISPLAY" && "$(tty)" == "/dev/tty1" ]]; then
+    exec startx
+fi
+BPEOF
+cat > /mnt/home/"$username"/.xinitrc <<'XIEOF'
+#!/bin/sh
+exec openbox-session
+XIEOF
+chmod +x /mnt/home/"$username"/.xinitrc
+arch-chroot /mnt chown -R "$username":"$username" /home/"$username"
+
+# Enabling NetworkManager
+info_print "Enabling NetworkManager."
+systemctl enable NetworkManager --root=/mnt &>/dev/null
+
+# Pacman eye-candy features.
+info_print "Enabling colours, animations, and parallel downloads for pacman."
+sed -Ei 's/^#(Color)$/\1\nILoveCandy/;s/^#(ParallelDownloads).*/\1 = 10/' /mnt/etc/pacman.conf
+
+# Enable multilib repository (required for lib32 packages)
+info_print "Enabling multilib repository."
+if ! grep -q "^\[multilib\]" /mnt/etc/pacman.conf; then
+    echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /mnt/etc/pacman.conf
+fi
+
+# Update package database
+info_print "Updating package database."
+arch-chroot /mnt pacman -Sy &>/dev/null
+
+# ============================================================
+# PHASE 7: BlackArch Repository Setup
+# ============================================================
+info_print "Configuring BlackArch repository..."
+
+# Replicate what strap.sh does manually (debug note: Cloudflare blocks curl from chroot)
+BA_VERSION="20251011"
+
+info_print "Installing BlackArch keyring..."
+blackarch_ok=true
+arch-chroot /mnt /bin/bash <<BLACKARCH_EOF || blackarch_ok=false
+    set -e
+    cd /tmp
+
+    # Fetch keyring tarball
+    curl -sO "https://www.blackarch.org/keyring/blackarch-keyring-${BA_VERSION}.tar.gz" || \
+        { echo "ERROR: Failed to download BlackArch keyring"; exit 1; }
+
+    # Init pacman keyring
+    pacman-key --init
+
+    # Extract keyring files to pacman keyrings dir
+    tar xfz "blackarch-keyring-${BA_VERSION}.tar.gz" --strip-components=1 \
+        -C /usr/share/pacman/keyrings/
+
+    # Populate keyring
+    pacman-key --populate
+
+    # Cleanup
+    rm -f "blackarch-keyring-${BA_VERSION}.tar.gz"
+
+    # Fetch mirrorlist
+    curl -s "https://blackarch.org/blackarch-mirrorlist" \
+        -o /etc/pacman.d/blackarch-mirrorlist || true
+BLACKARCH_EOF
+
+if [[ "$blackarch_ok" != true ]]; then
+    error_print "BlackArch keyring installation failed! Continuing without BlackArch... You can install it later with: 
+	curl -s https://blackarch.org/strap.sh | bash"
+else
+    # Add BlackArch repo to pacman.conf
+    if ! grep -q '\[blackarch\]' /mnt/etc/pacman.conf; then
+        if [[ -f /mnt/etc/pacman.d/blackarch-mirrorlist ]]; then
+            cat >> /mnt/etc/pacman.conf <<'BAREPO'
+
+[blackarch]
+Include = /etc/pacman.d/blackarch-mirrorlist
+BAREPO
+        else
+            cat >> /mnt/etc/pacman.conf <<'BAREPO'
+
+[blackarch]
+Server = https://blackarch.org/blackarch/$repo/os/$arch
+BAREPO
+        fi
+        info_print "BlackArch repository added to pacman.conf."
+    fi
+
+    info_print "Syncing BlackArch package databases..."
+    arch-chroot /mnt pacman -Syy --noconfirm &>/dev/null || \
+        error_print "BlackArch pacman sync failed. You can retry manually: pacman -Syy"
+
+    info_print "BlackArch repository configured successfully."
+fi
+
+# ============================================================
+# PHASE 8: Openbox Environment Setup
+# ============================================================
+info_print "Configuring Openbox environment."
+mkdir -p /mnt/etc/skel/.config/openbox
+
+# Copy Openbox config from live system's /etc/skel
+if [[ -d /etc/skel/.config/openbox ]]; then
+    cp -r /etc/skel/.config/openbox/* /mnt/etc/skel/.config/openbox/
+fi
+if [[ -f /etc/skel/.xinitrc ]]; then
+    cp /etc/skel/.xinitrc /mnt/etc/skel/.xinitrc
+fi
+if [[ -f /etc/skel/.bashrc ]]; then
+    cp /etc/skel/.bashrc /mnt/etc/skel/.bashrc
+fi
+if [[ -d /usr/share/themes/ArchanoxyDark ]]; then
+    cp -r /usr/share/themes/ArchanoxyDark /mnt/usr/share/themes/
+fi
+if [[ -f /usr/share/backgrounds/default.png ]]; then
+    mkdir -p /mnt/usr/share/backgrounds
+    cp /usr/share/backgrounds/default.png /mnt/usr/share/backgrounds/
+fi
+# Copy tint2 config
+if [[ -d /etc/skel/.config/tint2 ]]; then
+    mkdir -p /mnt/etc/skel/.config/tint2
+    cp -r /etc/skel/.config/tint2/* /mnt/etc/skel/.config/tint2/
+fi
+# Copy xfce4-terminal config from /etc/skel
+if [[ -d /etc/skel/.config/xfce4 ]]; then
+    mkdir -p /mnt/etc/skel/.config/xfce4
+    cp -r /etc/skel/.config/xfce4/* /mnt/etc/skel/.config/xfce4/
+fi
+
+# Copy configs from skel to the already-created user home (useradd ran before this phase)
+info_print "Copying Openbox/tint2/xfce4 configs to $username home directory."
+mkdir -p /mnt/home/"$username"/.config/openbox
+mkdir -p /mnt/home/"$username"/.config/tint2
+mkdir -p /mnt/home/"$username"/.config/xfce4
+cp -r /mnt/etc/skel/.config/openbox/* /mnt/home/"$username"/.config/openbox/ 2>/dev/null || true
+cp -r /mnt/etc/skel/.config/tint2/* /mnt/home/"$username"/.config/tint2/ 2>/dev/null || true
+cp -r /mnt/etc/skel/.config/xfce4/* /mnt/home/"$username"/.config/xfce4/ 2>/dev/null || true
+if [[ -f /mnt/etc/skel/.bashrc ]]; then
+    cp /mnt/etc/skel/.bashrc /mnt/home/"$username"/.bashrc
+fi
+
+# Copy xfce4 config to root as well
+if [[ -d /root/.config/xfce4 ]]; then
+    mkdir -p /mnt/root/.config/xfce4
+    cp -r /root/.config/xfce4/* /mnt/root/.config/xfce4/
+fi
+
+# Copy Archanoxy Custom Tools to Target System
+info_print "Copying Archanoxy custom tools to target system..."
+cp -f /usr/local/bin/openbox-manager /mnt/usr/local/bin/
+cp -f /usr/local/bin/update /mnt/usr/local/bin/
+cp -f /usr/local/bin/net-settings /mnt/usr/local/bin/
+cp -f /usr/local/bin/fix-pacman /mnt/usr/local/bin/
+
+# Set executable permissions inside chroot
+chmod +x /mnt/usr/local/bin/openbox-manager
+chmod +x /mnt/usr/local/bin/update
+chmod +x /mnt/usr/local/bin/net-settings
+chmod +x /mnt/usr/local/bin/fix-pacman
+
+# Set keyboard layout in autostart and system-wide X11 config
+get_x11_layout "$kblayout"
+if [[ "$kblayout" != "us" ]]; then
+    setxkb_cmd="setxkbmap $X11_LAYOUT"
+    [[ -n "$X11_VARIANT" ]] && setxkb_cmd="setxkbmap $X11_LAYOUT -variant $X11_VARIANT"
+    echo "$setxkb_cmd &" >> /mnt/home/"$username"/.config/openbox/autostart
+    echo "$setxkb_cmd &" >> /mnt/etc/skel/.config/openbox/autostart
+    # Persist X11 keyboard layout system-wide via xorg.conf.d
+    mkdir -p /mnt/etc/X11/xorg.conf.d
+    cat > /mnt/etc/X11/xorg.conf.d/00-keyboard.conf <<KBEOF
+Section "InputClass"
+    Identifier "system-keyboard"
+    MatchIsKeyboard "on"
+    Option "XkbLayout" "$X11_LAYOUT"
+KBEOF
+    if [[ -n "$X11_VARIANT" ]]; then
+        sed -i '/Option "XkbLayout"/a\    Option "XkbVariant" "'"$X11_VARIANT"'"' /mnt/etc/X11/xorg.conf.d/00-keyboard.conf
+    fi
+    cat >> /mnt/etc/X11/xorg.conf.d/00-keyboard.conf <<KBEOF2
+EndSection
+KBEOF2
+    info_print "X11 keyboard layout set to $X11_LAYOUT${X11_VARIANT:+ (variant: $X11_VARIANT)}."
+fi
+arch-chroot /mnt chown -R "$username":"$username" /home/"$username"
+
+# ============================================================
+# PHASE 9: BlackArch Toolset Installation
+# ============================================================
+if [[ -n "$TOOLSET_PACKAGES" ]]; then
+    info_print "Installing BlackArch toolset packages: $TOOLSET_PACKAGES"
+    arch-chroot /mnt pacman -S --noconfirm $TOOLSET_PACKAGES
+fi
+
+# ============================================================
+# PHASE 10: Essential Software Installation
+# ============================================================
+info_print "Installing essential software packages..."
+arch-chroot /mnt pacman -S --noconfirm git fzf tmux vim jq curl wget fastfetch htop strace  &>/dev/null
+
+# Create XDG user directories for the installed user
+info_print "Creating XDG user directories for $username."
+arch-chroot /mnt sudo -u "$username" xdg-user-dirs-update 2>/dev/null || true
+
+# ============================================================
+# PHASE 11: MOTD & Final Summary & Cleanup
+# ============================================================
+
+# Install MOTD on the target system
+info_print "Installing system MOTD."
+cat > /mnt/etc/motd <<'MOTDEOF'
+======================================================================
+                                               
+     *                 .                 *     
+     #+               .#:               =#     
+     =##              %%%              #%*     
+   =. -#%*           *%%%#           +%#= .+   
+    #%= +%%*        =%%%%%+        +%#* =##    
+     +#%#**#%%.    -%%%%%%%+    .%%#*+#%%*     
+   *+. .#%%%%%%*  :-.#%%%%%%-  *%%%%%%#. .+#   
+    -#%%%#*#%%%:  #%%%#%%%%%#. .%%%#**%%%%=    
+       .+#%%%%*  %%%%%%%%%%%%%  +%%%%%*.       
+     *##%%%%%%+ #%%%%%#*#%%%%%% =%%%%%%%%#.    
+          .#%# #%%%%%     %%%%%# *%#:          
+       -##*=-.%%%%%%.     .#%%%%%.:+*##=       
+         :#=.#%%%%%%       #%%%*-*.:#-         
+           .#%%%%%%#       #%%%%%#.            
+          -%%%%#*-           -*#%%%%=          
+         =%%#:                   :#%%=         
+        ##:                         :*#        
+       -                               :       
+======================================================================
+System: Archanoxy
+Version: 1.0
+======================================================================
+⚠ Warning ⚠
+
+LEGAL NOTICE: This distribution is intended for security testing and 
+educational purposes only. Unauthorized access to systems is illegal. 
+The user is solely responsible for their actions.
+
+The developer of Archanoxy is not responsible for any data loss or other system issues.
+======================================================================
+MOTDEOF
+
+info_print "=============================================="
+info_print "Installation completed! You may now reboot into your new Archanoxy system."
+info_print "=============================================="
+info_print "Kernel: linux"
+info_print "Desktop: Openbox"
+info_print "Browser: Firefox"
+info_print "Terminal: xfce4-terminal"
+info_print "File Manager: Thunar"
+[[ "$USE_LUKS" == true ]] && info_print "Disk Encryption: LUKS"
+[[ -n "$TOOLSET_PACKAGES" ]] && info_print "BlackArch Toolsets:$TOOLSET_PACKAGES"
+
+# Cleaning up the installer
+SCRIPT_PATH=$(realpath "$0")
+info_print "Cleaning up installer script..."
+rm -f "$SCRIPT_PATH"
+
+exit

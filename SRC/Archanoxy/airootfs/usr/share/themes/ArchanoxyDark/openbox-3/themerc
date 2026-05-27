@@ -1,0 +1,101 @@
+! Archanoxy Dark theme for Openbox
+! Black background, neon green accents.
+
+border.width: 1
+padding.width: 4
+padding.height: 3
+window.handle.width: 3
+window.client.padding.width: 0
+window.client.padding.height: 0
+menu.border.width: 1
+menu.overlap: 0
+menu.separator.width: 1
+menu.separator.padding.width: 6
+menu.separator.padding.height: 3
+
+window.active.border.color: #00ff66
+window.inactive.border.color: #1a1a1a
+window.active.title.separator.color: #00ff66
+window.inactive.title.separator.color: #1a1a1a
+window.active.client.color: #00ff66
+window.inactive.client.color: #1a1a1a
+
+window.active.title.bg: flat solid
+window.active.title.bg.color: #0a0a0a
+window.inactive.title.bg: flat solid
+window.inactive.title.bg.color: #0a0a0a
+
+window.active.label.bg: parentrelative
+window.active.label.text.color: #00ff66
+window.inactive.label.bg: parentrelative
+window.inactive.label.text.color: #555555
+
+window.active.handle.bg: flat solid
+window.active.handle.bg.color: #0a0a0a
+window.inactive.handle.bg: flat solid
+window.inactive.handle.bg.color: #0a0a0a
+
+window.active.grip.bg: flat solid
+window.active.grip.bg.color: #0a0a0a
+window.inactive.grip.bg: flat solid
+window.inactive.grip.bg.color: #0a0a0a
+
+window.active.button.unpressed.bg: flat solid
+window.active.button.unpressed.bg.color: #0a0a0a
+window.active.button.unpressed.image.color: #00ff66
+window.active.button.pressed.bg: flat solid
+window.active.button.pressed.bg.color: #00ff66
+window.active.button.pressed.image.color: #000000
+window.active.button.disabled.bg: flat solid
+window.active.button.disabled.bg.color: #0a0a0a
+window.active.button.disabled.image.color: #333333
+window.active.button.hover.bg: flat solid
+window.active.button.hover.bg.color: #00ff66
+window.active.button.hover.image.color: #000000
+window.active.button.toggled.bg: flat solid
+window.active.button.toggled.bg.color: #00aa44
+window.active.button.toggled.image.color: #000000
+
+window.inactive.button.unpressed.bg: flat solid
+window.inactive.button.unpressed.bg.color: #0a0a0a
+window.inactive.button.unpressed.image.color: #555555
+window.inactive.button.pressed.bg: flat solid
+window.inactive.button.pressed.bg.color: #1a1a1a
+window.inactive.button.pressed.image.color: #00ff66
+window.inactive.button.disabled.bg: flat solid
+window.inactive.button.disabled.bg.color: #0a0a0a
+window.inactive.button.disabled.image.color: #2a2a2a
+window.inactive.button.hover.bg: flat solid
+window.inactive.button.hover.bg.color: #1a1a1a
+window.inactive.button.hover.image.color: #00ff66
+
+window.active.label.text.font: shadow=n
+window.inactive.label.text.font: shadow=n
+
+menu.border.color: #00ff66
+menu.title.bg: flat solid
+menu.title.bg.color: #00ff66
+menu.title.text.color: #000000
+menu.title.text.justify: center
+
+menu.items.bg: flat solid
+menu.items.bg.color: #0a0a0a
+menu.items.text.color: #00ff66
+menu.items.disabled.text.color: #444444
+
+menu.items.active.bg: flat solid
+menu.items.active.bg.color: #00ff66
+menu.items.active.text.color: #000000
+
+menu.separator.color: #00ff66
+
+osd.border.width: 1
+osd.border.color: #00ff66
+osd.bg: flat solid
+osd.bg.color: #0a0a0a
+osd.label.bg: parentrelative
+osd.label.text.color: #00ff66
+osd.hilight.bg: flat solid
+osd.hilight.bg.color: #00ff66
+osd.unhilight.bg: flat solid
+osd.unhilight.bg.color: #1a1a1a

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Archanoxy Openbox autostart
+
+# Set the wallpaper
+if [ -r /usr/share/backgrounds/default.png ]; then
+    feh --no-fehbg --bg-fill /usr/share/backgrounds/default.png &
+fi
+
+# Panel
+tint2 &
+
+# Create default user directories if missing
+xdg-user-dirs-update &
