@@ -1,0 +1,1041 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import subprocess
+import termios
+import tty
+import shutil
+import platform
+import socket
+import time
+from pathlib import Path
+from datetime import datetime
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.align import Align
+from rich.rule import Rule
+from rich.columns import Columns
+from rich.prompt import Prompt, Confirm
+from rich import box
+from rich.theme import Theme
+from rich.padding import Padding
+
+THEME = Theme({
+    "title":    "bold magenta",
+    "selected": "bold black on cyan",
+    "key":      "bold cyan",
+    "muted":    "dim white",
+    "success":  "bold green",
+    "error":    "bold red",
+    "warning":  "yellow",
+    "info":     "cyan",
+    "section":  "bold white",
+    "val":      "bold yellow",
+    "good":     "bold green",
+    "bad":      "bold red",
+    "mid":      "bold yellow",
+})
+
+console = Console(theme=THEME)
+
+OPENBOX_CONFIG = Path.home() / ".config" / "openbox"
+
+
+def clear():
+    os.system("clear")
+
+
+def read_key() -> str:
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+        if ch == "\x1b":
+            n1 = sys.stdin.read(1)
+            if n1 == "[":
+                n2 = sys.stdin.read(1)
+                return ch + n1 + n2
+            return ch + n1
+        return ch
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def draw_header(title: str = "Control Center", subtitle: str = ""):
+    top = Text(justify="center")
+    top.append("* ", style="magenta")
+    top.append(title, style="bold white")
+    if subtitle:
+        top.append(f"  -  {subtitle}", style="muted")
+    console.print(Panel(
+        Align.center(top),
+        border_style="magenta",
+        box=box.HEAVY,
+        padding=(0, 2),
+    ))
+
+
+def draw_footer(hints: list[tuple[str, str]]):
+    parts = "   ".join(f"[key]{k}[/key] [muted]{v}[/muted]" for k, v in hints)
+    console.print(Rule(style="dim magenta"))
+    console.print(Align.center(parts))
+
+
+def pause(msg: str = "Press Enter to go back..."):
+    try:
+        input(f"\n\033[2m{msg}\033[0m")
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def run_shell(cmd: str, capture: bool = False, sudo: bool = False):
+    if sudo:
+        cmd = "sudo " + cmd
+    if capture:
+        try:
+            return subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, text=True)
+        except subprocess.CalledProcessError as e:
+            return e.output or ""
+    else:
+        subprocess.run(cmd, shell=True)
+
+
+def run_terminal_app(cmd: str):
+    os.system(f"alacritty -e {cmd} &")
+
+
+def cmd_exists(cmd: str) -> bool:
+    return shutil.which(cmd) is not None
+
+
+def run_interactive(cmd: str):
+    clear()
+    try:
+        subprocess.run(cmd, shell=True)
+    except KeyboardInterrupt:
+        pass
+    pause()
+
+
+def menu_loop(title: str, subtitle: str, items: list, footer_extra: list | None = None):
+    selected = 0
+    n = len(items)
+    while True:
+        clear()
+        console.print()
+        draw_header(title, subtitle)
+        console.print()
+
+        for i, (label, _, _) in enumerate(items):
+            if i == selected:
+                console.print(Align.center(f"[selected]  {label}  [/selected]"))
+            else:
+                console.print(Align.center(f"[muted]  {label}  [/muted]"))
+
+        console.print()
+        hints = [("Up/Down", "Navigate"), ("Enter", "Select"), ("Q / Left", "Back")]
+        if footer_extra:
+            hints += footer_extra
+        draw_footer(hints)
+        console.print()
+
+        k = read_key()
+        if k == "\x1b[A":
+            selected = (selected - 1) % n
+        elif k == "\x1b[B":
+            selected = (selected + 1) % n
+        elif k in ("\r", "\n", " "):
+            items[selected][2]()
+        elif k.lower() in ("q", "\x1b[d", "\x1b"):
+            return
+
+
+def info_row(table: Table, label: str, value: str, style: str = "val"):
+    table.add_row(f"[section]{label}[/section]", f"[{style}]{value}[/{style}]")
+
+
+def screen_info_panel(title: str, subtitle: str, build_fn):
+    clear()
+    console.print()
+    draw_header(title, subtitle)
+    console.print()
+    build_fn()
+    console.print()
+    draw_footer([("Q / Enter", "Back")])
+    console.print()
+    while True:
+        k = read_key().lower()
+        if k in ("q", "\r", "\n", "\x1b[d"):
+            return
+
+
+def mk_table() -> Table:
+    t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2), expand=False)
+    t.add_column("Label", style="section", min_width=22)
+    t.add_column("Value", style="val",     min_width=30)
+    return t
+
+
+def get_cpu_usage() -> str:
+    try:
+        out = run_shell("top -bn1 | grep 'Cpu(s)'", capture=True) or ""
+        import re
+        m = re.search(r"(\d+\.\d+)\s*us", out)
+        if m:
+            return f"{m.group(1)}%"
+    except Exception:
+        pass
+    return "-"
+
+
+def get_mem() -> tuple[str, str, str]:
+    try:
+        out = run_shell("free -m", capture=True) or ""
+        for line in out.splitlines():
+            if line.startswith("Mem:"):
+                parts = line.split()
+                total = int(parts[1])
+                used  = int(parts[2])
+                free  = int(parts[3])
+                return f"{used} MB", f"{free} MB", f"{total} MB"
+    except Exception:
+        pass
+    return "-", "-", "-"
+
+
+def get_disk() -> list[tuple]:
+    try:
+        out = run_shell("df -h --output=source,size,used,avail,pcent,target 2>/dev/null | tail -n +2", capture=True) or ""
+        rows = []
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 6 and not parts[5].startswith("/sys") \
+               and not parts[5].startswith("/proc") \
+               and not parts[5].startswith("/dev") \
+               and not parts[5].startswith("/run"):
+                rows.append((parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]))
+        return rows
+    except Exception:
+        return []
+
+
+def get_battery() -> dict:
+    try:
+        out = run_shell("acpi -V 2>/dev/null", capture=True) or ""
+        result = {"raw": out.strip()}
+        import re
+        m = re.search(r"(\d+)%", out)
+        if m:
+            result["percent"] = int(m.group(1))
+        if "Charging" in out:
+            result["status"] = "Charging"
+        elif "Discharging" in out:
+            result["status"] = "Discharging"
+        elif "Full" in out:
+            result["status"] = "Full"
+        else:
+            result["status"] = "Unknown"
+        return result
+    except Exception:
+        return {"raw": "acpi not found", "percent": -1, "status": "Unknown"}
+
+
+def get_power_profile() -> str:
+    try:
+        return run_shell("powerprofilesctl get 2>/dev/null", capture=True).strip() or "-"
+    except Exception:
+        return "-"
+
+
+def battery_bar(pct: int) -> Text:
+    t = Text()
+    filled = int(pct / 5)
+    empty  = 20 - filled
+    style  = "good" if pct > 50 else ("mid" if pct > 20 else "bad")
+    t.append("|", style="muted")
+    t.append("#" * filled, style=style)
+    t.append("." * empty,  style="muted")
+    t.append("|", style="muted")
+    t.append(f" {pct}%", style=style)
+    return t
+
+
+# ─── SOUND ────────────────────────────────────────────────────────────────────
+
+def section_sound():
+    if not cmd_exists("alsamixer"):
+        clear()
+        console.print("[error]alsamixer not found. Install: sudo apt install alsa-utils[/error]")
+        pause()
+        return
+    run_interactive("alsamixer")
+
+
+# ─── NETWORK ──────────────────────────────────────────────────────────────────
+
+def section_network():
+    def run_nmtui():
+        if not cmd_exists("nmtui"):
+            clear(); console.print("[error]nmtui not found. Install: sudo apt install network-manager[/error]"); pause(); return
+        run_interactive("nmtui")
+
+    def show_ifaces():
+        out = run_shell("ip -brief addr show 2>/dev/null", capture=True) or "-"
+        out2 = run_shell("ip route 2>/dev/null", capture=True) or "-"
+        clear()
+        draw_header("Network", "Interfaces")
+        console.print()
+        console.print(Panel(out.strip(), title="[title]Interfaces[/title]", border_style="cyan", box=box.ROUNDED))
+        console.print(Panel(out2.strip(), title="[title]Routes[/title]", border_style="dim", box=box.ROUNDED))
+        pause()
+
+    def show_wifi():
+        if not cmd_exists("nmcli"):
+            clear(); console.print("[error]nmcli not found.[/error]"); pause(); return
+        out = run_shell("nmcli device wifi list 2>/dev/null", capture=True) or "-"
+        clear()
+        draw_header("Network", "Wi-Fi Networks")
+        console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    def ping_test():
+        clear()
+        draw_header("Network", "Ping Test")
+        console.print()
+        host = Prompt.ask("[cyan]Host[/cyan]", default="8.8.8.8")
+        run_interactive(f"ping -c 4 {host}")
+
+    menu_loop("Network", "Connectivity", [
+        ("nmtui (connect/disconnect)", "", run_nmtui),
+        ("Show interfaces & routes",   "", show_ifaces),
+        ("Scan Wi-Fi networks",        "", show_wifi),
+        ("Ping test",                  "", ping_test),
+    ])
+
+
+# ─── BATTERY ──────────────────────────────────────────────────────────────────
+
+def section_battery():
+    def show_status():
+        batt = get_battery()
+        prof = get_power_profile()
+
+        def build():
+            t = mk_table()
+            pct = batt.get("percent", -1)
+            if pct >= 0:
+                t.add_row("[section]Battery[/section]", battery_bar(pct))
+            t.add_row("[section]Status[/section]",        f"[val]{batt.get('status', '?')}[/val]")
+            t.add_row("[section]Power Profile[/section]", f"[val]{prof}[/val]")
+            console.print(Align.center(t))
+            console.print()
+            console.print(Panel(batt.get("raw", "-"), title="[title]acpi -V output[/title]", border_style="cyan", box=box.ROUNDED))
+
+        screen_info_panel("Battery", "Status", build)
+
+    def set_saver():
+        out = run_shell("powerprofilesctl set power-saver 2>&1", capture=True)
+        clear(); console.print(f"[success]Power profile set to: power-saver[/success]\n{out}"); pause()
+
+    def set_balanced():
+        out = run_shell("powerprofilesctl set balanced 2>&1", capture=True)
+        clear(); console.print(f"[success]Power profile set to: balanced[/success]\n{out}"); pause()
+
+    def set_performance():
+        out = run_shell("powerprofilesctl set performance 2>&1", capture=True)
+        clear(); console.print(f"[success]Power profile set to: performance[/success]\n{out}"); pause()
+
+    def run_acpi():
+        clear(); draw_header("Battery", "acpi -V"); console.print()
+        out = run_shell("acpi -V 2>/dev/null", capture=True) or "[muted]acpi not installed.[/muted]"
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    menu_loop("Battery & Power", "acpi / powerprofilesctl", [
+        ("Battery status (acpi -V)", "", run_acpi),
+        ("Show full status",         "", show_status),
+        ("Set profile: power-saver", "", set_saver),
+        ("Set profile: balanced",    "", set_balanced),
+        ("Set profile: performance", "", set_performance),
+    ])
+
+
+# ─── DISPLAY ──────────────────────────────────────────────────────────────────
+
+def section_display():
+    def run_xrandr_tui():
+        run_interactive("xrandr")
+
+    def show_connected():
+        out = run_shell("xrandr --query 2>/dev/null", capture=True) or "[muted]xrandr not available.[/muted]"
+        clear(); draw_header("Display", "Connected Outputs"); console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    def set_resolution():
+        clear(); draw_header("Display", "Set Resolution"); console.print()
+        out = run_shell("xrandr --query 2>/dev/null", capture=True) or ""
+        console.print(Panel(out.strip(), title="[title]Current outputs[/title]", border_style="cyan", box=box.ROUNDED))
+        console.print()
+        output = Prompt.ask("[cyan]Output name[/cyan] (e.g. HDMI-1, eDP-1)")
+        res    = Prompt.ask("[cyan]Resolution[/cyan] (e.g. 1920x1080)")
+        rate   = Prompt.ask("[cyan]Refresh rate[/cyan] (e.g. 60, leave blank to skip)", default="")
+        cmd = f"xrandr --output {output} --mode {res}"
+        if rate:
+            cmd += f" --rate {rate}"
+        run_interactive(cmd)
+
+    def set_brightness():
+        clear(); draw_header("Display", "Brightness"); console.print()
+        if cmd_exists("xbacklight"):
+            val = Prompt.ask("[cyan]Brightness %[/cyan] (0-100)")
+            run_interactive(f"xbacklight -set {val}")
+        elif cmd_exists("brightnessctl"):
+            val = Prompt.ask("[cyan]Brightness %[/cyan] (0-100)")
+            run_interactive(f"brightnessctl set {val}%")
+        else:
+            console.print("[error]Neither xbacklight nor brightnessctl found.[/error]"); pause()
+
+    menu_loop("Display Settings", "xrandr", [
+        ("Run xrandr (full output)",      "", run_xrandr_tui),
+        ("Show connected outputs",        "", show_connected),
+        ("Set resolution / refresh rate", "", set_resolution),
+        ("Set brightness",                "", set_brightness),
+    ])
+
+
+# ─── OPENBOX EDITOR ───────────────────────────────────────────────────────────
+
+def section_openbox_editor():
+    configs = {
+        "rc.xml":       OPENBOX_CONFIG / "rc.xml",
+        "menu.xml":     OPENBOX_CONFIG / "menu.xml",
+        "autostart":    OPENBOX_CONFIG / "autostart",
+        "environment":  OPENBOX_CONFIG / "environment",
+    }
+
+    def edit(path: Path):
+        if not path.parent.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+        run_interactive(f"nano '{path}'")
+
+    items = []
+    for name, path in configs.items():
+        exists = "[exists]" if path.exists() else "[missing]"
+        p = path
+        items.append((f"{name}  {exists}", "", lambda p=p: edit(p)))
+
+    def edit_custom():
+        clear(); draw_header("Openbox Editor", "Custom file"); console.print()
+        f = Prompt.ask("[cyan]File path[/cyan]")
+        if f:
+            run_interactive(f"nano '{Path(f).expanduser()}'")
+
+    items.append(("Custom file...", "", edit_custom))
+    menu_loop("Openbox Config Editor", "nano", items)
+
+
+# ─── OPENBOX SETTINGS ─────────────────────────────────────────────────────────
+
+def section_openbox_settings():
+    def reconfigure():
+        out = run_shell("openbox --reconfigure 2>&1", capture=True) or "Done."
+        clear(); console.print(f"[success]openbox --reconfigure done[/success]\n{out}"); pause()
+
+    def restart():
+        confirmed = Confirm.ask("[bold red]Restart Openbox? This will reload the WM.[/bold red]", default=False)
+        if confirmed:
+            run_shell("openbox --restart 2>/dev/null &")
+            clear(); console.print("[success]openbox --restart sent.[/success]"); pause()
+
+    def run_obconf():
+        if not cmd_exists("obconf"):
+            clear()
+            console.print("[warning]obconf not found.[/warning]")
+            install = Confirm.ask("Install obconf now? (sudo apt install obconf)", default=True)
+            if install:
+                run_interactive("sudo apt install -y obconf")
+            else:
+                pause()
+            return
+        subprocess.Popen(["obconf"], start_new_session=True)
+        clear(); console.print("[success]obconf launched.[/success]"); pause()
+
+    def restart_tint2():
+        run_shell("pkill tint2; sleep 0.3; tint2 >/dev/null 2>&1 &", capture=True)
+        clear(); console.print("[success]tint2 restarted.[/success]"); pause()
+
+    def kill_tint2():
+        run_shell("pkill tint2 2>/dev/null")
+        clear(); console.print("[success]tint2 killed.[/success]"); pause()
+
+    def show_ob_version():
+        out = run_shell("openbox --version 2>/dev/null", capture=True) or "openbox not found."
+        clear(); draw_header("Openbox", "Version"); console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    def show_keybinds():
+        path = OPENBOX_CONFIG / "rc.xml"
+        if not path.exists():
+            clear(); console.print(f"[error]rc.xml not found at {path}[/error]"); pause(); return
+        out = run_shell(f"grep -A2 '<keybind' '{path}' 2>/dev/null | head -80", capture=True) or "-"
+        clear(); draw_header("Openbox", "Keybindings (rc.xml excerpt)"); console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    menu_loop("Openbox Settings", "WM Control", [
+        ("openbox --reconfigure",     "", reconfigure),
+        ("openbox --restart",         "", restart),
+        ("obconf (GUI settings)",     "", run_obconf),
+        ("Restart tint2",             "", restart_tint2),
+        ("Kill tint2",                "", kill_tint2),
+        ("Openbox version",           "", show_ob_version),
+        ("Show keybindings (rc.xml)", "", show_keybinds),
+    ])
+
+
+# ─── DISK INFO ────────────────────────────────────────────────────────────────
+
+def section_disk_info():
+    def show_disk():
+        def build():
+            rows = get_disk()
+            if not rows:
+                console.print("[muted]No disk info available.[/muted]")
+                return
+            t = Table(box=box.ROUNDED, border_style="cyan", header_style="bold cyan", show_lines=True, expand=True)
+            t.add_column("Device",  style="bold white")
+            t.add_column("Size",    justify="right")
+            t.add_column("Used",    justify="right")
+            t.add_column("Avail",   justify="right")
+            t.add_column("Use%",    justify="right")
+            t.add_column("Mount",   style="muted")
+            for r in rows:
+                pct_str = r[4].replace("%", "")
+                try:
+                    pct = int(pct_str)
+                    pstyle = "bad" if pct >= 90 else ("mid" if pct >= 70 else "good")
+                except Exception:
+                    pstyle = "val"
+                t.add_row(r[0], r[1], r[2], r[3], f"[{pstyle}]{r[4]}[/{pstyle}]", r[5])
+            console.print(t)
+        screen_info_panel("Disk Info", "df -h", build)
+
+    def lsblk_view():
+        out = run_shell("lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,LABEL 2>/dev/null", capture=True) or "-"
+        clear(); draw_header("Disk Info", "lsblk"); console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    def du_home():
+        clear(); draw_header("Disk Info", "Home Usage"); console.print()
+        console.print("[muted]Scanning ~ (this may take a moment)...[/muted]")
+        out = run_shell("du -sh ~/.* ~/.[!.]* ~/* 2>/dev/null | sort -rh | head -20", capture=True) or "-"
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    def fdisk_view():
+        out = run_shell("sudo fdisk -l 2>/dev/null", capture=True) or "-"
+        clear(); draw_header("Disk Info", "fdisk -l"); console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    menu_loop("Disk Info", "Storage", [
+        ("Disk usage (df -h)",         "", show_disk),
+        ("Block devices (lsblk)",      "", lsblk_view),
+        ("Home directory usage",       "", du_home),
+        ("Partition table (fdisk -l)", "", fdisk_view),
+    ])
+
+
+# ─── SYSTEM DETAILS ───────────────────────────────────────────────────────────
+
+def section_system_details():
+    def build():
+        t = mk_table()
+        info_row(t, "Hostname",     socket.gethostname())
+        info_row(t, "OS",           platform.freedesktop_os_release().get("PRETTY_NAME", platform.system()) if hasattr(platform, "freedesktop_os_release") else platform.system())
+        info_row(t, "Kernel",       platform.release())
+        info_row(t, "Architecture", platform.machine())
+        info_row(t, "CPU",          run_shell("grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2", capture=True).strip() or "-")
+        info_row(t, "CPU Cores",    str(os.cpu_count() or "-"))
+        mem_used, mem_free, mem_total = get_mem()
+        info_row(t, "RAM Total",    mem_total)
+        info_row(t, "RAM Used",     mem_used)
+        info_row(t, "RAM Free",     mem_free)
+        info_row(t, "Uptime",       run_shell("uptime -p 2>/dev/null", capture=True).strip() or "-")
+        info_row(t, "Load Average", run_shell("cat /proc/loadavg", capture=True).strip() or "-")
+        info_row(t, "Shell",        os.environ.get("SHELL", "-"))
+        info_row(t, "User",         os.environ.get("USER", "-"))
+        info_row(t, "Date / Time",  datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        console.print(Align.center(t))
+
+    screen_info_panel("System Details", "Overview", build)
+
+
+# ─── UPDATE SYSTEM ────────────────────────────────────────────────────────────
+
+def section_update_system():
+    def apt_update():
+        run_interactive("sudo apt update && sudo apt upgrade -y")
+
+    def apt_full():
+        run_interactive("sudo apt update && sudo apt full-upgrade -y")
+
+    def apt_autoremove():
+        run_interactive("sudo apt autoremove -y && sudo apt autoclean")
+
+    def flatpak_update():
+        if not cmd_exists("flatpak"):
+            clear(); console.print("[error]flatpak not installed.[/error]"); pause(); return
+        run_interactive("flatpak update")
+
+    def snap_refresh():
+        if not cmd_exists("snap"):
+            clear(); console.print("[error]snap not installed.[/error]"); pause(); return
+        run_interactive("sudo snap refresh")
+
+    menu_loop("Update System", "Package Management", [
+        ("apt update && upgrade",      "", apt_update),
+        ("apt full-upgrade",           "", apt_full),
+        ("apt autoremove & autoclean", "", apt_autoremove),
+        ("flatpak update",             "", flatpak_update),
+        ("snap refresh",               "", snap_refresh),
+    ])
+
+
+# ─── CLEAN CACHES ─────────────────────────────────────────────────────────────
+
+def section_clean_caches():
+    def clean_apt():
+        run_interactive("sudo apt clean && sudo apt autoclean && sudo apt autoremove -y")
+
+    def clean_thumbnail():
+        run_shell("rm -rf ~/.cache/thumbnails/* 2>/dev/null; echo done", capture=True)
+        clear(); console.print("[success]Thumbnail cache cleared.[/success]"); pause()
+
+    def clean_journal():
+        run_interactive("sudo journalctl --vacuum-time=7d")
+
+    def clean_tmp():
+        run_shell("sudo rm -rf /tmp/* 2>/dev/null; echo done", capture=True)
+        clear(); console.print("[success]/tmp cleared.[/success]"); pause()
+
+    def clean_home_cache():
+        size = run_shell("du -sh ~/.cache 2>/dev/null | cut -f1", capture=True).strip() or "?"
+        clear(); draw_header("Clean", "~/.cache"); console.print()
+        console.print(f"[muted]~/.cache size:[/muted] [val]{size}[/val]")
+        confirmed = Confirm.ask("\n[bold red]Clear ~/.cache? (some apps may be slower on next start)[/bold red]", default=False)
+        if confirmed:
+            run_shell("rm -rf ~/.cache/* 2>/dev/null")
+            console.print("[success]~/.cache cleared.[/success]")
+        pause()
+
+    def show_cache_sizes():
+        def build():
+            lines = []
+            for path in ["~/.cache", "/tmp", "/var/cache/apt"]:
+                size = run_shell(f"sudo du -sh {path} 2>/dev/null | cut -f1", capture=True).strip() or "?"
+                lines.append(f"  [section]{path}[/section]:  [val]{size}[/val]")
+            console.print(Panel("\n".join(lines), border_style="cyan", box=box.ROUNDED))
+        screen_info_panel("Cache Sizes", "du -sh", build)
+
+    menu_loop("Clean Caches", "Free up space", [
+        ("Cache sizes overview",   "", show_cache_sizes),
+        ("apt clean + autoremove", "", clean_apt),
+        ("Clear thumbnail cache",  "", clean_thumbnail),
+        ("Vacuum systemd journal", "", clean_journal),
+        ("Clear /tmp",             "", clean_tmp),
+        ("Clear ~/.cache",         "", clean_home_cache),
+    ])
+
+
+# ─── VIEW LOGS ────────────────────────────────────────────────────────────────
+
+def section_view_logs():
+    def journal_boot():
+        run_interactive("journalctl -b --no-pager | tail -80 | less")
+
+    def journal_errors():
+        run_interactive("journalctl -p err -b --no-pager | less")
+
+    def journal_follow():
+        run_interactive("journalctl -f")
+
+    def syslog():
+        log = "/var/log/syslog"
+        if not Path(log).exists():
+            log = "/var/log/messages"
+        if not Path(log).exists():
+            clear(); console.print("[error]syslog/messages not found.[/error]"); pause(); return
+        run_interactive(f"sudo tail -100 {log} | less")
+
+    def kern_log():
+        run_interactive("dmesg | tail -80 | less")
+
+    def xorg_log():
+        for p in ["/var/log/Xorg.0.log", Path.home() / ".local/share/xorg/Xorg.0.log"]:
+            if Path(p).exists():
+                run_interactive(f"less '{p}'")
+                return
+        clear(); console.print("[error]Xorg log not found.[/error]"); pause()
+
+    def auth_log():
+        for p in ["/var/log/auth.log", "/var/log/secure"]:
+            if Path(p).exists():
+                run_interactive(f"sudo tail -100 '{p}' | less")
+                return
+        clear(); console.print("[error]auth.log not found.[/error]"); pause()
+
+    menu_loop("View Logs", "journalctl / less", [
+        ("journalctl (this boot)",   "", journal_boot),
+        ("journalctl (errors only)", "", journal_errors),
+        ("journalctl -f (live)",     "", journal_follow),
+        ("syslog",                   "", syslog),
+        ("dmesg (kernel ring)",      "", kern_log),
+        ("Xorg.0.log",               "", xorg_log),
+        ("auth.log",                 "", auth_log),
+    ])
+
+
+# ─── ZRAM ─────────────────────────────────────────────────────────────────────
+
+def section_zram():
+    def install_zram():
+        run_interactive("sudo apt install -y zram-tools")
+
+    def enable_zram():
+        run_interactive("sudo systemctl enable --now zram-tools")
+
+    def restart_zram():
+        run_interactive("sudo systemctl restart zram-tools")
+
+    def disable_zram():
+        run_interactive("sudo systemctl disable zram && sudo systemctl stop zram-tools 2>/dev/null")
+
+    def zramctl_view():
+        out = run_shell("zramctl 2>/dev/null", capture=True) or "[muted]No zram devices or zramctl not found.[/muted]"
+        clear(); draw_header("Zram Manager", "zramctl"); console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        out2 = run_shell("sudo systemctl status zram-tools 2>/dev/null | head -20", capture=True) or ""
+        if out2.strip():
+            console.print(Panel(out2.strip(), title="[title]zram-tools service[/title]", border_style="dim", box=box.ROUNDED))
+        pause()
+
+    def edit_config():
+        path = "/etc/default/zram-tools"
+        if not Path(path).exists():
+            clear()
+            console.print(f"[warning]{path} not found. Install zram-tools first.[/warning]")
+            pause(); return
+        run_interactive(f"sudo nano {path}")
+
+    def zram_status():
+        def build():
+            t = mk_table()
+            svc = run_shell("systemctl is-active zram-tools 2>/dev/null", capture=True).strip()
+            style = "good" if svc == "active" else "bad"
+            t.add_row("[section]Service[/section]", f"[{style}]{svc}[/{style}]")
+            ctrl = run_shell("zramctl 2>/dev/null", capture=True).strip() or "-"
+            swap = run_shell("swapon --show 2>/dev/null", capture=True).strip() or "none"
+            console.print(Align.center(t))
+            console.print(Panel(ctrl, title="[title]zramctl[/title]", border_style="cyan", box=box.ROUNDED))
+            console.print(Panel(swap, title="[title]swap[/title]", border_style="dim", box=box.ROUNDED))
+        screen_info_panel("Zram", "Status", build)
+
+    menu_loop("Zram Manager", "Compressed RAM swap", [
+        ("Status (zramctl)",                        "", zramctl_view),
+        ("Full status",                             "", zram_status),
+        ("Install (apt install zram-tools)",        "", install_zram),
+        ("Enable & start (systemctl enable --now)", "", enable_zram),
+        ("Restart (systemctl restart)",             "", restart_zram),
+        ("Disable & stop",                          "", disable_zram),
+        ("Edit /etc/default/zram-tools",            "", edit_config),
+    ])
+
+
+# ─── BLUETOOTH ────────────────────────────────────────────────────────────────
+
+def section_bluetooth():
+    def install_bt():
+        run_interactive("sudo apt install -y bluetooth bluez bluez-tools")
+
+    def bt_status():
+        def build():
+            t = mk_table()
+            svc = run_shell("systemctl is-active bluetooth 2>/dev/null", capture=True).strip()
+            style = "good" if svc == "active" else "bad"
+            t.add_row("[section]Service[/section]", f"[{style}]{svc}[/{style}]")
+            powered = run_shell("bluetoothctl show 2>/dev/null | grep 'Powered'", capture=True).strip() or "-"
+            t.add_row("[section]Adapter[/section]", f"[val]{powered}[/val]")
+            console.print(Align.center(t))
+            console.print()
+            devices = run_shell("bluetoothctl devices 2>/dev/null", capture=True).strip() or "No devices paired."
+            console.print(Panel(devices, title="[title]Paired devices[/title]", border_style="cyan", box=box.ROUNDED))
+        screen_info_panel("Bluetooth", "Status", build)
+
+    def bt_power_on():
+        out = run_shell("bluetoothctl power on 2>&1", capture=True)
+        clear(); console.print(f"[success]Bluetooth powered on.[/success]\n{out}"); pause()
+
+    def bt_power_off():
+        out = run_shell("bluetoothctl power off 2>&1", capture=True)
+        clear(); console.print(f"[success]Bluetooth powered off.[/success]\n{out}"); pause()
+
+    def bt_scan():
+        clear()
+        draw_header("Bluetooth", "Scan for devices")
+        console.print()
+        console.print("[muted]Scanning for 10 seconds... (press Ctrl+C to stop early)[/muted]\n")
+        run_interactive("bluetoothctl --timeout 10 scan on")
+
+    def bt_connect():
+        clear()
+        draw_header("Bluetooth", "Connect device")
+        console.print()
+        out = run_shell("bluetoothctl devices 2>/dev/null", capture=True).strip() or "No paired devices."
+        console.print(Panel(out, title="[title]Paired devices[/title]", border_style="cyan", box=box.ROUNDED))
+        console.print()
+        mac = Prompt.ask("[cyan]Device MAC address[/cyan] (e.g. AA:BB:CC:DD:EE:FF)")
+        if mac.strip():
+            run_interactive(f"bluetoothctl connect {mac.strip()}")
+
+    def bt_disconnect():
+        clear()
+        draw_header("Bluetooth", "Disconnect device")
+        console.print()
+        out = run_shell("bluetoothctl devices Connected 2>/dev/null", capture=True).strip() or "No connected devices."
+        console.print(Panel(out, title="[title]Connected devices[/title]", border_style="cyan", box=box.ROUNDED))
+        console.print()
+        mac = Prompt.ask("[cyan]Device MAC address[/cyan]")
+        if mac.strip():
+            run_interactive(f"bluetoothctl disconnect {mac.strip()}")
+
+    def bt_interactive():
+        run_interactive("bluetoothctl")
+
+    def enable_service():
+        run_interactive("sudo systemctl enable --now bluetooth")
+
+    menu_loop("Bluetooth", "bluetoothctl", [
+        ("Status & paired devices",          "", bt_status),
+        ("Power on",                         "", bt_power_on),
+        ("Power off",                        "", bt_power_off),
+        ("Scan for devices",                 "", bt_scan),
+        ("Connect device",                   "", bt_connect),
+        ("Disconnect device",                "", bt_disconnect),
+        ("Interactive bluetoothctl shell",   "", bt_interactive),
+        ("Enable bluetooth service",         "", enable_service),
+        ("Install bluetooth (apt)",          "", install_bt),
+    ])
+
+
+# ─── FIREWALL ─────────────────────────────────────────────────────────────────
+
+def section_firewall():
+    def install_ufw():
+        run_interactive("sudo apt install -y ufw")
+
+    def ufw_status():
+        out = run_shell("sudo ufw status verbose 2>/dev/null", capture=True) or "ufw not installed or inactive."
+        clear(); draw_header("Firewall", "ufw status verbose"); console.print()
+        console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+        pause()
+
+    def ufw_enable():
+        confirmed = Confirm.ask("[bold yellow]Enable ufw firewall?[/bold yellow]", default=True)
+        if confirmed:
+            run_interactive("sudo ufw enable")
+
+    def ufw_disable():
+        confirmed = Confirm.ask("[bold red]Disable ufw firewall? (not recommended)[/bold red]", default=False)
+        if confirmed:
+            run_interactive("sudo ufw disable")
+
+    def ufw_reset():
+        confirmed = Confirm.ask("[bold red]Reset ALL ufw rules to defaults? This cannot be undone.[/bold red]", default=False)
+        if confirmed:
+            run_interactive("sudo ufw reset")
+
+    def ufw_allow_port():
+        clear(); draw_header("Firewall", "Allow port"); console.print()
+        port = Prompt.ask("[cyan]Port or service[/cyan] (e.g. 22, 80, 443, ssh, http)")
+        proto = Prompt.ask("[cyan]Protocol[/cyan] (tcp/udp/any)", default="any")
+        if proto == "any":
+            run_interactive(f"sudo ufw allow {port.strip()}")
+        else:
+            run_interactive(f"sudo ufw allow {port.strip()}/{proto.strip()}")
+
+    def ufw_deny_port():
+        clear(); draw_header("Firewall", "Deny port"); console.print()
+        port = Prompt.ask("[cyan]Port or service[/cyan] (e.g. 23, telnet)")
+        proto = Prompt.ask("[cyan]Protocol[/cyan] (tcp/udp/any)", default="any")
+        if proto == "any":
+            run_interactive(f"sudo ufw deny {port.strip()}")
+        else:
+            run_interactive(f"sudo ufw deny {port.strip()}/{proto.strip()}")
+
+    def ufw_delete_rule():
+        out = run_shell("sudo ufw status numbered 2>/dev/null", capture=True) or "No rules."
+        clear(); draw_header("Firewall", "Delete rule"); console.print()
+        console.print(Panel(out.strip(), title="[title]Numbered rules[/title]", border_style="cyan", box=box.ROUNDED))
+        console.print()
+        num = Prompt.ask("[cyan]Rule number to delete[/cyan]")
+        if num.strip():
+            run_interactive(f"sudo ufw delete {num.strip()}")
+
+    menu_loop("Firewall (ufw)", "Uncomplicated Firewall", [
+        ("Status (ufw status verbose)", "", ufw_status),
+        ("Enable ufw",                  "", ufw_enable),
+        ("Disable ufw",                 "", ufw_disable),
+        ("Allow port / service",        "", ufw_allow_port),
+        ("Deny port / service",         "", ufw_deny_port),
+        ("Delete rule",                 "", ufw_delete_rule),
+        ("Reset all rules",             "", ufw_reset),
+        ("Install ufw (apt)",           "", install_ufw),
+    ])
+
+
+# ─── STARTUP SERVICES ─────────────────────────────────────────────────────────
+
+def section_startup_services():
+    def list_enabled():
+        def build():
+            out = run_shell(
+                "systemctl list-unit-files --type=service --state=enabled 2>/dev/null | head -40",
+                capture=True
+            ) or "No enabled services found."
+            console.print(Panel(out.strip(), title="[title]Enabled services[/title]", border_style="cyan", box=box.ROUNDED))
+        screen_info_panel("Startup Services", "Enabled", build)
+
+    def list_disabled():
+        def build():
+            out = run_shell(
+                "systemctl list-unit-files --type=service --state=disabled 2>/dev/null | head -40",
+                capture=True
+            ) or "No disabled services found."
+            console.print(Panel(out.strip(), title="[title]Disabled services[/title]", border_style="cyan", box=box.ROUNDED))
+        screen_info_panel("Startup Services", "Disabled", build)
+
+    def list_running():
+        def build():
+            out = run_shell(
+                "systemctl list-units --type=service --state=running 2>/dev/null | head -40",
+                capture=True
+            ) or "No running services."
+            console.print(Panel(out.strip(), title="[title]Running services[/title]", border_style="cyan", box=box.ROUNDED))
+        screen_info_panel("Startup Services", "Running", build)
+
+    def enable_service():
+        clear(); draw_header("Startup Services", "Enable service"); console.print()
+        name = Prompt.ask("[cyan]Service name[/cyan] (e.g. bluetooth, NetworkManager)")
+        if name.strip():
+            run_interactive(f"sudo systemctl enable --now {name.strip()}")
+
+    def disable_service():
+        clear(); draw_header("Startup Services", "Disable service"); console.print()
+        name = Prompt.ask("[cyan]Service name[/cyan] (e.g. cups, avahi-daemon)")
+        if name.strip():
+            confirmed = Confirm.ask(f"[bold red]Disable {name.strip()}?[/bold red]", default=False)
+            if confirmed:
+                run_interactive(f"sudo systemctl disable --now {name.strip()}")
+
+    def service_status():
+        clear(); draw_header("Startup Services", "Service status"); console.print()
+        name = Prompt.ask("[cyan]Service name[/cyan]")
+        if name.strip():
+            out = run_shell(f"systemctl status {name.strip()} 2>/dev/null", capture=True) or "Not found."
+            clear(); draw_header("Startup Services", name.strip()); console.print()
+            console.print(Panel(out.strip(), border_style="cyan", box=box.ROUNDED))
+            pause()
+
+    def restart_service():
+        clear(); draw_header("Startup Services", "Restart service"); console.print()
+        name = Prompt.ask("[cyan]Service name[/cyan]")
+        if name.strip():
+            run_interactive(f"sudo systemctl restart {name.strip()}")
+
+    def stop_service():
+        clear(); draw_header("Startup Services", "Stop service"); console.print()
+        name = Prompt.ask("[cyan]Service name[/cyan]")
+        if name.strip():
+            confirmed = Confirm.ask(f"[bold red]Stop {name.strip()}?[/bold red]", default=False)
+            if confirmed:
+                run_interactive(f"sudo systemctl stop {name.strip()}")
+
+    menu_loop("Startup Services", "systemctl", [
+        ("List enabled services",  "", list_enabled),
+        ("List disabled services", "", list_disabled),
+        ("List running services",  "", list_running),
+        ("Service status",         "", service_status),
+        ("Enable service",         "", enable_service),
+        ("Disable service",        "", disable_service),
+        ("Restart service",        "", restart_service),
+        ("Stop service",           "", stop_service),
+    ])
+
+
+# ─── MAIN MENU ────────────────────────────────────────────────────────────────
+
+MAIN_MENU = [
+    ("Sound Settings",    section_sound),
+    ("Network",           section_network),
+    ("Bluetooth",         section_bluetooth),
+    ("Firewall (ufw)",    section_firewall),
+    ("Battery & Power",   section_battery),
+    ("Display Settings",  section_display),
+    ("Openbox Editor",    section_openbox_editor),
+    ("Openbox Settings",  section_openbox_settings),
+    ("Startup Services",  section_startup_services),
+    ("Disk Info",         section_disk_info),
+    ("System Details",    section_system_details),
+    ("Update System",     section_update_system),
+    ("Clean Caches",      section_clean_caches),
+    ("View Logs",         section_view_logs),
+    ("Zram Manager",      section_zram),
+]
+
+
+def main():
+    selected = 0
+    n = len(MAIN_MENU)
+
+    while True:
+        clear()
+        console.print()
+        draw_header("Linoutrox Settings", socket.gethostname())
+        console.print()
+
+        for i, (label, _) in enumerate(MAIN_MENU):
+            num = f"{i+1:>2}."
+            if i == selected:
+                console.print(Align.center(f"[selected]  {num}  {label}  [/selected]"))
+            else:
+                console.print(Align.center(f"[muted]  {num}  {label}  [/muted]"))
+
+        console.print()
+        draw_footer([("Up/Down", "Navigate"), ("Enter", "Open"), ("Q", "Quit")])
+        console.print()
+
+        k = read_key()
+        if k == "\x1b[A":
+            selected = (selected - 1) % n
+        elif k == "\x1b[B":
+            selected = (selected + 1) % n
+        elif k in ("\r", "\n", " "):
+            MAIN_MENU[selected][1]()
+        elif k.lower() == "q" or k == "\x03":
+            clear()
+            console.print(Align.center("\n[muted]Goodbye.[/muted]\n"))
+            break
+
+
+if __name__ == "__main__":
+    main()

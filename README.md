@@ -75,6 +75,7 @@ Please do not reuse them in a way that makes unofficial forks appear as if they 
 | **Almighty Linux** | Kali Linux | MATE |
 | **Ultra Performance Tuning** | Debian (Stable) | XFCE |
 | **Archanoxy** | Arch & Blackarch | Openbox |
+| **Linoutrox** | Debian (Stable) | Openbox |
 
 ---
 
