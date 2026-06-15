@@ -201,7 +201,7 @@
     <action name="ToggleShowDesktop"/>
   </keybind>
   <keybind key="C-A-t">
-    <action name="Execute"><command>xfce4-terminal</command></action>
+    <action name="Execute"><command>alacritty</command></action>
   </keybind>
   <keybind key="W-e">
     <action name="Execute"><command>thunar</command></action>

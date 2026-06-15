@@ -1,0 +1,99 @@
+# AppArmor profile for Hardenwing Jails (Firejail GUI)
+
+abi <abi/3.0>,
+
+include <tunables/global>
+
+profile hardenwing-jails /usr/bin/hardenwing-jails flags=(complain) {
+  include <abstractions/base>
+  include <abstractions/python>
+  include <abstractions/freedesktop.org>
+  include <abstractions/fonts>
+  include <abstractions/X>
+  include <abstractions/wayland>
+  include <abstractions/dbus-session-strict>
+  include <abstractions/dbus-accessibility-strict>
+  include <abstractions/mesa>
+  include <abstractions/nameservice>
+  include <abstractions/vulkan>
+
+  # Python interpreter
+  /usr/bin/python3* rix,
+  /usr/bin/python3 r,
+
+  # Own binary
+  /usr/bin/hardenwing-jails r,
+
+  # Python libraries
+  /usr/lib/python3/** r,
+  /usr/lib/python3/dist-packages/** r,
+  /usr/lib/python3/dist-packages/**/*.so rm,
+
+  # Shared libraries (Qt6, system)
+  /usr/lib/@{multiarch}/** rm,
+  /usr/lib/@{multiarch}/qt6/** rm,
+  /usr/lib/@{multiarch}/qt6/plugins/** rm,
+
+  # Icons, themes, mime data, desktop resources
+  /usr/share/** r,
+
+  # Firejail profiles directory (read-only)
+  /etc/firejail/ r,
+  /etc/firejail/** r,
+
+  # System info (read-only)
+  @{PROC}/ r,
+  @{PROC}/** r,
+  @{sys}/** r,
+
+  # Executables for system info
+  /usr/bin/uname rix,
+
+  # Firejail — runs unconfined because it needs to create namespaces,
+  # mount filesystems, apply seccomp filters, etc.
+  /usr/bin/firejail Ux,
+
+  # Browse /usr/bin for application selection (file dialog)
+  / r,
+  /usr/ r,
+  /usr/bin/ r,
+  /usr/bin/* r,
+  /usr/sbin/ r,
+  /usr/sbin/* r,
+  /usr/local/ r,
+  /usr/local/bin/ r,
+  /usr/local/bin/* r,
+
+  # DBus access (needed for Qt window management)
+  dbus bus=session,
+  dbus bus=system,
+
+  # Temp and runtime files
+  owner /tmp/** rwk,
+  /tmp/.X11-unix/** rw,
+  owner /run/user/@{uid}/** rwk,
+  /run/dbus/system_bus_socket rw,
+
+  # User config (Qt, dconf, Xauth)
+  owner @{HOME}/** rk,
+  owner @{HOME}/.config/** rwk,
+  owner @{HOME}/.cache/** rwk,
+  owner @{HOME}/.Xauthority r,
+  owner @{HOME}/.local/share/** rw,
+
+  # Device access for GPU rendering (Qt6)
+  /dev/ r,
+  /dev/dri/ r,
+  /dev/dri/** rw,
+  /dev/shm/ r,
+  /dev/shm/** rwmk,
+  /dev/nvidia* rw,
+  /dev/null rw,
+  /dev/urandom r,
+
+  # Deny sensitive paths explicitly
+  deny /etc/shadow r,
+  deny /etc/gshadow r,
+  deny @{HOME}/.ssh/** rw,
+  deny @{HOME}/.gnupg/** rw,
+}

@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+
+import sys
+import subprocess
+import os
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                             QPushButton, QLabel, QStackedWidget, QListWidget, 
+                             QCheckBox, QLineEdit, QFileDialog, QMessageBox, QGroupBox, 
+                             QTextEdit)
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QFont, QPixmap, QIcon
+
+class HardenwingJails(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Hardenwing Jails")
+        self.resize(850, 650)
+        self.setWindowIcon(QIcon("/usr/share/icons/hardenwing/jails.png"))
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #0d1117;
+                color: #c9d1d9;
+            }
+            QWidget {
+                color: #c9d1d9;
+                font-family: 'Consolas', monospace;
+            }
+            QPushButton {
+                background-color: #1f6feb;
+                color: #ffffff;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #388bfd;
+            }
+            QPushButton:pressed {
+                background-color: #1158c7;
+            }
+            QLineEdit, QTextEdit, QListWidget {
+                background-color: #161b22;
+                border: 1px solid #21262d;
+                border-radius: 4px;
+                padding: 8px;
+                color: #c9d1d9;
+            }
+            QGroupBox {
+                border: 1px solid #21262d;
+                border-radius: 4px;
+                margin-top: 1em;
+                padding-top: 10px;
+                font-weight: bold;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+                color: #58a6ff;
+            }
+            QCheckBox {
+                spacing: 8px;
+                padding: 4px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+
+        # Main Layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
+
+        # Sidebar Container
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(15)
+
+        # Logo
+        self.logo_label = QLabel()
+        logo_path = "/usr/share/icons/hardenwing/jails-logo.png"
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path)
+            pixmap = pixmap.scaled(200, 150, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.logo_label.setPixmap(pixmap)
+            self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        sidebar_layout.addWidget(self.logo_label)
+
+        # Sidebar
+        self.sidebar = QListWidget()
+        self.sidebar.setFixedWidth(220)
+        self.sidebar.addItem("Launch Application")
+        self.sidebar.addItem("Quick Presets")
+        self.sidebar.addItem("Active Sandboxes")
+        self.sidebar.addItem("Firejail Profiles")
+        self.sidebar.addItem("System Info")
+        self.sidebar.currentRowChanged.connect(self.change_page)
+        self.sidebar.setStyleSheet("""
+            QListWidget {
+                background-color: #0d1117;
+                border: 1px solid #21262d;
+                font-size: 14px;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 12px;
+                border-radius: 4px;
+                margin: 2px 5px;
+            }
+            QListWidget::item:selected {
+                background-color: #161b22;
+                color: #58a6ff;
+                font-weight: bold;
+            }
+            QListWidget::item:hover:!selected {
+                background-color: #1c2128;
+            }
+        """)
+        
+        sidebar_layout.addWidget(self.sidebar)
+        main_layout.addLayout(sidebar_layout)
+
+        # Pages
+        self.pages = QStackedWidget()
+        main_layout.addWidget(self.pages)
+
+        self.setup_launch_page()
+        self.setup_presets_page()
+        self.setup_sandboxes_page()
+        self.setup_profiles_page()
+        self.setup_system_info_page()
+
+        self.sidebar.setCurrentRow(0)
+
+        self.check_requirements()
+
+    def check_requirements(self):
+        if os.geteuid() == 0:
+            self.show_msg(QMessageBox.Icon.Warning, "Security Warning", "This tool should not be run as root for security reasons.\nPlease run as a regular user.")
+        
+        try:
+            subprocess.run(["firejail", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            self.show_msg(QMessageBox.Icon.Critical, "Error", "Firejail is not installed. Please install it first:\n\nsudo apt install firejail")
+
+    def show_msg(self, icon, title, text):
+        msg = QMessageBox(None)
+        msg.setIcon(icon)
+        msg.setWindowTitle(title)
+        msg.setText(text)
+        msg.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
+        msg.exec()
+
+    def ask_question(self, title, text):
+        msg = QMessageBox(None)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(title)
+        msg.setText(text)
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
+        return msg.exec() == QMessageBox.StandardButton.Yes
+
+    def change_page(self, index):
+        self.pages.setCurrentIndex(index)
+        if index == 2:
+            self.refresh_sandboxes()
+        elif index == 3:
+            self.refresh_profiles()
+        elif index == 4:
+            self.refresh_system_info()
+
+    def create_header(self, text):
+        lbl = QLabel(text)
+        lbl.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        lbl.setStyleSheet("color: #89b4fa; margin-bottom: 15px;")
+        return lbl
+
+    def setup_launch_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        
+        layout.addWidget(self.create_header("Custom Launch Configuration"))
+
+        app_layout = QHBoxLayout()
+        self.launch_app_input = QLineEdit()
+        self.launch_app_input.setPlaceholderText("Enter or browse application path (e.g. /usr/bin/firefox)...")
+        browse_btn = QPushButton("Browse")
+        browse_btn.clicked.connect(lambda: self.browse_app(self.launch_app_input))
+        app_layout.addWidget(self.launch_app_input)
+        app_layout.addWidget(browse_btn)
+        layout.addLayout(app_layout)
+
+        group = QGroupBox("Sandbox Rules")
+        group_layout = QVBoxLayout()
+        group_layout.setSpacing(5)
+
+        self.chk_net = QCheckBox("Disable Network Access (--net=none)")
+        self.chk_private = QCheckBox("Isolate from home directory (--private)")
+        self.chk_tmp = QCheckBox("Use temporary filesystem for /tmp (--private-tmp)")
+        self.chk_sound = QCheckBox("Disable sound access (--nosound)")
+        self.chk_3d = QCheckBox("Disable 3D acceleration (--no3d)")
+        self.chk_video = QCheckBox("Disable webcam access (--novideo)")
+        self.chk_readonly = QCheckBox("Make filesystem read-only (--read-only=~)")
+        self.chk_seccomp = QCheckBox("Enable seccomp syscall filtering (--seccomp)")
+        self.chk_apparmor = QCheckBox("Enable AppArmor confinement (--apparmor)")
+        
+        group_layout.addWidget(self.chk_net)
+        group_layout.addWidget(self.chk_private)
+        group_layout.addWidget(self.chk_tmp)
+        group_layout.addWidget(self.chk_sound)
+        group_layout.addWidget(self.chk_3d)
+        group_layout.addWidget(self.chk_video)
+        group_layout.addWidget(self.chk_readonly)
+        group_layout.addWidget(self.chk_seccomp)
+        group_layout.addWidget(self.chk_apparmor)
+
+        profile_layout = QHBoxLayout()
+        profile_layout.setContentsMargins(0, 10, 0, 0)
+        profile_label = QLabel("Custom Profile:")
+        profile_label.setStyleSheet("color: #8b949e;")
+        profile_layout.addWidget(profile_label)
+        self.launch_profile_input = QLineEdit()
+        self.launch_profile_input.setPlaceholderText("e.g. firefox (optional)")
+        profile_layout.addWidget(self.launch_profile_input)
+        group_layout.addLayout(profile_layout)
+
+        group.setLayout(group_layout)
+        layout.addWidget(group)
+
+        launch_btn = QPushButton("Launch Application in Sandbox")
+        launch_btn.clicked.connect(self.launch_custom)
+        launch_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3fb950; 
+                color: #ffffff; 
+                font-size: 15px; 
+                padding: 12px;
+                border-radius: 6px;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #388bfd;
+            }
+        """)
+        layout.addWidget(launch_btn)
+
+        layout.addStretch()
+        self.pages.addWidget(page)
+
+    def setup_presets_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self.create_header("Quick Launch Presets"))
+
+        app_layout = QHBoxLayout()
+        self.preset_app_input = QLineEdit()
+        self.preset_app_input.setPlaceholderText("Enter or browse application path...")
+        browse_btn = QPushButton("Browse")
+        browse_btn.clicked.connect(lambda: self.browse_app(self.preset_app_input))
+        app_layout.addWidget(self.preset_app_input)
+        app_layout.addWidget(browse_btn)
+        layout.addLayout(app_layout)
+
+        presets_layout = QVBoxLayout()
+        presets_layout.setSpacing(10)
+
+        presets = [
+            ("Maximum Security", "No network, isolated, read-only", self.launch_preset_max, "#f38ba8"),
+            ("Internet Browser", "Network enabled, private home", self.launch_preset_browser, "#89b4fa"),
+            ("Office Application", "No network, home access", self.launch_preset_office, "#a6e3a1"),
+            ("Media Player", "No network, limited access", self.launch_preset_media, "#cba6f7"),
+            ("Development Tool", "Network, home, full access", self.launch_preset_dev, "#89dceb"),
+        ]
+
+        for title, desc, func, color in presets:
+            btn = QPushButton(f"{title}\n{desc}")
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    text-align: left; 
+                    padding: 15px; 
+                    background-color: #161b22; 
+                    color: {color};
+                    border-left: 4px solid {color};
+                    font-size: 14px;
+                }}
+                QPushButton:hover {{
+                    background-color: #1c2128;
+                }}
+            """)
+            btn.clicked.connect(func)
+            presets_layout.addWidget(btn)
+
+        layout.addLayout(presets_layout)
+        layout.addStretch()
+        self.pages.addWidget(page)
+
+    def setup_sandboxes_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self.create_header("Active Sandboxes"))
+
+        self.sandboxes_text = QTextEdit()
+        self.sandboxes_text.setReadOnly(True)
+        self.sandboxes_text.setFont(QFont("Consolas", 11))
+        layout.addWidget(self.sandboxes_text)
+
+        controls_layout = QHBoxLayout()
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.refresh_sandboxes)
+        
+        self.pid_input = QLineEdit()
+        self.pid_input.setPlaceholderText("Enter PID to kill...")
+        self.pid_input.setFixedWidth(150)
+        
+        kill_pid_btn = QPushButton("Kill PID")
+        kill_pid_btn.setStyleSheet("background-color: #da3633; color: #ffffff;")
+        kill_pid_btn.clicked.connect(self.kill_pid)
+
+        kill_all_btn = QPushButton("Kill ALL Sandboxes")
+        kill_all_btn.setStyleSheet("background-color: #b62324; color: #ffffff;")
+        kill_all_btn.clicked.connect(self.kill_all)
+
+        controls_layout.addWidget(refresh_btn)
+        controls_layout.addStretch()
+        controls_layout.addWidget(self.pid_input)
+        controls_layout.addWidget(kill_pid_btn)
+        controls_layout.addWidget(kill_all_btn)
+        
+        layout.addLayout(controls_layout)
+        self.pages.addWidget(page)
+
+    def setup_profiles_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self.create_header("Available Firejail Profiles"))
+
+        self.profiles_text = QTextEdit()
+        self.profiles_text.setReadOnly(True)
+        self.profiles_text.setFont(QFont("Consolas", 11))
+        layout.addWidget(self.profiles_text)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.refresh_profiles)
+        layout.addWidget(refresh_btn)
+
+        self.pages.addWidget(page)
+
+    def setup_system_info_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.addWidget(self.create_header("System Security Information"))
+
+        self.sysinfo_text = QTextEdit()
+        self.sysinfo_text.setReadOnly(True)
+        self.sysinfo_text.setFont(QFont("Consolas", 11))
+        layout.addWidget(self.sysinfo_text)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.refresh_system_info)
+        layout.addWidget(refresh_btn)
+
+        self.pages.addWidget(page)
+
+    def browse_app(self, line_edit):
+        path, _ = QFileDialog.getOpenFileName(self, "Select Application", "/usr/bin")
+        if path:
+            line_edit.setText(path)
+
+    def run_firejail(self, args):
+        try:
+            subprocess.Popen(["firejail"] + args)
+            self.show_msg(QMessageBox.Icon.Information, "Success", f"Launched application in sandbox.\nCommand: firejail {' '.join(args)}")
+        except Exception as e:
+            self.show_msg(QMessageBox.Icon.Critical, "Error", f"Failed to launch: {str(e)}")
+
+    def launch_custom(self):
+        app = self.launch_app_input.text().strip()
+        if not app:
+            self.show_msg(QMessageBox.Icon.Warning, "Warning", "Please select an application first.")
+            return
+
+        args = []
+        if self.chk_net.isChecked(): args.append("--net=none")
+        if self.chk_private.isChecked(): args.append("--private")
+        if self.chk_tmp.isChecked(): args.append("--private-tmp")
+        if self.chk_sound.isChecked(): args.append("--nosound")
+        if self.chk_3d.isChecked(): args.append("--no3d")
+        if self.chk_video.isChecked(): args.append("--novideo")
+        if self.chk_readonly.isChecked(): args.append("--read-only=~")
+        if self.chk_seccomp.isChecked(): args.append("--seccomp")
+        if self.chk_apparmor.isChecked(): args.append("--apparmor")
+
+        prof = self.launch_profile_input.text().strip()
+        if prof:
+            args.append(f"--profile={prof}")
+
+        args.append(app)
+        self.run_firejail(args)
+
+    def get_preset_app(self):
+        app = self.preset_app_input.text().strip()
+        if not app:
+            self.show_msg(QMessageBox.Icon.Warning, "Warning", "Please select an application first.")
+            return None
+        return app
+
+    def launch_preset_max(self):
+        app = self.get_preset_app()
+        if app: self.run_firejail(["--net=none", "--private", "--private-tmp", "--nosound", "--no3d", "--novideo", "--read-only=~", "--seccomp", "--apparmor", app])
+
+    def launch_preset_browser(self):
+        app = self.get_preset_app()
+        if app: self.run_firejail(["--private", "--private-tmp", "--nosound", "--seccomp", "--apparmor", app])
+
+    def launch_preset_office(self):
+        app = self.get_preset_app()
+        if app: self.run_firejail(["--net=none", "--private-tmp", "--nosound", "--no3d", "--novideo", "--seccomp", app])
+
+    def launch_preset_media(self):
+        app = self.get_preset_app()
+        if app: self.run_firejail(["--net=none", "--private", "--private-tmp", "--no3d", "--seccomp", app])
+
+    def launch_preset_dev(self):
+        app = self.get_preset_app()
+        if app: self.run_firejail(["--private-tmp", "--seccomp", app])
+
+    def refresh_sandboxes(self):
+        try:
+            result = subprocess.run(["firejail", "--list"], capture_output=True, text=True)
+            output = result.stdout.strip()
+            if not output:
+                output = "No active sandboxes found."
+            self.sandboxes_text.setText(output)
+        except Exception as e:
+            self.sandboxes_text.setText(f"Error checking sandboxes: {str(e)}")
+
+    def kill_pid(self):
+        pid = self.pid_input.text().strip()
+        if not pid.isdigit():
+            self.show_msg(QMessageBox.Icon.Warning, "Warning", "Please enter a valid numeric PID.")
+            return
+        
+        if self.ask_question("Confirm Kill", f"Are you sure you want to terminate sandbox with PID {pid}?"):
+            try:
+                subprocess.run(["firejail", f"--shutdown={pid}"], check=True)
+                self.show_msg(QMessageBox.Icon.Information, "Success", f"Sandbox {pid} terminated.")
+                self.pid_input.clear()
+                self.refresh_sandboxes()
+            except subprocess.CalledProcessError:
+                self.show_msg(QMessageBox.Icon.Warning, "Error", f"Failed to terminate PID {pid}.")
+
+    def kill_all(self):
+        if self.ask_question("Confirm Kill All", "Are you sure you want to terminate ALL active sandboxes?"):
+            try:
+                subprocess.run(["firejail", "--shutdown"], check=True)
+                self.show_msg(QMessageBox.Icon.Information, "Success", "All sandboxes terminated.")
+                self.refresh_sandboxes()
+            except subprocess.CalledProcessError:
+                self.show_msg(QMessageBox.Icon.Warning, "Error", "Failed to terminate all sandboxes.")
+
+    def refresh_profiles(self):
+        if os.path.isdir("/etc/firejail"):
+            try:
+                profiles = [f.replace(".profile", "") for f in os.listdir("/etc/firejail") if f.endswith(".profile")]
+                profiles.sort()
+                # Format into columns
+                col_count = 3
+                formatted = ""
+                for i in range(0, len(profiles), col_count):
+                    row = profiles[i:i+col_count]
+                    formatted += "".join([f"{p:<30}" for p in row]) + "\n"
+                
+                self.profiles_text.setText(f"Found {len(profiles)} profiles in /etc/firejail:\n\n" + formatted)
+            except Exception as e:
+                self.profiles_text.setText(f"Error reading profiles: {str(e)}")
+        else:
+            self.profiles_text.setText("Firejail profiles directory (/etc/firejail) not found.")
+
+    def refresh_system_info(self):
+        info = []
+        
+        info.append("=== Firejail Version ===")
+        try:
+            fj_ver = subprocess.run(["firejail", "--version"], capture_output=True, text=True).stdout.strip().split('\n')[0]
+            info.append(f"  {fj_ver}")
+        except:
+            info.append("  Not available")
+        
+        info.append("\n=== Kernel Version ===")
+        try:
+            kernel_ver = subprocess.run(["uname", "-r"], capture_output=True, text=True).stdout.strip()
+            info.append(f"  {kernel_ver}")
+        except:
+            info.append("  Not available")
+
+        info.append("\n=== Available Namespaces ===")
+        info.append("  [✓] PID namespace" if os.path.exists("/proc/self/ns/pid") else "  [✗] PID namespace")
+        info.append("  [✓] Network namespace" if os.path.exists("/proc/self/ns/net") else "  [✗] Network namespace")
+        info.append("  [✓] Mount namespace" if os.path.exists("/proc/self/ns/mnt") else "  [✗] Mount namespace")
+        info.append("  [✓] User namespace" if os.path.exists("/proc/self/ns/user") else "  [✗] User namespace")
+
+        info.append("\n=== Security Features ===")
+        info.append("  [✓] AppArmor enabled" if os.path.exists("/sys/kernel/security/apparmor/profiles") else "  [✗] AppArmor not available")
+        
+        seccomp_avail = False
+        try:
+            with open("/proc/self/status", "r") as f:
+                if "seccomp" in f.read().lower():
+                    seccomp_avail = True
+        except:
+            pass
+        info.append("  [✓] Seccomp available" if seccomp_avail else "  [✗] Seccomp not available")
+
+        self.sysinfo_text.setText("\n".join(info))
+
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    window = HardenwingJails()
+    window.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()

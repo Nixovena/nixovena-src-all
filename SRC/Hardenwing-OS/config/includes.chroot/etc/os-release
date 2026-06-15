@@ -1,0 +1,8 @@
+PRETTY_NAME="Hardenwing OS"
+NAME="Hardenwing OS"
+ID=debian
+ID_LIKE=debian
+RELEASE_TYPE=stable
+VERSION="3.5"
+VERSION_ID="3.5"
+

@@ -4,9 +4,6 @@
 if grep -q overlay /proc/mounts; then
     echo "Running on a live system. Applying KDE-only power settings..."
 
-    # Ensure config directory exists
-    mkdir -p $HOME/.config
-
     # Disable screensaver and lock for KDE
     kwriteconfig5 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null || true
     kwriteconfig5 --file kscreenlockerrc --group Daemon --key LockOnResume false 2>/dev/null || true

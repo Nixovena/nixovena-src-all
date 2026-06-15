@@ -1,0 +1,10 @@
+[window]
+dimensions = { columns = 72, lines = 26 }
+padding = { x = 4, y = 4 }
+
+[font]
+size = 9.0
+
+[font.normal]
+family = "Monospace"
+style = "Regular"

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Conky Overkill
-Exec=bash -c "sleep 3 && conky -d -c /usr/share/conky/overkill_conky.conf"
+Exec=bash -c "sleep 1 && conky -d -c /usr/share/conky/overkill_conky.conf"
 OnlyShowIn=KDE;
 X-KDE-Autostart-enabled=true
 NoDisplay=false

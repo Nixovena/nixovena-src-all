@@ -1,0 +1,43 @@
+[Unit]
+Description=Permission Hardening
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/permissionhardening
+RemainAfterExit=yes
+
+# Sandboxing & Security Hardening
+# Note: This service NEEDS root and write access to /etc, /boot, etc.
+# So we cannot use ProtectSystem=strict or ReadOnlyPaths=/etc.
+
+# Prevent the service from acquiring new privileges
+NoNewPrivileges=yes
+
+# Restrict capabilities to only those needed for file management
+# CAP_CHOWN: Change file ownership
+# CAP_FOWNER: Override file permission checks
+# CAP_LINUX_IMMUTABLE: Use chattr (+i)
+# CAP_DAC_OVERRIDE: Ignore file permission bits
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_LINUX_IMMUTABLE CAP_DAC_OVERRIDE
+
+# Restrict address families (No network needed)
+RestrictAddressFamilies=none
+IPAddressDeny=any
+
+# Deny access to hardware and kernel features
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+
+# Secure Temp
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target 

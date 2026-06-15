@@ -1,0 +1,21 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Hardenwing Jails
+Comment=Firejail sandbox manager for secure application isolation
+Comment[tr]=Güvenli uygulama izolasyonu için Firejail sandbox yöneticisi
+Comment[de]=Firejail-Sandbox-Manager für sichere Anwendungsisolation
+Comment[fr]=Gestionnaire de bac à sable Firejail pour l'isolation sécurisée des applications
+Comment[es]=Administrador de sandbox Firejail para aislamiento seguro de aplicaciones
+Comment[pt]=Gerenciador de sandbox Firejail para isolamento seguro de aplicativos
+Comment[ru]=Менеджер песочницы Firejail для безопасной изоляции приложений
+Comment[zh]=用于安全应用隔离的 Firejail 沙盒管理器
+Comment[ja]=安全なアプリケーション分離のためのFirejailサンドボックスマネージャー
+Comment[ko]=안전한 애플리케이션 격리를 위한 Firejail 샌드박스 관리자
+Comment[ar]=مدير صندوق الحماية Firejail لعزل التطبيقات الآمن
+Exec=python3 /usr/bin/hardenwing-jails
+Icon=/usr/share/icons/hardenwing/jails.png
+Terminal=false
+Categories=System;
+StartupNotify=true
+StartupWMClass=hardenwing-jails

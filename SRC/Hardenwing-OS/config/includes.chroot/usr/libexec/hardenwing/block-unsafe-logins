@@ -1,0 +1,63 @@
+#!/bin/bash
+# =============================================================================
+# Hardenwing — Block Unsafe Logins (Standalone)
+# =============================================================================
+
+if [ -z "${PAM_USER:-}" ] || [ -z "${PAM_SERVICE:-}" ]; then
+    exit 0
+fi
+
+# 1. Safe Login Services
+safe_services=(
+    # Display Managers
+    "login" "greetd"
+    "gdm" "gdm-password" "gdm-autologin" "gdm-launch-environment"
+    "gdm-fingerprint" "gdm-smartcard" "gdm-pin"
+    "lightdm" "lightdm-autologin" "lightdm-greeter"
+    "sddm" "sddm-autologin" "sddm-greeter"
+    # Screen lockers
+    "swaylock" "waylock" "xscreensaver" "gnome-screensaver"
+    "xdg-screensaver" "kde-np"
+    # System services
+    "systemd-user" "cron" "sshd"
+    "polkit-1"
+    "gnome-keyring"
+    "passwd"
+)
+
+for s in "${safe_services[@]}"; do
+    if [ "$PAM_SERVICE" = "$s" ]; then
+        exit 0
+    fi
+done
+
+# 2. Sensitive group check
+is_sensitive=false
+sensitive_groups=("sudo" "root" "adm" "wheel")
+
+user_groups=$(id -Gn "$PAM_USER" 2>/dev/null || echo "")
+
+for group in $user_groups; do
+    for s_group in "${sensitive_groups[@]}"; do
+        if [ "$group" = "$s_group" ]; then
+            is_sensitive=true
+            break 2
+        fi
+    done
+done
+
+if [ "$is_sensitive" = false ]; then
+    exit 0
+fi
+
+# 3. Passwordless/locked account check
+if [ "$(id -u)" -eq 0 ] && [ -r /etc/shadow ]; then
+    shadow_pwd=$(awk -F: -v u="$PAM_USER" '$1==u {print $2}' /etc/shadow 2>/dev/null || echo "")
+    
+    if [ -z "$shadow_pwd" ] || [[ "$shadow_pwd" == "!"* ]] || [[ "$shadow_pwd" == "*" ]]; then
+        echo "ERROR: Rejecting passwordless/locked sensitive account '$PAM_USER' on unsafe service '$PAM_SERVICE'"
+        exit 1
+    fi
+fi
+
+exit 0

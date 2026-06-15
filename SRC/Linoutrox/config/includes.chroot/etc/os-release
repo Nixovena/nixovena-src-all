@@ -3,7 +3,7 @@ NAME="Linoutrox"
 ID=debian
 ID_LIKE=debian
 RELEASE_TYPE=stable
-VERSION="1.0"
-VERSION_ID="1.0"
+VERSION="1.2"
+VERSION_ID="1.2"
 
 

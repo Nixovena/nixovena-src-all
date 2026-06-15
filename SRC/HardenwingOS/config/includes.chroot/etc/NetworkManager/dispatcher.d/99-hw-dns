@@ -1,9 +1,0 @@
-#!/bin/sh
-# Hardenwing OS DNS Dispatcher
-# Ensures DNS remains locked even after NetworkManager events
-
-case "$2" in
-    up|down|vpn-up|vpn-down|hostname)
-        /usr/bin/hw-dns
-        ;;
-esac
