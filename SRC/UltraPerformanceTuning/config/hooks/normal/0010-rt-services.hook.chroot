@@ -65,7 +65,7 @@ cat > /usr/local/bin/memory-tune.sh << 'EOF'
     echo madvise > /sys/kernel/mm/transparent_hugepage/enabled || true
 
 [ -f /sys/kernel/mm/transparent_hugepage/defrag ] && \
-    echo always > /sys/kernel/mm/transparent_hugepage/defrag || true
+    echo defer+madvise > /sys/kernel/mm/transparent_hugepage/defrag || true
 
 [ -f /proc/sys/kernel/numa_balancing ] && \
     echo 0 > /proc/sys/kernel/numa_balancing || true
@@ -138,6 +138,7 @@ cat > /etc/security/limits.d/99-rt-limits.conf << 'EOF'
 @audio   -  nice       -19
 *        -  rtprio     50
 *        -  memlock    524288
+*        -  nofile     1048576
 EOF
 
 # ========================

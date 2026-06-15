@@ -16,6 +16,11 @@ SERVICES_DISABLE=(
     cups-browsed.service
     e2scrub_reap.service
     e2scrub_all.timer
+    thermald.service
+    irqbalance.service
+    power-profiles-daemon.service
+    packagekit.service
+    unattended-upgrades.service
 )
 
 for svc in "${SERVICES_DISABLE[@]}"; do
